@@ -443,8 +443,9 @@ body.call .team-name { color: var(--ink-call); }
   text-transform: uppercase;
   letter-spacing: .02em;
   white-space: nowrap;
+  /* the bench dot paints below the line. keep it inside the block, or a real
+     safe-area inset in landscape clips it against the bottom of the grid. */
   padding-bottom: 10px;
-  margin-bottom: -10px;
   -webkit-mask-image: linear-gradient(to right, #000 88%, transparent);
   mask-image: linear-gradient(to right, #000 88%, transparent);
 }
