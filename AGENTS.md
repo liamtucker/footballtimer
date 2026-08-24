@@ -40,48 +40,65 @@ touched.
 
 ## State
 
-**Done.** v2 is built. The engine is reworked — `subMinutes` is the interval,
-`gameType` sets who is on the pitch, the list order is the ring, and the first
-keeper is drawn at random at kick-off. 71 passing assertions. The interface is
-rebuilt against `spec.md`, `brain/design.md` variation A and `brain/copy.md`:
+**Done.** v3 is built. The engine is untouched and still passes 71 assertions.
+The refinement pass answered Liam's field notes against the rewritten
+`brain/design.md` (variation A) and `brain/copy.md`:
 
-- **Setup.** One 2px field per team with the arrow arming to green on the first
-  keystroke, sitting under its own list. Drag anywhere on a row to reorder. The
-  divider sits after `gameType`. A tap on any name makes them the starting
-  keeper, moving the row to the nearest legal index first, so no row is dead.
-- **Kick-off.** A ten-second countdown on the assembled game screen, any tap
-  aborts, then a synthesised referee whistle and the spoken line.
-- **The game screen.** Two rows, one sentence each, keeper in the loud slot.
-  Order strip, spine, elapsed. Both orientations built and measured.
-- **The changeover.** The last ten seconds of the shift. Ground lifts to white,
-  the incoming name walks into the hero slot in green with an up arrow, the
-  outgoing name walks down onto line three in red with a down arrow. Chime and
-  voice at the start, whistle at the change.
-- **Sound.** Whistle and chime synthesised with WebAudio. No files, no network.
-- **The edit route.** The pencil opens the setup screen with the game running.
-  Any edit lands at the next change, never mid-shift, stored as a second epoch.
+- **The type scale is the law.** Five steps, ratio 1.5 — hero 60, count 40,
+  lead 27, body 18, eyebrow 12 — and one media query at 800px that drops the
+  top three one rung. Every `font-size` in `style.css` is one of those five
+  tokens. The container query, the vw clamp and the `--len` machinery are
+  gone. Two weights, 700 and 500. Tracking and line height are set by step.
+- **The game screen.** Team pill, role eyebrow, name — three registers
+  descending. `Bibs` is a filled ink pill and `No bibs` a hairline outline, so
+  the pill is the bib. `GOAL` and `SUB` sit above the names, never beside.
+  One grid per team, so the two role columns line up by construction.
+- **Line three** is the order strip at rest and the two outgoing names in the
+  change window. The name line holds whoever occupies the slot after the
+  change; line three holds whoever is leaving it.
+- **The mute** sits beside the pencil, on by default. Muted is a filled `--off`
+  circle among two outline icons. It silences the voice only, and it
+  suppresses `No voice` while muted.
+- **Three custom pickers**, one component. `[-] value [+]`, 44px targets, hold
+  to repeat after 400ms at 8/s, `--dim` and inert at a bound. Every value now
+  reads the way it is said out loud.
+- **The live-game state.** The ink moves: a 56px corner button before kick-off,
+  a full-bleed top bar during the game carrying the countdown, the mute, an
+  `x` and the conditional edit notice. The filled list row is a readout
+  mid-game, not a control.
+- **Portrait** is built on both screens and has now actually been looked at.
+- **The time-played readout is deleted.** The spine holds one number.
+- `COPY` in `app.js` is the only place a string is written. Nothing dangles.
 
-**Next.** The field test. Watch whether ten seconds of countdown at every change
-annoys people by minute forty, whether the elapsed readout earns its place, and
-whether the chime before each team is right or one chime is enough.
+**Next.** The field test, unchanged: whether ten seconds of countdown at every
+change annoys people by minute forty, and whether one chime is enough.
 
 **Blocked.** Nothing.
 
 **Open, for Liam.**
 
-- The changeover names the outgoing keeper on line three, per `design.md`.
-  `copy.md` says he is never named. The design's motion is the answer to "could
-  not tell what was happening", so the design won and he gets an arrow, not a
-  word.
-- The kick-off countdown shows the pencil and no words. `design.md` wanted a
-  label saying the screen can be tapped; `copy.md` forbids telling a person how
-  to use the screen. The icon does the job.
-- A late arrival joins the bench at the next change, not immediately, because
-  every edit lands at the next change. `spec.md` has them on at the next change;
-  they are now on the change after.
-- Portrait holds a ten-character name at about 42px, under the design's own
-  `4rem` floor. Landscape holds it at 80px. Landscape is the watching
-  orientation, so this is only a problem if anyone watches in portrait.
+- `Time` still drives nothing. The designer, the copywriter and this pass all
+  think it should be cut. It is kept because Liam named its label. It is one
+  entry in `PICKERS`, one card in `index.html` and one field in `draft` —
+  cutting it is one small change.
+- **`OFF` and `ON` are not on the screen.** `copy.md` keeps them; `design.md`
+  says the eyebrow never changes and the arrow plus the colour carry the
+  direction. The design won, because an inline label beside a name is the
+  exact thing Liam asked to be removed. The eyebrows `GOAL` and `SUB` already
+  say which side of the pitch the arrow points at.
+- **The mute has no word beside it.** `design.md` wanted the spine's
+  conditional eyebrow to say so as well; `copy.md` forbids a word that repeats
+  what the icon says. Copy won.
+- **The live bar has no `Next change` label.** `design.md` gives the bar the
+  clock alone with a conditional eyebrow only when an edit is pending. The
+  string survives as the accessible name of the countdown.
+- **Portrait splits line three.** The order strip sits under the goal name —
+  which is what it is the order of — and the outgoing sub takes its own line
+  under the sub slot. One line three at the bottom would fly the outgoing
+  keeper past the sub slot to get there.
+- **Landscape at 390px tall shows six rows but clips the divider.** The
+  design's own numbers need 290px of list and the screen has 274. The divider
+  is visible at the fold, which at least says the list scrolls.
 
 ## Debug hook
 
