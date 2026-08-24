@@ -32,63 +32,88 @@ one of them is the wrong feature.
    nothing else. It does not know or care who is actually standing in the goal.
    This is what makes every anomaly survivable — there is no plan to rebuild,
    because there was never a plan.
-3. **Nothing to operate mid-game.** Set up before kick-off, then it is a
-   display. The single exception is registering a person who wasn't there at
-   kick-off, which the app cannot know any other way.
-4. **Anomalies are absorbed by people, not features.** Volunteers, injuries and
+3. **The voice is the product. The screen is the check.** The phone is plugged
+   into a speaker and sits in a bag. Nobody looks at it. A person walks over to
+   the screen only when there is a problem, or to change something.
+4. **Nothing to decide mid-game.** You can open the setup screen at any time and
+   look. Looking changes nothing and the clock never pauses. Only an explicit
+   edit touches the rota, and it lands at the next change, never mid-shift.
+5. **Anomalies are absorbed by people, not features.** Volunteers, injuries and
    favours are handled by players looking at each other. None of them change
    what the display says.
 
 ## Setup
 
-Entered during the warm-up, before kick-off.
+Entered during the warm-up. Two screens exist and this is the first.
 
-- **Duration.** Default 90 minutes. Deliberately the *short* end of the likely
-  range. If the game runs long the rotation simply goes round again, which costs
-  nothing. If it is set long and the game ends early, the last names never go in
-  — and that is exactly the grievance this exists to remove.
-- **Shifts each.** Default 2.
-- **Names**, in two teams, typed **in arrival order** — first to turn up typed
-  first. Arrival order is what decides where the rotation starts.
+Three settings:
 
-Do not enter anyone who isn't there. An absent name coming up on the display
-forces the sub to skip it, and skipping is the thing that gets negotiated.
+- **Game type.** Players on the pitch per team, 4 to 11. Default 6.
+- **Game time.** Default 2 hours. **Reference only.** Nothing happens when it
+  elapses — the rotation carries on for as long as the app is open. It exists so
+  the screen can say how long has been played.
+- **Sub duration.** Default 10 minutes. This *is* the interval. It is set
+  directly, because it is the only number in the system a person can reason
+  about. Nobody can predict what "two shifts each" feels like on a pitch.
+
+Then two teams, `Bibs` and `No bibs`, each an ordered list of names. A name is
+typed into an input and moves up into the list. A row is dragged to reorder it.
+
+**The list order is the rota.** A dividing line sits after the game-type number:
+above it starts on the pitch, below it are the subs. There is no alphabetical
+sort — the order is whatever the person dragged it into.
+
+Do not enter anyone who isn't there. An absent name coming up in goal forces a
+skip, and skipping is the thing that gets negotiated.
 
 ## What it works out
 
-Let `N` = the larger of the two squad sizes, `S` = shifts each, `D` = duration.
+Let `N` = squad size, `G` = game type, `C` = subs.
 
-- **Interval** = `D / (N × S)`, floored to the nearest 15 seconds. One interval,
-  one clock, both teams change at the same moment. The larger squad gets exactly
-  `S` shifts each; the smaller squad gets slightly more, because a smaller squad
-  shares the same goal-time between fewer people. That is arithmetic, not
-  unfairness.
-- **Subs per team** = `squad − 6`, floor 0. Not a setting. A team of six has no
-  sub, a team of seven has one, a team of eight has two. One team having a sub
-  and the other not is fine and needs no handling.
+- **Interval** = sub duration. One clock, both teams change at the same moment.
+- **Subs per team** = `N − G`, floor 0. Not a setting. A squad smaller than the
+  game type simply plays short, which is not an error.
+
+Every player gets the same length of shift. Nothing guarantees an equal *number*
+of shifts inside the game time, because the game time no longer drives anything.
+The clock just runs.
 
 ## The order
 
-Each team's list is sorted **alphabetically by first name**. Alphabetical
-because it is derivable — anyone can work out who follows them without being
-told and without remembering anything.
-
-**The first keeper is the last person to arrive.** The rotation then runs
-alphabetically from there, wrapping. This matters for two reasons: it re-rolls
-the starting point every week so it isn't always whoever is first in the
-alphabet, and it is the only punctuality incentive in the system that nobody has
-to enforce out loud.
-
-At change `k`, for a team of `N` with `C` subs:
+Two pointers, both advancing by exactly one at every change:
 
 ```
-keeper = (start + k) mod N
-subs   = (keeper + floor(N / 2) + j) mod N,  for j = 0 .. C - 1
+keeper(k) = ring[(kStart + k) mod N]
+subs(k)   = ring[(G + k + j) mod N],  for j = 0 .. C - 1
 ```
 
-The sub slot sits on the opposite side of the loop from the keeper slot, so a
-player's bench shift lands several changes away from their goal shift. Nobody
-comes out of goal and immediately sits down and gets cold.
+The sub block starts at `G` because at change 0 the subs must be exactly the
+people below the dividing line. That is what the person set up.
+
+**The first keeper is drawn at random** from the players starting on the pitch,
+once, at kick-off, and stored. Random because it is fair and because it needs no
+argument. A tap on a name overrides it.
+
+### The rule that shapes the draw
+
+Two things must never happen:
+
+- a player comes out of goal and is a sub at the next change
+- a sub goes straight into goal at the next change
+
+Both pointers advance together, so the gap `o = (subIndex − keeperIndex) mod N`
+is constant for the whole game. The subs occupy `o … o + C − 1`. That run must
+miss `0` (the keeper would also be a sub), `N − 1` (the keeper sits down next
+change) and `1` (a sub goes into goal). A run of `C` consecutive slots misses all
+three exactly when:
+
+```
+2 <= o <= N - 1 - C
+```
+
+At change 0, `o = G − kStart`, so the legal starting keepers are `1 … G − 2`.
+The first name above the line and the last name above the line cannot start in
+goal. Everything else can, and everyone rotates through everything regardless.
 
 ## Anomalies
 
@@ -119,30 +144,24 @@ mechanism, only the same one.
 
 ## Display
 
-Never needs touching once the game starts.
+Never needs touching once the game starts. `brain/design.md` owns the layout.
 
-- Countdown to the next change, large enough to read from the pitch
-- Per team: **now** — goal, and sub(s); **next** — goal, and sub(s)
-- The live order for each team, so anyone can see their own next shift and
-  satisfy themselves it is fair
-- Spoken announcement at each change
-- High contrast, big type, landscape, readable in daylight
+At rest it answers one question, from a few metres, with no label to decode:
+who is in goal and who is the sub, for each team. Nothing names the players who
+are simply playing — being on the pitch is the default state.
 
-## Open decision
+At each change: a ten-second changeover window with its own countdown, showing
+who comes off and who goes on, with colour and arrows. A whistle marks the
+moment. The voice says the names.
 
-**Should there be a "gone home" action?**
+Kick-off runs a ten-second countdown and a whistle before change 0.
 
-The rule as written says no mid-game interaction except adding a late arrival.
-But if someone leaves or is injured, their name keeps coming up in goal, the sub
-has to skip it, and skipping is negotiable — which is the hole this whole thing
-exists to close.
+## Settled
 
-Recommendation: allow it. Adding and removing a player are the same kind of
-action — registering who is present, not operating a rota — and the principle
-that matters is *no decisions mid-game*, which neither of them breaks. Two taps
-in ninety minutes, both of them factual.
-
-Built as recommended unless overruled.
+**Going back to setup mid-game.** Allowed, and it is the only way in to editing.
+Opening it changes nothing on its own — the rotation keeps running underneath and
+the clock never pauses. An edit lands at the next change, so nobody is pulled out
+of goal mid-shift. The way in is an icon, not a labelled instruction.
 
 ## Not in v1
 
