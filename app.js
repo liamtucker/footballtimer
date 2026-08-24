@@ -1649,7 +1649,8 @@ function beginKickOff() {
   paintRest(r);
   applyShrink();
   el.elapsed.textContent = '0:00';
-  state.elapsedText = '0:00';
+  state.elapsedText = '';
+  el.elapsed.hidden = true;
   el.notes.textContent = '';
 
   if (debug && !debug.countdown) {
@@ -1682,6 +1683,7 @@ function abortKickOff() {
   state.screen = 'setup';
   state.pendingSetup = null;
   state.clockText = '';
+  el.elapsed.hidden = false;
   el.display.hidden = true;
   el.setup.hidden = false;
   renderSetup();
@@ -1699,6 +1701,7 @@ function finishKickOff() {
   state.windowFor = null;
   state.pendingEdit = false;
   state.clockText = '';
+  el.elapsed.hidden = false;
   showDisplay();
   saveGame();
 
@@ -2025,7 +2028,7 @@ boot();
 
 /* ------------------------------------------------------------ offline */
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && !debug) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {
       /* no service worker is still a working page, just not an offline one */

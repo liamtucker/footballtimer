@@ -457,9 +457,17 @@ button {
   gap: 12px;
   height: 22px;
   margin-bottom: 2px;
-  overflow: hidden;
 }
 .tag { flex: none; }
+/* the 22px slot is sized to the cap of the sub name, so the taller box spills
+   into the empty descender space below. the strut fixes the shared baseline. */
+.tag::before {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 22px;
+  vertical-align: baseline;
+}
 
 .subgroup {
   flex: 0 1 auto;
@@ -468,7 +476,6 @@ button {
   align-items: baseline;
   justify-content: flex-end;
   gap: 6px;
-  overflow: hidden;
   white-space: nowrap;
 }
 .subgroup .plab { flex: none; }
