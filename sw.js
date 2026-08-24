@@ -1,6 +1,6 @@
 /* sw.js — offline first. No signal at the pitch is the normal case. */
 
-const CACHE = 'rota-v3';
+const CACHE = 'rota-v4';
 
 const FILES = [
   './',
