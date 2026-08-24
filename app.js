@@ -132,7 +132,8 @@ const state = {
   clockText: '',
   holdClockUntil: 0,
   driftStep: 0,
-  removed: [],
+  sheetOpen: false,
+  sheetSwiped: false,
   degradedLock: false,
   degradedVoice: false,
   hintShown: false
@@ -660,6 +661,7 @@ function runChange(r, mode) {
     return;
   }
 
+  if (state.sheetOpen) closeSheet();
   advanceDrift();
   if (mode !== 'kickoff') state.holdClockUntil = now + 120;
   state.inCall = true;
@@ -983,15 +985,6 @@ function loadSquadIntoDraft(squad) {
   return true;
 }
 
-function replay(base, ops) {
-  let setup = base;
-  for (const op of ops) {
-    if (op.type === 'add') setup = addLateArrival(setup, op.team, op.name, op.elapsed);
-    else if (op.type === 'remove') setup = removePlayer(setup, op.team, op.playerId, op.elapsed);
-  }
-  return setup;
-}
-
 function saveGame() {
   if (debug) return;
   writeJSON(KEY_GAME, { base: state.base, ops: state.ops, kickoff: state.kickoff });
@@ -1044,6 +1037,194 @@ function clearDegraded() {
   takeWakeLock();
   unlockVoice();
 }
+
+/* -------------------------------------------------------- roster sheet */
+
+/*
+ * The two mid-game actions. Both are facts, not decisions.
+ * Every change is an engine rewrite: the app keeps the kick-off setup and an
+ * ordered log of operations, and the live setup is the replay of that log.
+ * Undo is dropping one entry and replaying, which is why a gone name can be
+ * tapped back without a confirmation dialogue.
+ */
+
+const SHEET_IDLE_MS = 10000;
+let sheetIdleTimer = 0;
+
+function replay(base, ops) {
+  let setup = base;
+  for (const op of ops) {
+    if (op.type === 'add') setup = addLateArrival(setup, op.team, op.name, op.elapsed);
+    else if (op.type === 'remove') setup = removePlayer(setup, op.team, op.playerId, op.elapsed);
+  }
+  return setup;
+}
+
+function afterRosterChange() {
+  applyNameLength();
+  const r = rotation(state.setup, elapsedMs());
+  paint(r, state.inCall ? 'now' : 'next', 'now');
+  rebuildStrips(r);
+  renderSheet();
+}
+
+function commitOps(ops) {
+  state.ops = ops;
+  state.setup = replay(state.base, state.ops);
+  saveGame();
+  afterRosterChange();
+}
+
+function sheetPill(name, gone) {
+  const pill = document.createElement('span');
+  pill.className = gone ? 'pill gone' : 'pill';
+  const label = document.createElement('span');
+  label.className = 'pill-label';
+  label.textContent = name;
+  pill.appendChild(label);
+  return pill;
+}
+
+function renderSheet() {
+  if (!state.setup) return;
+  for (let t = 0; t < 2; t += 1) {
+    const team = state.setup.teams[t];
+    const players = team ? team.players : [];
+    el.sheetHeads[t].textContent = `${TEAM_NAMES[t]} · ${players.length}`;
+    const host = el.sheetPills[t];
+    host.textContent = '';
+    for (const player of players) {
+      const pill = sheetPill(player.name, false);
+      pill.dataset.playerId = player.id;
+      host.appendChild(pill);
+    }
+    state.ops.forEach((op, index) => {
+      if (op.type !== 'remove' || op.team !== t) return;
+      const pill = sheetPill(op.name, true);
+      pill.dataset.opIndex = String(index);
+      host.appendChild(pill);
+    });
+  }
+}
+
+function touchSheetIdle() {
+  window.clearTimeout(sheetIdleTimer);
+  sheetIdleTimer = window.setTimeout(closeSheet, SHEET_IDLE_MS);
+}
+
+function openSheet() {
+  if (state.screen !== 'display' || state.sheetOpen) return;
+  state.sheetOpen = true;
+  renderSheet();
+  el.scrim.hidden = false;
+  el.sheet.hidden = false;
+  void el.sheet.offsetWidth;
+  el.scrim.classList.add('up');
+  el.sheet.classList.add('up');
+  touchSheetIdle();
+}
+
+function closeSheet() {
+  if (!state.sheetOpen) return;
+  state.sheetOpen = false;
+  window.clearTimeout(sheetIdleTimer);
+  for (const input of el.sheetInputs) input.value = '';
+  el.scrim.classList.remove('up');
+  el.sheet.classList.remove('up');
+  window.setTimeout(() => {
+    if (state.sheetOpen) return;
+    el.scrim.hidden = true;
+    el.sheet.hidden = true;
+  }, 300);
+}
+
+el.scrim.addEventListener('click', closeSheet);
+
+for (let t = 0; t < 2; t += 1) {
+  el.sheetPills[t].addEventListener('click', (event) => {
+    const pill = event.target.closest('.pill');
+    if (!pill || state.sheetSwiped) return;
+    touchSheetIdle();
+    if (pill.dataset.opIndex !== undefined) {
+      const index = Number(pill.dataset.opIndex);
+      commitOps(state.ops.filter((_, i) => i !== index));
+      return;
+    }
+    const playerId = pill.dataset.playerId;
+    const player = state.setup.teams[t].players.find((p) => p.id === playerId);
+    if (!player) return;
+    commitOps([...state.ops, {
+      type: 'remove', team: t, playerId, name: player.name, elapsed: elapsedMs()
+    }]);
+  });
+
+  const input = el.sheetInputs[t];
+  input.addEventListener('keydown', (event) => {
+    touchSheetIdle();
+    if (event.key !== 'Enter' && event.key !== ',') return;
+    event.preventDefault();
+    const name = input.value.trim().slice(0, NAME_MAX);
+    input.value = '';
+    if (!name) return;
+    commitOps([...state.ops, { type: 'add', team: t, name, elapsed: elapsedMs() }]);
+  });
+  input.addEventListener('focus', touchSheetIdle);
+}
+
+/* swipe down to dismiss, and never let a swipe read as a pill tap */
+let sheetDrag = null;
+el.sheet.addEventListener('pointerdown', (event) => {
+  sheetDrag = { y: event.clientY };
+  state.sheetSwiped = false;
+  touchSheetIdle();
+});
+el.sheet.addEventListener('pointermove', (event) => {
+  if (!sheetDrag) return;
+  if (event.clientY - sheetDrag.y > 60) {
+    state.sheetSwiped = true;
+    sheetDrag = null;
+    closeSheet();
+  } else if (Math.abs(event.clientY - sheetDrag.y) > 12) {
+    state.sheetSwiped = true;
+  }
+});
+el.sheet.addEventListener('pointerup', () => { sheetDrag = null; });
+el.sheet.addEventListener('pointercancel', () => { sheetDrag = null; state.sheetSwiped = false; });
+
+/* press and hold anywhere on the display opens it. a single tap clears the
+   degraded marker by re-taking the lock and re-testing the voice. */
+let displayPress = null;
+
+el.display.addEventListener('pointerdown', (event) => {
+  if (state.sheetOpen) return;
+  displayPress = { x: event.clientX, y: event.clientY, moved: false, fired: false };
+  displayPress.timer = window.setTimeout(() => {
+    if (!displayPress || displayPress.moved) return;
+    displayPress.fired = true;
+    openSheet();
+  }, 700);
+});
+
+el.display.addEventListener('pointermove', (event) => {
+  if (!displayPress) return;
+  const dx = event.clientX - displayPress.x;
+  const dy = event.clientY - displayPress.y;
+  if (Math.sqrt(dx * dx + dy * dy) > 12) {
+    displayPress.moved = true;
+    window.clearTimeout(displayPress.timer);
+  }
+});
+
+function endDisplayPress(tapped) {
+  if (!displayPress) return;
+  window.clearTimeout(displayPress.timer);
+  if (tapped && !displayPress.fired && !displayPress.moved) clearDegraded();
+  displayPress = null;
+}
+
+el.display.addEventListener('pointerup', () => endDisplayPress(true));
+el.display.addEventListener('pointercancel', () => endDisplayPress(false));
+el.display.addEventListener('contextmenu', (event) => event.preventDefault());
 
 /* ---------------------------------------------------------- debug hook */
 

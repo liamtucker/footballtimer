@@ -585,3 +585,63 @@ body.call .team-name { color: var(--ink-call); }
   body.call { transition: background-color 200ms var(--curve); }
   body { transition: background-color 500ms var(--curve); }
 }
+
+/* ------------------------------------------------------- roster sheet */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .4);
+  opacity: 0;
+  transition: opacity 300ms var(--curve);
+  z-index: 10;
+}
+
+.scrim.up { opacity: 1; }
+
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 75%;
+  background: var(--ground);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+  transform: translateY(100%);
+  transition: transform 300ms var(--curve);
+  z-index: 11;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.sheet.up { transform: translateY(0); }
+
+.sheet-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px
+           max(24px, env(safe-area-inset-right))
+           max(24px, env(safe-area-inset-bottom))
+           max(24px, env(safe-area-inset-left));
+}
+
+.sheet .pill { cursor: pointer; }
+
+.pill.gone {
+  border-color: var(--dim);
+  color: var(--dim);
+  text-decoration: line-through;
+  background: transparent;
+}
+
+@media (orientation: landscape) {
+  .sheet-inner { flex-direction: row; }
+  .sheet-inner .field-block { flex: 1 1 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrim, .sheet { transition: none; }
+}
