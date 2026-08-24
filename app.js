@@ -135,7 +135,9 @@ const debug = (() => {
     seconds = Number(raw);
   }
   if (!Number.isFinite(seconds)) seconds = 0;
-  const rate = Math.max(0, Number(params.get('rate')) || 1);
+  /* `|| 1` swallowed a deliberate rate=0, which is the documented freeze */
+  const asked = Number(params.get('rate'));
+  const rate = params.has('rate') && Number.isFinite(asked) ? Math.max(0, asked) : 1;
   const list = (key) => {
     const value = params.get(key);
     if (value == null) return null;
@@ -1861,7 +1863,8 @@ function finishKickOff() {
   el.body.style.setProperty('--ground-ms', '500ms');
   el.body.classList.add('call');
   window.setTimeout(() => {
-    el.body.classList.remove('call');
+    /* a kick-off straight into a change window must not take its ground back */
+    if (!state.windowFor) el.body.classList.remove('call');
     el.body.style.setProperty('--ground-ms', '200ms');
   }, 220);
 
