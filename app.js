@@ -1,49 +1,79 @@
 /*
- * app.js — the screens around rotation.js.
+ * app.js — the two screens around rotation.js.
  *
- * rotation.js holds the whole rota. Nothing here recomputes any part of it.
- * This file owns: the setup screen, the display, the voice, the wake lock,
- * persistence, and the roster sheet.
+ * rotation.js holds the whole rota and nothing here recomputes any part of it.
+ * This file owns the setup screen, the game screen, the sounds, the voice, the
+ * wake lock, persistence and the edit route.
+ *
+ * THE GAME IS A LIST OF EPOCHS
+ *
+ * A game is a kick-off timestamp and one or two epochs. An epoch is
+ * `{ fromMs, index0, setup }` — from this elapsed time, under this setup, and
+ * the first change it covers is numbered index0. At kick-off there is one
+ * epoch, `{ 0, 0, setup }`. An edit made mid-game writes a second epoch that
+ * starts at the next change boundary, which is how an edit lands at the next
+ * change and never mid-shift. Everything stays a pure function of
+ * (epochs, elapsed), so a dead phone restores and carries on.
+ *
+ * THE SETUP SCREEN SHOWS THE NEXT CHANGE
+ *
+ * Mid-game the list is the ring rotated so that the subs at the NEXT change sit
+ * below the divider and the keeper at the next change carries the marker. That
+ * makes the anchor the edit writes identical in form to the one kick-off
+ * writes — `{ changeIndex: 0, keeperIndex: marker, subIndex: gameType }` — so
+ * an edit that changes nothing produces exactly the same rota, and the legal
+ * window for the marker is the same rule on both screens.
  */
 
 import {
   createSetup,
-  lockClock,
-  computeIntervalMs,
   rotation,
-  addLateArrival,
-  removePlayer,
-  DEFAULT_DURATION_MIN,
-  DEFAULT_SHIFTS_EACH,
+  kickOff as drawKeepers,
+  setStartKeeper,
+  isLegalStartKeeper,
+  nearestLegalStartKeeper,
+  legalStartKeepers,
+  gameTypeOf,
+  subCountFor,
+  MIN_GAME_TYPE,
+  MAX_GAME_TYPE,
+  DEFAULT_GAME_TYPE,
+  DEFAULT_SUB_MINUTES,
+  DEFAULT_GAME_MINUTES,
   DEFAULT_TEAM_NAMES
 } from './rotation.js';
 
 const MS_PER_MINUTE = 60000;
-const NAME_MAX = 12;
-const DURATION_MIN = 30;
-const DURATION_MAX = 150;
-const DURATION_STEP = 5;
-const SHIFTS_MIN = 1;
-const SHIFTS_MAX = 4;
+const NAME_MAX = 10;
+const WINDOW_MS = 10000;
+const COUNTDOWN_S = 10;
 
+/* Every string, lifted from brain/copy.md. */
 const COPY = {
   teamA: 'Bibs',
   teamB: 'No bibs',
-  placeholderFirst: 'First to arrive',
-  tagLast: 'In goal first',
-  interval: 'Change every',
+  addPlaceholder: 'Add a name',
+  divider: 'Subs',
+  keeperTag: 'Starts in goal',
+  gameTimeLabel: 'Game time',
+  changeLabel: 'Change every',
   start: 'Kick off',
   clear: 'Clear all',
-  prefilled: 'Reorder for today. Delete anyone missing.',
-  keeperLabel: 'In goal',
-  subLabel: 'Sub',
-  subsLabel: 'Subs',
-  nextLabel: 'Next',
-  lap: 'Round',
+  restored: 'Delete anyone missing.',
+  editAria: 'Edit setup',
+  keeper: 'in goal',
+  sub: 'sub',
+  subs: 'subs',
+  subsNone: 'no subs',
+  off: 'off',
+  on: 'on',
   errorTooSmall: 'Two names minimum.',
   warnDuplicate: 'Same name twice. Add an initial.',
-  eventKickOff: 'Kick off',
-  eventChange: 'Change'
+  /* not in copy.md — the two conditional lines and the chip need words */
+  pending: 'Edits land at the next change',
+  noVoice: 'No voice',
+  noLock: 'Screen may sleep',
+  chipLabel: 'Next change'
 };
 
 const TEAM_NAMES = [COPY.teamA, COPY.teamB];
@@ -81,13 +111,18 @@ function dropKey(key) {
 /* --------------------------------------------------------------- clock */
 
 /*
- * Debug hook. Inert unless `?t=` is in the URL.
- *   ?t=0          start the game clock at 0 and expose window.rota
- *   ?t=330        start at 330 seconds elapsed
- *   ?t=5:30       the same, as m:ss
- *   &rate=60      run the clock 60x real time
- * With ?t= present nothing is written to localStorage.
- * window.rota.setElapsed(ms) / .getElapsed() / .rate(n) / .state
+ * Debug hook. Inert unless `?t=` is in the URL. Nothing is written to
+ * localStorage while it is on and window.rota does not otherwise exist.
+ *
+ *   ?t=0 | ?t=330 | ?t=5:30   start the game clock there
+ *   &rate=60                  run 60x real time. &rate=0 freezes it
+ *   &a=Dom,Dave,Chris         team A squad
+ *   &b=Sam,Tom,Alex           team B squad
+ *   &g=7                      game type
+ *   &sub=10 &game=120         the two durations
+ *   &ka=2 &kb=3               force the starting keeper index per team
+ *   &count=0                  skip the kick-off countdown
+ *   &auto=1                   kick off as soon as the page loads
  */
 const debug = (() => {
   const params = new URLSearchParams(location.search);
@@ -102,7 +137,25 @@ const debug = (() => {
   }
   if (!Number.isFinite(seconds)) seconds = 0;
   const rate = Math.max(0, Number(params.get('rate')) || 1);
-  return { offsetMs: seconds * 1000, rate, realOrigin: Date.now(), origin: Date.now() };
+  const list = (key) => {
+    const value = params.get(key);
+    if (value == null) return null;
+    return String(value).split(',').map((name) => name.trim()).filter(Boolean);
+  };
+  const int = (key) => (params.has(key) ? Number(params.get(key)) : null);
+  return {
+    offsetMs: seconds * 1000,
+    rate,
+    realOrigin: Date.now(),
+    origin: Date.now(),
+    squads: [list('a'), list('b')],
+    gameType: int('g'),
+    subMinutes: int('sub'),
+    gameMinutes: int('game'),
+    keepers: [int('ka'), int('kb')],
+    countdown: params.get('count') !== '0',
+    auto: params.get('auto') === '1'
+  };
 })();
 
 function nowMs() {
@@ -111,745 +164,259 @@ function nowMs() {
 }
 
 function elapsedMs() {
-  if (!state.kickoff) return 0;
-  return Math.max(0, nowMs() - state.kickoff);
+  if (!state.game) return 0;
+  return Math.max(0, nowMs() - state.game.kickoff);
 }
 
-/* --------------------------------------------------------------- state */
-
-const state = {
-  screen: 'setup',
-  draft: { durationMin: DEFAULT_DURATION_MIN, shiftsEach: DEFAULT_SHIFTS_EACH, arrivals: [[], []] },
-  prefilled: false,
-  base: null,
-  ops: [],
-  setup: null,
-  kickoff: 0,
-  lastChangeIndex: null,
-  callUntil: 0,
-  inCall: false,
-  bigClock: false,
-  clockText: '',
-  holdClockUntil: 0,
-  driftStep: 0,
-  sheetOpen: false,
-  sheetSwiped: false,
-  degradedLock: false,
-  degradedVoice: false,
-  hintShown: false
-};
-
-const $ = (id) => document.getElementById(id);
-
-/* ---------------------------------------------------------- setup screen */
-
-const el = {
-  body: document.body,
-  setup: $('setup'),
-  display: $('display'),
-  readout: $('readout'),
-  steppers: $('steppers'),
-  durationValue: $('duration-value'),
-  shiftsValue: $('shifts-value'),
-  heads: [$('head-0'), $('head-1')],
-  pills: [$('pills-0'), $('pills-1')],
-  inputs: [$('input-0'), $('input-1')],
-  prefilledLine: $('prefilled'),
-  clear: $('clear'),
-  notice: $('notice'),
-  start: $('start'),
-  clock: $('clock'),
-  lap: $('lap'),
-  status: $('status'),
-  scrim: $('scrim'),
-  sheet: $('sheet'),
-  sheetHeads: [$('sheet-head-0'), $('sheet-head-1')],
-  sheetPills: [$('sheet-pills-0'), $('sheet-pills-1')],
-  sheetInputs: [$('sheet-input-0'), $('sheet-input-1')],
-  sheetNote: $('sheet-note')
-};
-
-function draftSetup() {
-  return createSetup({
-    durationMin: state.draft.durationMin,
-    shiftsEach: state.draft.shiftsEach,
-    teams: [
-      { name: TEAM_NAMES[0], arrivals: state.draft.arrivals[0] },
-      { name: TEAM_NAMES[1], arrivals: state.draft.arrivals[1] }
-    ]
-  });
-}
-
-function formatClock(ms) {
-  const total = Math.max(0, Math.round(ms / 1000));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
-function duplicateIn(names) {
-  const seen = new Set();
-  for (const name of names) {
-    const key = name.trim().toLowerCase();
-    if (!key) continue;
-    if (seen.has(key)) return true;
-    seen.add(key);
-  }
-  return false;
-}
-
-function xIcon() {
-  return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
-}
-
-function buildPill(name, isFirst) {
-  const pill = document.createElement('span');
-  pill.className = isFirst ? 'pill first' : 'pill';
-  const label = document.createElement('span');
-  label.className = 'pill-label';
-  if (isFirst) {
-    const tag = document.createElement('span');
-    tag.className = 'pill-tag';
-    tag.textContent = COPY.tagLast;
-    label.appendChild(tag);
-  }
-  label.appendChild(document.createTextNode(name));
-  const remove = document.createElement('button');
-  remove.type = 'button';
-  remove.className = 'pill-x';
-  remove.innerHTML = xIcon();
-  remove.setAttribute('aria-label', 'remove');
-  pill.appendChild(label);
-  pill.appendChild(remove);
-  return pill;
-}
-
-function renderSetup() {
-  for (let t = 0; t < 2; t += 1) {
-    const names = state.draft.arrivals[t];
-    el.heads[t].textContent = `${TEAM_NAMES[t]} · ${names.length}`;
-    const host = el.pills[t];
-    host.textContent = '';
-    names.forEach((name, i) => {
-      const pill = buildPill(name, i === names.length - 1);
-      pill.dataset.team = String(t);
-      pill.dataset.index = String(i);
-      host.appendChild(pill);
-    });
-    el.inputs[t].placeholder = names.length === 0 ? COPY.placeholderFirst : '';
-  }
-
-  el.durationValue.textContent = String(state.draft.durationMin);
-  el.shiftsValue.textContent = String(state.draft.shiftsEach);
-  for (const button of el.steppers.querySelectorAll('.step')) {
-    const which = button.dataset.step;
-    const dir = Number(button.dataset.dir);
-    const value = which === 'duration' ? state.draft.durationMin : state.draft.shiftsEach;
-    const lo = which === 'duration' ? DURATION_MIN : SHIFTS_MIN;
-    const hi = which === 'duration' ? DURATION_MAX : SHIFTS_MAX;
-    button.disabled = dir < 0 ? value <= lo : value >= hi;
-  }
-
-  const sizes = state.draft.arrivals.map((names) => names.length);
-  const valid = sizes.every((n) => n >= 2);
-
-  el.readout.textContent = valid
-    ? `${COPY.interval} ${formatClock(computeIntervalMs(draftSetup()))}`
-    : '—';
-
-  const anyTyped = sizes.some((n) => n > 0);
-  const duplicate = state.draft.arrivals.some(duplicateIn);
-  let notice = '';
-  if (!valid && anyTyped) notice = COPY.errorTooSmall;
-  else if (duplicate) notice = COPY.warnDuplicate;
-  el.notice.textContent = notice;
-  el.notice.hidden = notice === '';
-
-  el.start.classList.toggle('hairline', !valid);
-  el.prefilledLine.hidden = !state.prefilled;
-}
-
-function addName(teamIndex, raw) {
-  const name = String(raw).trim().slice(0, NAME_MAX);
-  if (!name) return;
-  state.draft.arrivals[teamIndex].push(name);
-  state.prefilled = false;
-  renderSetup();
-}
-
-/* Tap a pill: it moves to the end of the list and becomes the first keeper. */
-function movePillToEnd(teamIndex, index) {
-  const names = state.draft.arrivals[teamIndex];
-  if (index < 0 || index >= names.length) return;
-  if (index === names.length - 1) return;
-
-  const host = el.pills[teamIndex];
-  const before = [...host.children].map((node) => node.getBoundingClientRect());
-
-  const [name] = names.splice(index, 1);
-  names.push(name);
-  state.prefilled = false;
-  renderSetup();
-
-  if (prefersReducedMotion()) return;
-  const after = [...host.children].map((node) => node.getBoundingClientRect());
-  const order = names.map((_, i) => i);
-  // map old position i -> new position
-  const oldToNew = order.map((i) => (i < index ? i : i === index ? names.length - 1 : i - 1));
-  [...host.children].forEach((node) => {
-    node.classList.remove('moving');
-  });
-  before.forEach((rect, oldIndex) => {
-    const newIndex = oldToNew[oldIndex];
-    const node = host.children[newIndex];
-    const to = after[newIndex];
-    if (!node || !to) return;
-    const dx = rect.left - to.left;
-    const dy = rect.top - to.top;
-    if (dx === 0 && dy === 0) return;
-    node.style.transform = `translate(${dx}px, ${dy}px)`;
-  });
-  requestAnimationFrame(() => {
-    [...host.children].forEach((node) => {
-      node.classList.add('moving');
-      node.style.transform = '';
-    });
-  });
-}
-
-function removeName(teamIndex, index) {
-  state.draft.arrivals[teamIndex].splice(index, 1);
-  state.prefilled = false;
-  renderSetup();
+function mod(a, b) {
+  return ((a % b) + b) % b;
 }
 
 function prefersReducedMotion() {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-/* ------------------------------------------------------- setup wiring */
-
-const pendingNames = ['', ''];
-
-function flushPendingNames() {
-  let changed = false;
-  for (let t = 0; t < 2; t += 1) {
-    const parked = pendingNames[t];
-    pendingNames[t] = '';
-    const typed = el.inputs[t].value.trim();
-    el.inputs[t].value = '';
-    for (const raw of [parked, typed]) {
-      const name = String(raw || '').trim().slice(0, NAME_MAX);
-      if (!name) continue;
-      state.draft.arrivals[t].push(name);
-      state.prefilled = false;
-      changed = true;
-    }
-  }
-  if (changed) renderSetup();
-  return changed;
+function isPortrait() {
+  return window.matchMedia('(orientation: portrait)').matches;
 }
 
-for (let t = 0; t < 2; t += 1) {
-  const input = el.inputs[t];
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' || event.key === ',') {
-      event.preventDefault();
-      addName(t, input.value);
-      input.value = '';
-      input.focus();
-    }
-  });
-  input.addEventListener('input', () => {
-    if (input.value.includes(',')) {
-      const parts = input.value.split(',');
-      const tail = parts.pop();
-      for (const part of parts) addName(t, part);
-      input.value = tail;
-    }
-  });
-  /* A half-typed name must survive the blur that a tap on a pill or on Kick
-     off causes. Park it and flush it after the click has been dispatched,
-     or the re-render swallows the tap and the name never lands. */
-  input.addEventListener('blur', () => {
-    const value = input.value.trim();
-    if (!value) return;
-    input.value = '';
-    pendingNames[t] = value;
-    window.setTimeout(flushPendingNames, 0);
-  });
-  el.pills[t].addEventListener('click', (event) => {
-    const pill = event.target.closest('.pill');
-    if (!pill) return;
-    const index = Number(pill.dataset.index);
-    if (event.target.closest('.pill-x')) removeName(t, index);
-    else movePillToEnd(t, index);
-  });
-}
+/* --------------------------------------------------------------- state */
 
-el.readout.addEventListener('click', () => {
-  const open = el.steppers.hidden;
-  if (open) expandSteppers();
-  else collapseSteppers();
-});
+const draft = {
+  gameType: DEFAULT_GAME_TYPE,
+  gameMinutes: DEFAULT_GAME_MINUTES,
+  subMinutes: DEFAULT_SUB_MINUTES,
+  names: [[], []],
+  keeper: [null, null],
+  mode: 'pre',        /* 'pre' before kick-off, 'edit' with a game running */
+  baseChange: 0,      /* the change index the edit picture was built from */
+  signature: ''
+};
 
-function expandSteppers() {
-  el.steppers.hidden = false;
-  el.readout.setAttribute('aria-expanded', 'true');
-  if (prefersReducedMotion()) return;
-  const height = el.steppers.scrollHeight;
-  el.steppers.style.height = '0px';
-  el.steppers.style.opacity = '0';
-  el.steppers.classList.add('expanding');
-  requestAnimationFrame(() => {
-    el.steppers.style.height = `${height}px`;
-    el.steppers.style.opacity = '1';
-  });
-  window.setTimeout(() => {
-    el.steppers.classList.remove('expanding');
-    el.steppers.style.height = '';
-    el.steppers.style.opacity = '';
-  }, 250);
-}
+const state = {
+  screen: 'setup',
+  prefilled: false,
+  game: null,         /* { kickoff, epochs: [...], gone: [[], []] } */
+  shownChange: null,
+  windowFor: null,
+  countdownAt: 0,
+  countdownLeft: 0,
+  clockText: '',
+  clockCount: false,
+  elapsedText: '',
+  pendingEdit: false,
+  degradedVoice: false,
+  degradedLock: false,
+  silentUntilChange: null,
+  len: 5
+};
 
-function collapseSteppers() {
-  el.readout.setAttribute('aria-expanded', 'false');
-  if (prefersReducedMotion()) {
-    el.steppers.hidden = true;
-    return;
-  }
-  const height = el.steppers.scrollHeight;
-  el.steppers.style.height = `${height}px`;
-  el.steppers.classList.add('collapsing');
-  requestAnimationFrame(() => {
-    el.steppers.style.height = '0px';
-    el.steppers.style.opacity = '0';
-  });
-  window.setTimeout(() => {
-    el.steppers.classList.remove('collapsing');
-    el.steppers.style.height = '';
-    el.steppers.style.opacity = '';
-    el.steppers.hidden = true;
-  }, 250);
-}
+const $ = (id) => document.getElementById(id);
 
-el.steppers.addEventListener('click', (event) => {
-  const button = event.target.closest('.step');
-  if (!button) return;
-  const dir = Number(button.dataset.dir);
-  if (button.dataset.step === 'duration') {
-    const next = state.draft.durationMin + dir * DURATION_STEP;
-    state.draft.durationMin = Math.min(DURATION_MAX, Math.max(DURATION_MIN, next));
-  } else {
-    const next = state.draft.shiftsEach + dir;
-    state.draft.shiftsEach = Math.min(SHIFTS_MAX, Math.max(SHIFTS_MIN, next));
-  }
-  renderSetup();
-});
-
-document.addEventListener('click', (event) => {
-  if (el.steppers.hidden) return;
-  if (event.target.closest('#steppers') || event.target.closest('#readout')) return;
-  collapseSteppers();
-});
-
-el.clear.addEventListener('click', () => {
-  state.draft.arrivals = [[], []];
-  state.prefilled = false;
-  dropKey(KEY_SQUAD);
-  renderSetup();
-});
-
-el.start.addEventListener('click', () => {
-  flushPendingNames();
-  const sizes = state.draft.arrivals.map((names) => names.length);
-  const shortest = sizes[0] <= sizes[1] ? 0 : 1;
-  if (sizes.some((n) => n < 2)) {
-    el.inputs[shortest].focus();
-    renderSetup();
-    return;
-  }
-  kickOff();
-});
-
-function saveSquad() {
-  writeJSON(KEY_SQUAD, {
-    durationMin: state.draft.durationMin,
-    shiftsEach: state.draft.shiftsEach,
-    arrivals: state.draft.arrivals
-  });
-}
-
-function showSetup(prefilled) {
-  state.screen = 'setup';
-  state.prefilled = Boolean(prefilled);
-  el.setup.hidden = false;
-  el.display.hidden = true;
-  el.body.classList.remove('call', 'playing');
-  renderSetup();
-}
-
-
-/* -------------------------------------------------------------- display */
-
-const DRIFT = [[0, 0], [2, 1], [0, 2], [-2, 1]];
+const el = {
+  body: document.body,
+  setup: $('setup'),
+  display: $('display'),
+  labels: [$('label-0'), $('label-1')],
+  lists: [$('list-0'), $('list-1')],
+  inputs: [$('input-0'), $('input-1')],
+  adds: [$('add-0'), $('add-1')],
+  typeValue: $('type-value'),
+  typeSelect: $('type-select'),
+  gameValue: $('game-value'),
+  gameSelect: $('game-select'),
+  subValue: $('sub-value'),
+  subSelect: $('sub-select'),
+  restored: $('restored'),
+  clear: $('clear'),
+  notice: $('notice'),
+  start: $('start'),
+  chip: $('chip'),
+  chipCount: $('chip-count'),
+  clock: $('clock'),
+  elapsed: $('elapsed'),
+  notes: $('notes'),
+  edit: $('edit')
+};
 
 const teamEls = [0, 1].map((t) => {
   const root = el.display.querySelector(`.team[data-team="${t}"]`);
   return {
     root,
-    header: root.querySelector('.team-header'),
-    name: root.querySelector('.team-name'),
-    subs: root.querySelector('.subs'),
+    tag: root.querySelector('.tag'),
+    subgroup: root.querySelector('.subgroup'),
+    lab: root.querySelector('.lab'),
+    hero: root.querySelector('.hero'),
+    line3: root.querySelector('.line3'),
     strip: root.querySelector('.strip'),
-    track: root.querySelector('.strip-track'),
-    hint: root.querySelector('.kickoff-hint')
+    track: root.querySelector('.strip-track')
   };
 });
 
-function layerPair(host) {
-  const nodes = host.querySelectorAll(':scope > .layer');
-  const active = host.dataset.active === '1' ? 1 : 0;
-  host.dataset.active = String(1 - active);
-  return { out: nodes[active], in: nodes[1 - active] };
+/* ================================================================ sound */
+
+/*
+ * Two sounds, two meanings, never swapped. A whistle says the change is now.
+ * A chime says names follow. Both are synthesised — no files, no network.
+ * The context is created inside the Kick off gesture so iOS unlocks it.
+ */
+
+let ac = null;
+let noise = null;
+
+function audio() {
+  if (ac) return ac;
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return null;
+  try {
+    ac = new Ctor();
+  } catch (error) {
+    ac = null;
+  }
+  return ac;
 }
 
-function fillHeader(node, teamName, moment) {
-  node.textContent = `${teamName} — ${moment}`;
-}
-
-function fillName(node, text, scale) {
-  node.textContent = '';
-  const glyph = document.createElement('span');
-  glyph.className = 'glyph';
-  glyph.style.setProperty('--sc', String(scale));
-  glyph.textContent = text || '';
-  node.appendChild(glyph);
-}
-
-function fillSubs(node, names) {
-  node.textContent = '';
-  if (!names || names.length === 0) return;
-  const prefix = document.createElement('span');
-  prefix.className = 'prefix';
-  prefix.textContent = names.length > 1 ? COPY.subsLabel : COPY.subLabel;
-  node.appendChild(prefix);
-  names.forEach((player, i) => {
-    if (i > 0) {
-      const sep = document.createElement('span');
-      sep.className = 's-sep';
-      sep.textContent = '·';
-      node.appendChild(sep);
-    }
-    node.appendChild(document.createTextNode(player.name));
-  });
-}
-
-function buildStrip(track, teamState) {
-  track.textContent = '';
-  const n = teamState.order.length;
-  if (n === 0) return;
-  const bench = new Set(teamState.subIndexes);
-  for (let i = 0; i < n; i += 1) {
-    const index = (teamState.keeperIndex + i) % n;
-    if (i > 0) {
-      const sep = document.createElement('span');
-      sep.className = 's-sep';
-      sep.textContent = '·';
-      track.appendChild(sep);
-    }
-    const item = document.createElement('span');
-    item.className = bench.has(index) ? 's-item bench' : 's-item';
-    item.textContent = teamState.order[index].name;
-    track.appendChild(item);
+function resumeAudio() {
+  if (!ac) return;
+  if (ac.state === 'suspended' || ac.state === 'interrupted') {
+    try { ac.resume(); } catch (error) { /* ignore */ }
   }
 }
 
-function measureFirstWidth(track) {
-  const items = track.querySelectorAll('.s-item');
-  if (items.length < 2) return 0;
-  return items[1].getBoundingClientRect().left - items[0].getBoundingClientRect().left;
+function noiseBuffer(ctx) {
+  if (noise) return noise;
+  const frames = Math.floor(ctx.sampleRate * 1.2);
+  noise = ctx.createBuffer(1, frames, ctx.sampleRate);
+  const data = noise.getChannelData(0);
+  for (let i = 0; i < frames; i += 1) data[i] = Math.random() * 2 - 1;
+  return noise;
 }
 
-function writeFirstWidth(track) {
-  track.style.setProperty('--first-w', `${measureFirstWidth(track)}px`);
-}
+/*
+ * A referee whistle. The body is band-passed noise around 3.4kHz — that is the
+ * air, and it is what stops it sounding like a beep. Two detuned sawtooths at
+ * 2350 and 2570 sit under it for the pitch, and an 18Hz tremolo on the whole
+ * thing is the pea rattling.
+ */
+function whistle(ms) {
+  const ctx = audio();
+  if (!ctx) return;
+  resumeAudio();
+  const dur = Math.max(0.12, (ms || 700) / 1000);
+  const attack = Math.min(0.04, dur * 0.16);
+  const release = Math.min(0.25, dur * 0.42);
+  const t = ctx.currentTime + 0.01;
 
-function applyNameLength() {
-  let longest = 5;
-  for (const team of state.setup.teams) {
-    for (const player of team.players) longest = Math.max(longest, player.name.length);
+  const out = ctx.createGain();
+  out.gain.setValueAtTime(0.0001, t);
+  out.gain.linearRampToValueAtTime(0.9, t + attack);
+  out.gain.setValueAtTime(0.9, t + Math.max(attack, dur - release));
+  out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  out.connect(ctx.destination);
+
+  const trem = ctx.createGain();
+  trem.gain.setValueAtTime(0.74, t);
+  trem.connect(out);
+  const lfo = ctx.createOscillator();
+  lfo.type = 'sine';
+  lfo.frequency.setValueAtTime(18, t);
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.setValueAtTime(0.26, t);
+  lfo.connect(lfoGain).connect(trem.gain);
+  lfo.start(t);
+  lfo.stop(t + dur);
+
+  const air = ctx.createBufferSource();
+  air.buffer = noiseBuffer(ctx);
+  air.loop = true;
+  const bp1 = ctx.createBiquadFilter();
+  bp1.type = 'bandpass';
+  bp1.frequency.setValueAtTime(3400, t);
+  bp1.Q.setValueAtTime(11, t);
+  const bp2 = ctx.createBiquadFilter();
+  bp2.type = 'bandpass';
+  bp2.frequency.setValueAtTime(3400, t);
+  bp2.Q.setValueAtTime(11, t);
+  const airGain = ctx.createGain();
+  airGain.gain.setValueAtTime(0.55, t);
+  air.connect(bp1).connect(bp2).connect(airGain).connect(trem);
+  air.start(t);
+  air.stop(t + dur);
+
+  for (const [freq, gain] of [[2350, 0.17], [2570, 0.13]]) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(freq * 0.94, t);
+    osc.frequency.linearRampToValueAtTime(freq, t + attack);
+    const warble = ctx.createOscillator();
+    warble.type = 'sine';
+    warble.frequency.setValueAtTime(18, t);
+    const warbleGain = ctx.createGain();
+    warbleGain.gain.setValueAtTime(freq * 0.014, t);
+    warble.connect(warbleGain).connect(osc.frequency);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(7200, t);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(gain, t);
+    osc.connect(lp).connect(og).connect(trem);
+    osc.start(t);
+    osc.stop(t + dur);
+    warble.start(t);
+    warble.stop(t + dur);
   }
-  document.documentElement.style.setProperty('--len', String(longest));
 }
 
-function advanceDrift() {
-  state.driftStep = (state.driftStep + 1) % DRIFT.length;
-  const [x, y] = DRIFT[state.driftStep];
-  document.documentElement.style.setProperty('--drift-x', `${x}px`);
-  document.documentElement.style.setProperty('--drift-y', `${y}px`);
-}
-
-/* Put a host into a new content state. `how` is 'change', 'fade' or 'now'. */
-function swap(host, fill, how, options = {}) {
-  const pair = layerPair(host);
-  fill(pair.in);
-  pair.out.className = 'layer';
-  pair.in.className = 'layer';
-  if (how === 'now') {
-    pair.in.classList.add('on');
-    return;
+function tone(ctx, freq, at, dur, level) {
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.linearRampToValueAtTime(level, at + 0.02);
+  g.gain.setValueAtTime(level, at + Math.max(0.03, dur - 0.05));
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  g.connect(ctx.destination);
+  /* the partials are what carry it through a cheap bluetooth speaker */
+  for (const [mult, type, gain] of [[1, 'sine', 1], [2, 'triangle', 0.34], [3, 'sine', 0.13]]) {
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq * mult, at);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(gain, at);
+    osc.connect(og).connect(g);
+    osc.start(at);
+    osc.stop(at + dur + 0.03);
   }
-  if (how === 'change') {
-    pair.out.classList.add('anim-out');
-    pair.in.classList.add('anim-in');
-    window.setTimeout(() => {
-      if (pair.in.classList.contains('anim-in')) {
-        pair.in.className = 'layer on';
-        pair.out.className = 'layer';
-      }
-    }, 780);
-    return;
-  }
-  // fade
-  const ms = options.ms ?? 400;
-  const delay = options.delay ?? 0;
-  pair.out.style.setProperty('--fade-ms', `${ms}ms`);
-  pair.out.style.setProperty('--fade-delay', `${delay}ms`);
-  pair.in.style.setProperty('--fade-ms', `${ms}ms`);
-  pair.in.style.setProperty('--fade-delay', `${delay}ms`);
-  pair.out.classList.add('on', 'fading');
-  pair.in.classList.add('fading');
-  void pair.in.offsetWidth;
-  pair.out.classList.remove('on');
-  pair.in.classList.add('on');
 }
 
-/* The shift the screen is showing: 'now' during the call, 'next' while waiting. */
-function paint(r, moment, how, options) {
-  r.teams.forEach((team, t) => {
-    const parts = teamEls[t];
-    const isNow = moment === 'now';
-    const keeper = isNow ? team.keeper : team.nextKeeper;
-    const subs = isNow ? team.subs : team.nextSubs;
-    const label = isNow ? COPY.keeperLabel : COPY.nextLabel;
-    const scale = isNow ? 1 : 0.8;
-
-    swap(parts.header, (node) => fillHeader(node, team.name, label), how === 'change' ? 'fade' : how,
-      how === 'change' ? { ms: 150, delay: 120 } : options);
-    swap(parts.name, (node) => fillName(node, keeper ? keeper.name : '', scale), how, options);
-
-    parts.subs.hidden = subs.length === 0;
-    if (subs.length > 0) swap(parts.subs, (node) => fillSubs(node, subs), how, options);
-    else swap(parts.subs, (node) => fillSubs(node, []), 'now');
-  });
+/* 660 then 880, 120ms each, 200ms apart. The same tone every time. */
+function chime() {
+  const ctx = audio();
+  if (!ctx) return 0;
+  resumeAudio();
+  const t = ctx.currentTime + 0.01;
+  tone(ctx, 660, t, 0.12, 0.5);
+  tone(ctx, 880, t + 0.2, 0.12, 0.5);
+  return 330;
 }
 
-function rebuildStrips(r) {
-  r.teams.forEach((team, t) => {
-    const parts = teamEls[t];
-    parts.track.classList.remove('sliding');
-    parts.track.style.transform = '';
-    buildStrip(parts.track, team);
-    writeFirstWidth(parts.track);
-  });
+function tick880() {
+  const ctx = audio();
+  if (!ctx) return;
+  resumeAudio();
+  const t = ctx.currentTime + 0.005;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.08, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+  g.connect(ctx.destination);
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(880, t);
+  osc.connect(g);
+  osc.start(t);
+  osc.stop(t + 0.04);
 }
 
-function slideStrips() {
-  teamEls.forEach((parts) => {
-    writeFirstWidth(parts.track);
-    void parts.track.offsetWidth;
-    parts.track.classList.add('sliding');
-  });
-}
-
-/* ------------------------------------------------------------ the change */
-
-function runChange(r, mode) {
-  /* motion runs on real time; only the rota runs on the game clock */
-  const now = Date.now();
-  const animate = mode === 'kickoff' || mode === 'step';
-
-  if (mode === 'restore') {
-    state.inCall = false;
-    el.body.classList.remove('call');
-    paint(r, 'next', 'now');
-    rebuildStrips(r);
-    for (const parts of teamEls) if (parts.hint) parts.hint.hidden = true;
-    return;
-  }
-
-  if (state.sheetOpen) closeSheet();
-  advanceDrift();
-  if (mode !== 'kickoff') state.holdClockUntil = now + 120;
-  state.inCall = true;
-  state.callStart = now;
-  state.callUntil = now + 6000;
-  el.body.classList.add('call');
-
-  if (animate && prefersReducedMotion()) {
-    /* the conveyor becomes a crossfade in place and the strip rebuilds at once */
-    paint(r, 'now', 'change');
-    rebuildStrips(r);
-  } else if (animate) {
-    slideStrips();
-    paint(r, 'now', 'change');
-    window.setTimeout(() => {
-      if (state.screen !== 'display') return;
-      rebuildStrips(rotation(state.setup, elapsedMs()));
-    }, 720);
-  } else {
-    paint(r, 'now', 'now');
-    rebuildStrips(r);
-  }
-
-  if (mode === 'kickoff' && !state.hintShown && teamEls[0].hint) {
-    state.hintShown = true;
-    teamEls[0].hint.hidden = false;
-    teamEls[0].strip.hidden = true;
-  }
-
-  announce(r, mode === 'kickoff' ? COPY.eventKickOff : COPY.eventChange);
-}
-
-function endCall() {
-  state.inCall = false;
-  el.body.classList.remove('call');
-  for (const parts of teamEls) {
-    if (parts.hint) parts.hint.hidden = true;
-    parts.strip.hidden = false;
-  }
-
-  const r = rotation(state.setup, elapsedMs());
-  paint(r, 'next', 'fade', { ms: 400, delay: 0 });
-  rebuildStrips(r);
-}
-
-/* ------------------------------------------------------------- the clock */
-
-function formatCountdown(ms) {
-  const total = Math.max(0, Math.ceil(ms / 1000));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
-function applyClock(text, big) {
-  el.clock.textContent = text;
-  el.clock.classList.toggle('big', big);
-  state.clockText = text;
-}
-
-function startClockSwap(text) {
-  if (prefersReducedMotion()) {
-    applyClock(text, true);
-    return;
-  }
-  state.clockSwapping = true;
-  el.clock.classList.add('swapping', 'swap-hidden');
-  window.setTimeout(() => {
-    applyClock(text, true);
-    el.clock.classList.remove('swapping', 'swap-hidden');
-    el.clock.classList.add('swap-enter');
-    void el.clock.offsetWidth;
-    el.clock.classList.add('swapping');
-    el.clock.classList.remove('swap-enter');
-    window.setTimeout(() => {
-      el.clock.classList.remove('swapping');
-      state.clockSwapping = false;
-    }, 160);
-  }, 150);
-}
-
-function updateClock(r) {
-  /* the change holds the clock on zero, then swaps instantly. never a digit
-     animation at a change: the swap belongs to T-9s and nowhere else. */
-  if (Date.now() < state.holdClockUntil) {
-    if (state.clockText !== '0' || !state.bigClock) {
-      state.clockSwapping = false;
-      state.bigClock = true;
-      el.clock.classList.remove('swapping', 'swap-hidden', 'swap-enter');
-      applyClock('0', true);
-    }
-    return;
-  }
-
-  let text;
-  let big;
-  if (r.msToNextChange <= 9000) {
-    text = String(Math.max(0, Math.ceil(r.msToNextChange / 1000)));
-    big = true;
-  } else {
-    text = formatCountdown(r.msToNextChange);
-    big = false;
-  }
-
-  if (state.clockSwapping) return;
-
-  if (big !== state.bigClock) {
-    state.bigClock = big;
-    if (big) startClockSwap(text);
-    else applyClock(text, false);
-    return;
-  }
-  if (text !== state.clockText) applyClock(text, big);
-}
-
-function updateMarks(r) {
-  const lapNumber = r.totalChanges > 0 ? Math.floor(r.changeIndex / r.totalChanges) + 1 : 1;
-  const showLap = lapNumber >= 2;
-  el.lap.hidden = !showLap;
-  if (showLap) el.lap.textContent = `${COPY.lap} ${lapNumber}`;
-  el.status.hidden = !(state.degradedLock || state.degradedVoice);
-}
-
-/* --------------------------------------------------------------- the loop */
-
-let rafId = 0;
-let intervalId = 0;
-
-function tick() {
-  if (state.screen !== 'display' || !state.setup) return;
-  const now = nowMs();
-  const elapsed = Math.max(0, now - state.kickoff);
-  const r = rotation(state.setup, elapsed);
-
-  if (r.changeIndex !== state.lastChangeIndex) {
-    const previous = state.lastChangeIndex;
-    state.lastChangeIndex = r.changeIndex;
-    let mode;
-    if (state.pendingRestore) mode = 'restore';
-    else if (previous === null) mode = 'kickoff';
-    else if (r.changeIndex - previous === 1) mode = 'step';
-    else mode = 'jump';
-    state.pendingRestore = false;
-    runChange(r, mode);
-  }
-
-  updateClock(r);
-  updateMarks(r);
-  if (state.inCall && Date.now() >= state.callUntil) endCall();
-}
-
-function loop() {
-  tick();
-  rafId = requestAnimationFrame(loop);
-}
-
-function startLoop() {
-  if (!rafId) rafId = requestAnimationFrame(loop);
-  if (!intervalId) intervalId = window.setInterval(tick, 250);
-}
-
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
-  tick();
-  takeWakeLock();
-});
-
-/* ------------------------------------------------------------ the voice */
+/* ================================================================ voice */
 
 let chosenVoice = null;
 let voiceReady = false;
@@ -890,13 +457,15 @@ function unlockVoice() {
     speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(' ');
     utterance.volume = 0;
-    utterance.rate = 1;
     let started = false;
-    utterance.onstart = () => { started = true; voiceReady = true; state.degradedVoice = false; };
+    utterance.onstart = () => {
+      started = true;
+      voiceReady = true;
+      state.degradedVoice = false;
+    };
     utterance.onerror = () => { state.degradedVoice = true; };
     speechSynthesis.speak(utterance);
     state.degradedVoice = false;
-    /* the test is not the call, it is what comes back from it */
     window.setTimeout(() => {
       if (started || voiceReady) return;
       if (!speechSynthesis.speaking && !speechSynthesis.pending) state.degradedVoice = true;
@@ -906,14 +475,10 @@ function unlockVoice() {
   }
 }
 
-function extendCall(untilMs) {
-  const cap = (state.callStart || 0) + 12000;
-  state.callUntil = Math.min(cap, Math.max(state.callUntil, untilMs));
-}
-
-function speak(text) {
+function speak(text, onEnd) {
   if (!('speechSynthesis' in window)) {
     state.degradedVoice = true;
+    if (onEnd) onEnd();
     return;
   }
   try {
@@ -930,122 +495,1412 @@ function speak(text) {
     } else {
       utterance.lang = 'en-GB';
     }
-    let started = false;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (onEnd) onEnd();
+    };
     utterance.onstart = () => {
-      started = true;
       voiceReady = true;
       state.degradedVoice = false;
     };
-      utterance.onend = () => extendCall(Date.now() + 2000);
-    utterance.onerror = () => { state.degradedVoice = true; };
+    utterance.onend = finish;
+    utterance.onerror = () => {
+      state.degradedVoice = true;
+      finish();
+    };
     speechSynthesis.speak(utterance);
+    /* a voice that never starts must not swallow the second team */
     window.setTimeout(() => {
-      if (!started && !speechSynthesis.speaking && !speechSynthesis.pending) state.degradedVoice = true;
-    }, 1500);
+      if (done) return;
+      if (!speechSynthesis.speaking && !speechSynthesis.pending) {
+        state.degradedVoice = true;
+        finish();
+      }
+    }, 1600);
   } catch (error) {
     state.degradedVoice = true;
+    if (onEnd) onEnd();
   }
 }
 
-/* ------------------------------------------------------------ announce */
-
-function joinNames(players) {
-  const names = players.map((p) => p.name);
+function joinNames(names) {
   if (names.length === 0) return '';
   if (names.length === 1) return names[0];
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
-function announcementFor(r, event) {
-  const parts = [`${event}.`];
+/* [chime] Bibs. Chris in goal. Mo off.  —  the chime sounds before each team */
+function linesForChange(r) {
+  const lines = [];
+  for (const team of r.teams) {
+    if (!team.nextKeeper) continue;
+    const bits = [`${team.name}.`, `${team.nextKeeper.name} in goal.`];
+    const off = team.goingOff.map((p) => p.name);
+    if (off.length > 0) bits.push(`${joinNames(off)} off.`);
+    lines.push(bits.join(' '));
+  }
+  return lines;
+}
+
+/* [chime] Bibs. Chris in goal. Sub, Dave. — nobody comes off at kick-off */
+function linesForKickOff(r) {
+  const lines = [];
   for (const team of r.teams) {
     if (!team.keeper) continue;
-    parts.push(`${team.name}.`);
-    parts.push(`${team.keeper.name} in goal.`);
-    if (team.subs.length > 0) parts.push(`${joinNames(team.subs)} off.`);
+    const bits = [`${team.name}.`, `${team.keeper.name} in goal.`];
+    const subs = team.subs.map((p) => p.name);
+    if (subs.length > 0) {
+      bits.push(`${subs.length > 1 ? 'Subs' : 'Sub'}, ${joinNames(subs)}.`);
+    }
+    lines.push(bits.join(' '));
   }
-  return parts.join(' ');
+  return lines;
 }
 
-function announce(r, event) {
-  speak(announcementFor(r, event));
+let announceToken = 0;
+
+function announce(lines) {
+  announceToken += 1;
+  const token = announceToken;
+  let i = 0;
+  const next = () => {
+    if (token !== announceToken || i >= lines.length) return;
+    const text = lines[i];
+    i += 1;
+    const wait = chime();
+    window.setTimeout(() => {
+      if (token !== announceToken) return;
+      speak(text, next);
+    }, wait + 70);
+  };
+  next();
 }
 
-/* --------------------------------------------------------------- start */
+/* ========================================================= setup screen */
 
-function startDisplay(options = {}) {
-  state.screen = 'display';
-  state.pendingRestore = Boolean(options.restored);
-  state.lastChangeIndex = null;
-  state.inCall = false;
-  state.bigClock = false;
-  state.clockText = '';
-  state.holdClockUntil = 0;
-  el.setup.hidden = true;
-  el.display.hidden = false;
-  el.body.classList.remove('call');
-  applyNameLength();
-  const [x, y] = DRIFT[state.driftStep];
+function draftSetup() {
+  return createSetup({
+    gameType: draft.gameType,
+    subMinutes: draft.subMinutes,
+    gameMinutes: draft.gameMinutes,
+    teams: [
+      { name: TEAM_NAMES[0], players: draft.names[0] },
+      { name: TEAM_NAMES[1], players: draft.names[1] }
+    ]
+  });
+}
+
+function draftSignature() {
+  return JSON.stringify({
+    g: draft.gameType,
+    m: draft.gameMinutes,
+    s: draft.subMinutes,
+    n: draft.names,
+    k: draft.keeper
+  });
+}
+
+function xIcon() {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+}
+
+function buildRow(teamIndex, index, name, isKeeper) {
+  const row = document.createElement('div');
+  row.className = isKeeper ? 'row keeper' : 'row';
+  row.dataset.team = String(teamIndex);
+  row.dataset.index = String(index);
+
+  const label = document.createElement('span');
+  label.className = 'row-name';
+  if (isKeeper) {
+    const tag = document.createElement('span');
+    tag.className = 'keeper-tag';
+    tag.textContent = COPY.keeperTag;
+    label.appendChild(tag);
+  }
+  const text = document.createElement('span');
+  text.textContent = name;
+  label.appendChild(text);
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'row-x';
+  remove.innerHTML = xIcon();
+  remove.setAttribute('aria-label', 'remove');
+
+  row.appendChild(label);
+  row.appendChild(remove);
+  return row;
+}
+
+function buildDivider() {
+  const node = document.createElement('div');
+  node.className = 'divider';
+  const label = document.createElement('span');
+  label.className = 'divider-label';
+  label.textContent = COPY.divider;
+  const rule = document.createElement('span');
+  rule.className = 'divider-rule';
+  node.appendChild(label);
+  node.appendChild(rule);
+  return node;
+}
+
+function renderList(teamIndex) {
+  const list = el.lists[teamIndex];
+  const names = draft.names[teamIndex];
+  const keeper = draft.keeper[teamIndex];
+  list.textContent = '';
+  names.forEach((name, i) => {
+    if (names.length > draft.gameType && i === draft.gameType) list.appendChild(buildDivider());
+    list.appendChild(buildRow(teamIndex, i, name, i === keeper));
+  });
+}
+
+function armAdd(teamIndex) {
+  el.adds[teamIndex].classList.toggle('armed', el.inputs[teamIndex].value.trim().length > 0);
+}
+
+function duplicateIn(names) {
+  const seen = new Set();
+  for (const name of names) {
+    const key = name.trim().toLowerCase();
+    if (!key) continue;
+    if (seen.has(key)) return true;
+    seen.add(key);
+  }
+  return false;
+}
+
+function durationWords(minutes) {
+  const m = Math.max(0, Math.floor(minutes));
+  if (m < 60) return `${m} min`;
+  const hours = Math.floor(m / 60);
+  const rest = m % 60;
+  const word = hours === 1 ? 'hour' : 'hours';
+  return rest === 0 ? `${hours} ${word}` : `${hours} ${word} ${rest}`;
+}
+
+function renderSetup() {
+  for (let t = 0; t < 2; t += 1) {
+    el.labels[t].textContent = TEAM_NAMES[t];
+    renderList(t);
+    armAdd(t);
+  }
+
+  el.typeValue.textContent = `${draft.gameType} a side`;
+  el.typeSelect.value = String(draft.gameType);
+  el.gameValue.textContent = durationWords(draft.gameMinutes);
+  el.gameSelect.value = String(draft.gameMinutes);
+  el.subValue.textContent = `${draft.subMinutes} min`;
+  el.subSelect.value = String(draft.subMinutes);
+
+  const sizes = draft.names.map((names) => names.length);
+  const valid = sizes.every((n) => n >= 2);
+  const anyTyped = sizes.some((n) => n > 0);
+  const duplicate = draft.names.some(duplicateIn);
+
+  let notice = '';
+  if (!valid && anyTyped) notice = COPY.errorTooSmall;
+  else if (duplicate) notice = COPY.warnDuplicate;
+  el.notice.textContent = notice;
+  el.notice.hidden = notice === '';
+
+  const editing = draft.mode === 'edit';
+  el.start.hidden = editing;
+  el.chip.hidden = !editing;
+  el.start.classList.toggle('hairline', !valid);
+  el.restored.hidden = editing || !state.prefilled;
+}
+
+/* --------------------------------------------------------- the marker */
+
+/*
+ * One rule on both screens: the marked row may only sit on an index the engine
+ * calls a legal start. A tap on any name makes them the keeper, and if their
+ * row is not on a legal index the row moves to the nearest one first. No row is
+ * ever refused and the move is what tells the person what happened.
+ */
+function legalTargetFor(teamIndex, index) {
+  const setup = draftSetup();
+  if (legalStartKeepers(setup, teamIndex).length === 0) return -1;
+  const recorded = setStartKeeper(setup, teamIndex, index);
+  const anchor = recorded.teams[teamIndex].anchor;
+  return anchor ? anchor.keeperIndex : nearestLegalStartKeeper(setup, teamIndex, index);
+}
+
+function chooseKeeper(teamIndex, index) {
+  const target = legalTargetFor(teamIndex, index);
+  if (target < 0) return;
+  if (target === index) {
+    draft.keeper[teamIndex] = index;
+    renderSetup();
+    return;
+  }
+  moveRow(teamIndex, index, target, 'landing');
+  draft.keeper[teamIndex] = target;
+  renderSetup();
+}
+
+/* After anything that changes the list, the marker must still be legal. */
+function reseatKeeper(teamIndex) {
+  const index = draft.keeper[teamIndex];
+  if (index == null) return;
+  const names = draft.names[teamIndex];
+  if (index < 0 || index >= names.length) {
+    draft.keeper[teamIndex] = null;
+    return;
+  }
+  const setup = draftSetup();
+  if (isLegalStartKeeper(setup, teamIndex, index)) return;
+  const target = legalTargetFor(teamIndex, index);
+  if (target < 0) {
+    draft.keeper[teamIndex] = null;
+    return;
+  }
+  moveRow(teamIndex, index, target, 'landing');
+  draft.keeper[teamIndex] = target;
+}
+
+/* --------------------------------------------------- moving a row about */
+
+function rowNodes(teamIndex) {
+  return [...el.lists[teamIndex].children];
+}
+
+function captureRects(nodes) {
+  return nodes.map((node) => node.getBoundingClientRect());
+}
+
+/* Move one name and let everything else shift around it, on a transform. */
+function moveRow(teamIndex, from, to, cls) {
+  const names = draft.names[teamIndex];
+  if (from === to || from < 0 || from >= names.length) return;
+  const nodes = rowNodes(teamIndex);
+  const before = new Map();
+  nodes.forEach((node) => before.set(node.dataset.index ?? `d${node.className}`, node.getBoundingClientRect()));
+
+  const [name] = names.splice(from, 1);
+  names.splice(to, 0, name);
+  const keeper = draft.keeper[teamIndex];
+  if (keeper != null) draft.keeper[teamIndex] = shiftIndex(keeper, from, to);
+  renderList(teamIndex);
+
+  if (prefersReducedMotion()) return;
+  const after = rowNodes(teamIndex);
+  const map = new Map();
+  const order = names.map((_, i) => i);
+  /* old index -> new index */
+  order.forEach(() => {});
+  const oldOf = (newIndex) => {
+    if (newIndex === to) return from;
+    let j = newIndex < to ? newIndex : newIndex - 1;
+    return j < from ? j : j + 1;
+  };
+  after.forEach((node) => {
+    if (!node.classList.contains('row')) return;
+    const newIndex = Number(node.dataset.index);
+    const key = String(oldOf(newIndex));
+    map.set(node, before.get(key));
+  });
+  after.forEach((node) => {
+    const rect = map.get(node);
+    if (!rect) return;
+    const now = node.getBoundingClientRect();
+    const dy = rect.top - now.top;
+    if (Math.abs(dy) < 0.5) return;
+    node.style.transform = `translateY(${dy}px)`;
+  });
+  requestAnimationFrame(() => {
+    after.forEach((node) => {
+      if (!node.style.transform) return;
+      node.classList.add(cls || 'shifting');
+      node.style.transform = '';
+    });
+    window.setTimeout(() => {
+      after.forEach((node) => node.classList.remove('shifting', 'landing', 'settling'));
+    }, 320);
+  });
+}
+
+function shiftIndex(index, from, to) {
+  if (index === from) return to;
+  let j = index > from ? index - 1 : index;
+  return j >= to ? j + 1 : j;
+}
+
+/* -------------------------------------------------------------- naming */
+
+function addName(teamIndex, raw) {
+  const name = String(raw).trim().slice(0, NAME_MAX);
+  if (!name) return false;
+  const names = draft.names[teamIndex];
+  if (draft.mode === 'edit' && names.length >= draft.gameType) {
+    /* a late arrival joins the front of the bench and comes on at the next
+       change. nobody on the pitch moves. */
+    names.splice(draft.gameType, 0, name);
+    const keeper = draft.keeper[teamIndex];
+    if (keeper != null && keeper >= draft.gameType) draft.keeper[teamIndex] = keeper + 1;
+  } else {
+    names.push(name);
+  }
+  state.prefilled = false;
+  renderSetup();
+  reseatKeeper(teamIndex);
+  renderSetup();
+  scrollToName(teamIndex, name);
+  return true;
+}
+
+function scrollToName(teamIndex, name) {
+  const list = el.lists[teamIndex];
+  const index = draft.names[teamIndex].indexOf(name);
+  const row = list.querySelector(`.row[data-index="${index}"]`);
+  if (!row) return;
+  if (isPortrait()) return;
+  row.scrollIntoView({ block: 'nearest' });
+}
+
+function removeName(teamIndex, index) {
+  const names = draft.names[teamIndex];
+  if (index < 0 || index >= names.length) return;
+  names.splice(index, 1);
+  const keeper = draft.keeper[teamIndex];
+  if (keeper != null) {
+    if (keeper === index) draft.keeper[teamIndex] = draft.mode === 'edit' ? Math.min(keeper, names.length - 1) : null;
+    else if (keeper > index) draft.keeper[teamIndex] = keeper - 1;
+  }
+  state.prefilled = false;
+  renderSetup();
+  reseatKeeper(teamIndex);
+  renderSetup();
+}
+
+function commitField(teamIndex) {
+  const input = el.inputs[teamIndex];
+  const value = input.value;
+  input.value = '';
+  armAdd(teamIndex);
+  return addName(teamIndex, value);
+}
+
+for (let t = 0; t < 2; t += 1) {
+  const input = el.inputs[t];
+  input.addEventListener('input', () => armAdd(t));
+  input.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    commitField(t);
+    input.focus();
+  });
+  el.adds[t].addEventListener('click', (event) => {
+    event.preventDefault();
+    commitField(t);
+    input.focus();
+  });
+  /* a half-typed name must survive the blur a tap elsewhere causes */
+  input.addEventListener('blur', () => {
+    if (!input.value.trim()) return;
+    window.setTimeout(() => {
+      if (!input.value.trim()) return;
+      commitField(t);
+    }, 0);
+  });
+}
+
+/* ---------------------------------------------------------------- drag */
+
+/*
+ * Pointer Events, `touch-action: none` on the row, and a 6px threshold before
+ * anything is treated as a drag — a stray tap would silently reassign the
+ * keeper, so a drag must never read as a tap.
+ */
+
+let drag = null;
+
+function beginDrag(event) {
+  const row = event.target.closest('.row');
+  if (!row) return;
+  if (event.target.closest('.row-x')) return;
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  const teamIndex = Number(row.dataset.team);
+  const index = Number(row.dataset.index);
+  drag = {
+    row,
+    teamIndex,
+    index,
+    target: index,
+    startY: event.clientY,
+    startX: event.clientX,
+    active: false,
+    pointerId: event.pointerId
+  };
+  try { row.setPointerCapture(event.pointerId); } catch (error) { /* ignore */ }
+}
+
+function startDragging() {
+  const list = el.lists[drag.teamIndex];
+  const rect = drag.row.getBoundingClientRect();
+  drag.offsetY = drag.startY - rect.top;
+  drag.gap = document.createElement('div');
+  drag.gap.className = 'gap';
+  drag.gap.style.height = `${rect.height}px`;
+  list.insertBefore(drag.gap, drag.row);
+  drag.row.style.width = `${rect.width}px`;
+  drag.row.style.height = `${rect.height}px`;
+  drag.row.style.left = `${rect.left}px`;
+  drag.row.style.top = `${rect.top}px`;
+  drag.row.classList.add('dragging');
+  drag.active = true;
+}
+
+function dragTargetIndex(event) {
+  const list = el.lists[drag.teamIndex];
+  const rows = [...list.querySelectorAll('.row')].filter((node) => node !== drag.row);
+  const y = event.clientY - drag.offsetY + drag.row.offsetHeight / 2;
+  for (let i = 0; i < rows.length; i += 1) {
+    const rect = rows[i].getBoundingClientRect();
+    if (y < rect.top + rect.height / 2) return i;
+  }
+  return rows.length;
+}
+
+function layoutDrag(target) {
+  const list = el.lists[drag.teamIndex];
+  const others = [...list.querySelectorAll('.row')].filter((node) => node !== drag.row);
+  const divider = list.querySelector('.divider');
+  const nodes = [...list.children].filter((node) => node !== drag.row);
+  const before = captureRects(nodes);
+
+  const slots = others.slice();
+  slots.splice(target, 0, drag.gap);
+  const total = slots.length;
+  const ordered = [];
+  slots.forEach((node, i) => {
+    if (divider && total > draft.gameType && i === draft.gameType) ordered.push(divider);
+    ordered.push(node);
+  });
+  if (divider && !ordered.includes(divider)) divider.remove();
+  ordered.forEach((node) => list.appendChild(node));
+
+  if (prefersReducedMotion()) return;
+  nodes.forEach((node, i) => {
+    if (!node.isConnected) return;
+    const now = node.getBoundingClientRect();
+    const dy = before[i].top - now.top;
+    if (Math.abs(dy) < 0.5) return;
+    node.classList.remove('shifting');
+    node.style.transform = `translateY(${dy}px)`;
+  });
+  requestAnimationFrame(() => {
+    nodes.forEach((node) => {
+      if (!node.style.transform) return;
+      node.classList.add('shifting');
+      node.style.transform = '';
+    });
+  });
+}
+
+function onPointerMove(event) {
+  if (!drag) return;
+  if (!drag.active) {
+    if (Math.abs(event.clientY - drag.startY) < 6 && Math.abs(event.clientX - drag.startX) < 6) return;
+    startDragging();
+  }
+  event.preventDefault();
+  drag.row.style.top = `${event.clientY - drag.offsetY}px`;
+  autoScroll(event);
+  const target = dragTargetIndex(event);
+  if (target !== drag.target) {
+    drag.target = target;
+    layoutDrag(target);
+  }
+}
+
+function autoScroll(event) {
+  const list = el.lists[drag.teamIndex];
+  if (list.scrollHeight <= list.clientHeight) return;
+  const rect = list.getBoundingClientRect();
+  if (event.clientY < rect.top + 28) list.scrollTop -= 12;
+  else if (event.clientY > rect.bottom - 28) list.scrollTop += 12;
+}
+
+function endDrag(event, commit) {
+  if (!drag) return;
+  const current = drag;
+  drag = null;
+  try { current.row.releasePointerCapture(current.pointerId); } catch (error) { /* ignore */ }
+
+  if (!current.active) {
+    if (commit) chooseKeeper(current.teamIndex, current.index);
+    return;
+  }
+
+  current.row.classList.remove('dragging');
+  current.row.style.cssText = '';
+  if (current.gap) current.gap.remove();
+
+  if (commit && current.target !== current.index) {
+    const names = draft.names[current.teamIndex];
+    const [name] = names.splice(current.index, 1);
+    names.splice(current.target, 0, name);
+    const keeper = draft.keeper[current.teamIndex];
+    if (keeper != null) draft.keeper[current.teamIndex] = shiftIndex(keeper, current.index, current.target);
+  }
+  renderSetup();
+  reseatKeeper(current.teamIndex);
+  renderSetup();
+}
+
+for (let t = 0; t < 2; t += 1) {
+  const list = el.lists[t];
+  list.addEventListener('pointerdown', beginDrag);
+  list.addEventListener('pointermove', onPointerMove);
+  list.addEventListener('pointerup', (event) => endDrag(event, true));
+  list.addEventListener('pointercancel', (event) => endDrag(event, false));
+  list.addEventListener('click', (event) => {
+    const x = event.target.closest('.row-x');
+    if (!x) return;
+    const row = x.closest('.row');
+    removeName(t, Number(row.dataset.index));
+  });
+  list.addEventListener('contextmenu', (event) => event.preventDefault());
+}
+
+/* ------------------------------------------------------------ settings */
+
+function fillSelect(select, values, label) {
+  select.textContent = '';
+  for (const value of values) {
+    const option = document.createElement('option');
+    option.value = String(value);
+    option.textContent = label(value);
+    select.appendChild(option);
+  }
+}
+
+const TYPE_VALUES = [];
+for (let n = MIN_GAME_TYPE; n <= MAX_GAME_TYPE; n += 1) TYPE_VALUES.push(n);
+const GAME_VALUES = [45, 60, 75, 90, 105, 120, 150, 180];
+const SUB_VALUES = [3, 4, 5, 6, 7, 8, 10, 12, 15, 20];
+
+fillSelect(el.typeSelect, TYPE_VALUES, (n) => `${n} a side`);
+fillSelect(el.gameSelect, GAME_VALUES, durationWords);
+fillSelect(el.subSelect, SUB_VALUES, (n) => `${n} min`);
+
+el.typeSelect.addEventListener('change', () => {
+  draft.gameType = Number(el.typeSelect.value) || DEFAULT_GAME_TYPE;
+  renderSetup();
+  for (let t = 0; t < 2; t += 1) reseatKeeper(t);
+  renderSetup();
+});
+el.gameSelect.addEventListener('change', () => {
+  draft.gameMinutes = Number(el.gameSelect.value) || DEFAULT_GAME_MINUTES;
+  renderSetup();
+});
+el.subSelect.addEventListener('change', () => {
+  draft.subMinutes = Number(el.subSelect.value) || DEFAULT_SUB_MINUTES;
+  renderSetup();
+});
+
+el.clear.addEventListener('click', () => {
+  draft.names = [[], []];
+  draft.keeper = [null, null];
+  state.prefilled = false;
+  dropKey(KEY_SQUAD);
+  renderSetup();
+});
+
+/* ==================================================== the game, painted */
+
+const DRIFT = [[0, 0], [2, 1], [0, 2], [-2, 1]];
+let driftStep = 0;
+
+function advanceDrift() {
+  driftStep = (driftStep + 1) % DRIFT.length;
+  applyDrift();
+}
+
+function applyDrift() {
+  const [x, y] = DRIFT[driftStep];
   document.documentElement.style.setProperty('--drift-x', `${x}px`);
   document.documentElement.style.setProperty('--drift-y', `${y}px`);
+}
+
+function applyNameLength(setup) {
+  let longest = 5;
+  for (const team of setup.teams) {
+    for (const player of team.players) longest = Math.max(longest, player.name.length);
+  }
+  if (longest === state.len) return;
+  state.len = longest;
+  document.documentElement.style.setProperty('--len', String(longest));
+}
+
+/* --shrink is --t-name-2 over the live hero size. transform, never font-size. */
+function applyShrink() {
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const name2 = (isPortrait() ? 1.5 : 1.75) * rem;
+  for (const parts of teamEls) {
+    const layer = parts.hero.querySelector('.layer');
+    const hero = parseFloat(getComputedStyle(layer).fontSize) || name2;
+    parts.root.style.setProperty('--shrink', String(Math.min(1, name2 / hero)));
+  }
+}
+
+function layers(parts) {
+  return [...parts.hero.querySelectorAll('.layer')];
+}
+
+function restingLayer(parts) {
+  const all = layers(parts);
+  return all.find((node) => node.classList.contains('on')) || all[0];
+}
+
+function spareLayer(parts) {
+  const all = layers(parts);
+  const live = restingLayer(parts);
+  return all.find((node) => node !== live) || all[1];
+}
+
+function setHero(node, name, arrow) {
+  node.textContent = '';
+  if (arrow) {
+    const glyph = document.createElement('span');
+    glyph.className = 'arrow';
+    glyph.textContent = arrow;
+    node.appendChild(glyph);
+  }
+  node.appendChild(document.createTextNode(name || ''));
+}
+
+function pairNode(label, name, arrow, cls) {
+  const wrap = document.createElement('span');
+  wrap.className = `pair ${cls}`;
+  const lab = document.createElement('span');
+  lab.className = 'plab';
+  lab.textContent = label;
+  const nm = document.createElement('span');
+  nm.className = 'nm';
+  if (arrow) {
+    const glyph = document.createElement('span');
+    glyph.className = 'arrow';
+    glyph.textContent = arrow;
+    nm.appendChild(glyph);
+    nm.appendChild(document.createTextNode(' '));
+  }
+  nm.appendChild(document.createTextNode(name));
+  wrap.appendChild(lab);
+  wrap.appendChild(nm);
+  return wrap;
+}
+
+function fillSubsRest(node, team) {
+  node.textContent = '';
+  node.hidden = false;
+  if (team.subs.length === 0) {
+    const none = document.createElement('span');
+    none.className = 'none';
+    none.textContent = COPY.subsNone;
+    node.appendChild(none);
+    return;
+  }
+  node.appendChild(pairNode(
+    team.subs.length > 1 ? COPY.subs : COPY.sub,
+    team.subs.map((p) => p.name).join('  '),
+    '',
+    'rest'
+  ));
+}
+
+function fillSubsWindow(node, team) {
+  node.textContent = '';
+  /* a team with no subs shows `in goal CHRIS` alone */
+  if (team.subs.length === 0 || team.goingOff.length === 0) {
+    node.hidden = true;
+    return;
+  }
+  node.hidden = false;
+  node.appendChild(pairNode(COPY.off, team.goingOff.map((p) => p.name).join('  '), '↓', 'off'));
+  node.appendChild(pairNode(COPY.on, team.comingOn.map((p) => p.name).join('  '), '↑', 'on'));
+}
+
+function buildStrip(track, team, gone) {
+  track.textContent = '';
+  const order = team.order;
+  const n = order.length;
+  if (n === 0) return;
+  let first = true;
+  const emit = (text, struck) => {
+    if (!first) {
+      const sep = document.createElement('span');
+      sep.className = 'sep';
+      sep.textContent = '·';
+      track.appendChild(sep);
+    }
+    first = false;
+    const item = document.createElement('span');
+    item.className = struck ? 'gone' : 'name';
+    item.textContent = text;
+    track.appendChild(item);
+  };
+  const leading = gone.filter((entry) => !entry.after);
+  for (const entry of leading) emit(entry.name, true);
+  for (let i = 0; i < n; i += 1) {
+    const player = order[(team.keeperIndex + i) % n];
+    emit(player.name, false);
+    for (const entry of gone) {
+      if (entry.after === player.name) emit(entry.name, true);
+    }
+  }
+}
+
+function paintTeam(t, team, mode) {
+  const parts = teamEls[t];
+  parts.tag.textContent = team.name;
+  parts.lab.textContent = COPY.keeper;
+  const gone = (state.game && state.game.gone[t]) || [];
+
+  if (mode === 'window') {
+    fillSubsWindow(parts.subgroup, team);
+    buildStrip(parts.track, team, gone);
+    return;
+  }
+  fillSubsRest(parts.subgroup, team);
+  buildStrip(parts.track, team, gone);
+}
+
+/* Everything at rest, with no motion of any kind. */
+function paintRest(r) {
+  r.teams.forEach((team, t) => {
+    const parts = teamEls[t];
+    paintTeam(t, team, 'rest');
+    const live = restingLayer(parts);
+    const spare = spareLayer(parts);
+    spare.className = 'layer';
+    spare.textContent = '';
+    live.className = 'layer on';
+    live.style.cssText = '';
+    setHero(live, team.keeper ? team.keeper.name : '', '');
+    parts.subgroup.classList.remove('swapping', 'go', 'fading');
+    parts.strip.classList.remove('gone-quiet');
+    parts.strip.style.display = '';
+  });
+}
+
+/* ==================================================== the changeover */
+
+let windowTimers = [];
+
+function clearWindowTimers() {
+  for (const id of windowTimers) window.clearTimeout(id);
+  windowTimers = [];
+}
+
+function later(ms, fn) {
+  windowTimers.push(window.setTimeout(fn, ms));
+}
+
+/*
+ * The window is the last ten seconds of the shift. A warning beats a report.
+ */
+function openWindow(r, options) {
+  const animate = options.animate && !prefersReducedMotion();
+  clearWindowTimers();
+
+  if (options.speak) {
+    announce(linesForChange(r));
+  }
+
+  if (state.screen !== 'display') return;
+
+  el.body.classList.add('call');
+  el.body.style.setProperty('--ground-ms', '200ms');
+  advanceDrift();
+  applyShrink();
+
+  if (!animate) {
+    r.teams.forEach((team, t) => {
+      const parts = teamEls[t];
+      paintTeam(t, team, 'window');
+      const live = restingLayer(parts);
+      const spare = spareLayer(parts);
+      spare.className = 'layer';
+      live.className = 'layer';
+      live.style.cssText = '';
+      setHero(spare, team.nextKeeper ? team.nextKeeper.name : '', '↑');
+      spare.classList.add('on', 'walk-in', 'go', 'settle-none');
+      spare.style.color = 'var(--on)';
+      parts.strip.style.display = 'none';
+      if (prefersReducedMotion()) {
+        setHero(live, team.keeper ? team.keeper.name : '', '↓');
+        live.className = 'layer walk-out';
+      }
+    });
+    return;
+  }
+
+  r.teams.forEach((team, t) => {
+    const parts = teamEls[t];
+    const out = restingLayer(parts);
+    const into = spareLayer(parts);
+
+    setHero(out, team.keeper ? team.keeper.name : '', '↓');
+    out.className = 'layer on';
+    out.style.cssText = '';
+    setHero(into, team.nextKeeper ? team.nextKeeper.name : '', '↑');
+    into.className = 'layer walk-in';
+    into.style.cssText = '';
+    parts.hero.dataset.out = out === layers(parts)[0] ? '0' : '1';
+  });
+
+  /* t 0 - 140  hold. the stillness is what makes the move read as a consequence */
+  later(140, () => {
+    r.teams.forEach((team, t) => {
+      const parts = teamEls[t];
+      const all = layers(parts);
+      const out = all[parts.hero.dataset.out === '0' ? 0 : 1];
+      const into = all[parts.hero.dataset.out === '0' ? 1 : 0];
+      out.classList.add('walk-out');
+      into.classList.add('go');
+      parts.strip.classList.add('gone-quiet');
+      later(180, () => { parts.strip.style.display = 'none'; });
+      later(500, () => out.classList.add('landed'));
+    });
+  });
+
+  /* t 200  the sub slot, at --t-name-2 */
+  later(200, () => {
+    r.teams.forEach((team, t) => {
+      const parts = teamEls[t];
+      paintTeam(t, team, 'window');
+      parts.subgroup.classList.add('swapping');
+      void parts.subgroup.offsetWidth;
+      parts.subgroup.classList.add('go');
+    });
+  });
+}
+
+/* t 10s = T. The change is now. No travel on the way back. */
+function closeWindow(r) {
+  clearWindowTimers();
+  if (state.screen !== 'display') {
+    paintRest(r);
+    return;
+  }
+  el.body.style.setProperty('--ground-ms', '300ms');
+  el.body.classList.remove('call');
+
+  r.teams.forEach((team, t) => {
+    const parts = teamEls[t];
+    const all = layers(parts);
+    const out = all.find((node) => node.classList.contains('walk-out'));
+    const into = all.find((node) => node.classList.contains('walk-in'));
+
+    if (into) {
+      into.classList.add('settle', 'on');
+      window.setTimeout(() => {
+        into.className = 'layer on';
+        setHero(into, team.keeper ? team.keeper.name : '', '');
+      }, 260);
+    }
+    if (out) {
+      out.classList.add('leaving');
+      window.setTimeout(() => {
+        out.className = 'layer';
+        out.textContent = '';
+      }, 260);
+    }
+    if (!into && !out) {
+      const live = restingLayer(parts);
+      setHero(live, team.keeper ? team.keeper.name : '', '');
+      live.className = 'layer on';
+    }
+
+    parts.subgroup.classList.add('fading');
+    window.setTimeout(() => {
+      fillSubsRest(parts.subgroup, team);
+      parts.subgroup.classList.remove('swapping', 'go', 'fading');
+    }, 250);
+
+    buildStrip(parts.track, team, (state.game && state.game.gone[t]) || []);
+    parts.strip.style.display = '';
+    parts.strip.classList.add('gone-quiet');
+    requestAnimationFrame(() => parts.strip.classList.remove('gone-quiet'));
+  });
+}
+
+/* ================================================================ epochs */
+
+function liveEpoch(elapsed) {
+  const epochs = state.game.epochs;
+  let live = epochs[0];
+  for (const epoch of epochs) if (elapsed >= epoch.fromMs) live = epoch;
+  return live;
+}
+
+function pendingEpoch(elapsed) {
+  return state.game.epochs.find((epoch) => epoch.fromMs > elapsed) || null;
+}
+
+function view(elapsed) {
+  const epoch = liveEpoch(elapsed);
+  const r = rotation(epoch.setup, Math.max(0, elapsed - epoch.fromMs));
+  return { epoch, r, k: epoch.index0 + r.changeIndex };
+}
+
+function prune(elapsed) {
+  const epochs = state.game.epochs;
+  while (epochs.length > 1 && elapsed >= epochs[1].fromMs) epochs.shift();
+}
+
+/* ================================================================= clock */
+
+function formatCountdown(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatPlayed(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor(total / 60) % 60;
+  return `${hours}:${String(minutes).padStart(2, '0')}`;
+}
+
+function setClock(text, count, pop) {
+  if (text === state.clockText && count === state.clockCount) return;
+  state.clockText = text;
+  state.clockCount = count;
+  el.clock.textContent = text;
+  el.clock.classList.toggle('count', count);
+  if (!pop || prefersReducedMotion()) return;
+  el.clock.classList.remove('pop');
+  void el.clock.offsetWidth;
+  el.clock.classList.add('pop');
+}
+
+function setNotes() {
+  const lines = [];
+  if (state.pendingEdit) lines.push(COPY.pending);
+  if (state.degradedVoice) lines.push(COPY.noVoice);
+  if (state.degradedLock) lines.push(COPY.noLock);
+  const text = lines.join(' · ');
+  if (el.notes.textContent === text) return;
+  el.notes.textContent = text;
+}
+
+/* ================================================================== tick */
+
+let rafId = 0;
+let intervalId = 0;
+
+function tick() {
+  if (!state.game) return;
+  const elapsed = elapsedMs();
+  prune(elapsed);
+  const { r, k } = view(elapsed);
+  const inWindow = r.msToNextChange <= WINDOW_MS;
+
+  if (state.screen === 'countdown') {
+    runCountdown();
+    return;
+  }
+
+  /* the crossing, not the tick */
+  if (k !== state.shownChange) {
+    const stepped = state.shownChange !== null && k - state.shownChange === 1;
+    if (state.windowFor === k && stepped) {
+      closeWindow(r);
+    } else {
+      clearWindowTimers();
+      el.body.classList.remove('call');
+      if (state.screen === 'display') paintRest(r);
+    }
+    state.shownChange = k;
+    state.windowFor = null;
+    if (state.pendingEdit && !pendingEpoch(elapsed)) state.pendingEdit = false;
+  }
+
+  if (inWindow && state.windowFor !== k + 1) {
+    state.windowFor = k + 1;
+    const late = r.msToNextChange < WINDOW_MS - 900;
+    const silent = late || state.silentUntilChange !== null;
+    openWindow(r, { animate: !late, speak: !silent });
+  }
+  if (state.silentUntilChange !== null && k > state.silentUntilChange) state.silentUntilChange = null;
+
+  if (state.screen === 'setup') {
+    el.chipCount.textContent = formatCountdown(r.msToNextChange);
+    return;
+  }
+  if (state.screen !== 'display') return;
+
+  if (inWindow) setClock(String(Math.max(1, Math.ceil(r.msToNextChange / 1000))), true, false);
+  else setClock(formatCountdown(r.msToNextChange), false, false);
+
+  const played = formatPlayed(elapsed);
+  if (played !== state.elapsedText) {
+    state.elapsedText = played;
+    el.elapsed.textContent = played;
+  }
+  setNotes();
+}
+
+function loop() {
+  tick();
+  rafId = requestAnimationFrame(loop);
+}
+
+function startLoop() {
+  if (!rafId) rafId = requestAnimationFrame(loop);
+  if (!intervalId) intervalId = window.setInterval(tick, 250);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  resumeAudio();
+  tick();
   takeWakeLock();
+});
+
+window.addEventListener('resize', () => {
+  applyShrink();
+});
+
+/* ============================================================= kick off */
+
+function showSetup(prefilled) {
+  state.screen = 'setup';
+  state.prefilled = Boolean(prefilled);
+  el.setup.hidden = false;
+  el.display.hidden = true;
+  el.body.classList.remove('call');
+  renderSetup();
+}
+
+function showDisplay() {
+  state.screen = 'display';
+  el.setup.hidden = true;
+  el.display.hidden = false;
+  el.edit.hidden = false;
+  takeWakeLock();
+}
+
+function buildKickOffSetup() {
+  let setup = draftSetup();
+  for (let t = 0; t < 2; t += 1) {
+    if (draft.keeper[t] == null) continue;
+    setup = setStartKeeper(setup, t, draft.keeper[t]);
+  }
+  if (debug) {
+    for (let t = 0; t < 2; t += 1) {
+      const forced = debug.keepers[t];
+      if (Number.isFinite(forced)) setup = setStartKeeper(setup, t, forced);
+    }
+  }
+  /* the one impure moment: the first keeper is drawn, once, and written down */
+  return drawKeepers(setup);
+}
+
+function saveSquad() {
+  writeJSON(KEY_SQUAD, {
+    gameType: draft.gameType,
+    gameMinutes: draft.gameMinutes,
+    subMinutes: draft.subMinutes,
+    names: draft.names
+  });
+}
+
+el.start.addEventListener('click', () => {
+  const sizes = draft.names.map((names) => names.length);
+  if (sizes.some((n) => n < 2)) {
+    const shortest = sizes[0] <= sizes[1] ? 0 : 1;
+    el.inputs[shortest].focus();
+    renderSetup();
+    return;
+  }
+  /* the gesture iOS needs, for both the audio context and the voice */
+  audio();
+  resumeAudio();
+  unlockVoice();
+  saveSquad();
+  beginKickOff();
+});
+
+function beginKickOff() {
+  const setup = buildKickOffSetup();
+  state.pendingSetup = setup;
+  applyNameLength(setup);
+  driftStep = 0;
+  applyDrift();
+
+  const r = rotation(setup, 0);
+  el.setup.hidden = true;
+  el.display.hidden = false;
+  el.edit.hidden = false;
+  el.body.classList.remove('call');
+  paintRest(r);
+  applyShrink();
+  el.elapsed.textContent = '0:00';
+  state.elapsedText = '0:00';
+  el.notes.textContent = '';
+
+  if (debug && !debug.countdown) {
+    finishKickOff();
+    return;
+  }
+  state.screen = 'countdown';
+  state.countdownAt = Date.now();
+  state.countdownLeft = COUNTDOWN_S + 1;
+  takeWakeLock();
+  startLoop();
+  runCountdown();
+}
+
+function runCountdown() {
+  const gone = Date.now() - state.countdownAt;
+  const left = COUNTDOWN_S - Math.floor(gone / 1000);
+  if (left <= 0) {
+    finishKickOff();
+    return;
+  }
+  if (left === state.countdownLeft) return;
+  state.countdownLeft = left;
+  setClock(String(left), true, true);
+  if (left <= 5) tick880();
+}
+
+function abortKickOff() {
+  if (state.screen !== 'countdown') return;
+  state.screen = 'setup';
+  state.pendingSetup = null;
+  state.clockText = '';
+  el.display.hidden = true;
+  el.setup.hidden = false;
+  renderSetup();
+}
+
+function finishKickOff() {
+  const setup = state.pendingSetup;
+  state.pendingSetup = null;
+  state.game = {
+    kickoff: nowMs() - (debug ? debug.offsetMs : 0),
+    epochs: [{ fromMs: 0, index0: 0, setup }],
+    gone: [[], []]
+  };
+  state.shownChange = null;
+  state.windowFor = null;
+  state.pendingEdit = false;
+  state.clockText = '';
+  showDisplay();
+  saveGame();
+
+  whistle(700);
+  el.body.style.setProperty('--ground-ms', '500ms');
+  el.body.classList.add('call');
+  window.setTimeout(() => {
+    el.body.classList.remove('call');
+    el.body.style.setProperty('--ground-ms', '200ms');
+  }, 220);
+
+  const r = rotation(setup, Math.max(0, elapsedMs()));
+  window.setTimeout(() => announce(linesForKickOff(r)), 760);
+
   startLoop();
   tick();
 }
 
-function kickOff() {
-  saveSquad();
-  unlockVoice();
-  state.base = lockClock(draftSetup());
-  state.ops = [];
-  state.setup = state.base;
-  state.kickoff = nowMs() - (debug ? debug.offsetMs : 0);
-  saveGame();
-  startDisplay({ restored: false });
-}
+/* =========================================================== edit route */
 
-/* ---------------------------------------------------------------- boot */
+/*
+ * The pencil returns to the setup screen with the game still running. The list
+ * is the ring rotated so the next change is what the screen describes, so the
+ * anchor an edit writes has exactly the same shape as the one kick-off writes.
+ */
 
-function loadSquadIntoDraft(squad) {
-  if (!squad || !Array.isArray(squad.arrivals)) return false;
-  const arrivals = [0, 1].map((t) => (Array.isArray(squad.arrivals[t]) ? squad.arrivals[t].slice() : []));
-  if (arrivals[0].length === 0 && arrivals[1].length === 0) return false;
-  state.draft.arrivals = arrivals;
-  if (Number.isFinite(squad.durationMin)) state.draft.durationMin = squad.durationMin;
-  if (Number.isFinite(squad.shiftsEach)) state.draft.shiftsEach = squad.shiftsEach;
-  return true;
-}
-
-function saveGame() {
-  if (debug) return;
-  writeJSON(KEY_GAME, { base: state.base, ops: state.ops, kickoff: state.kickoff });
-}
-
-function restoreGame() {
-  const game = readJSON(KEY_GAME);
-  if (!game || !game.base || !Number.isFinite(game.kickoff)) return false;
-  const setup = replay(game.base, Array.isArray(game.ops) ? game.ops : []);
-  const elapsed = Date.now() - game.kickoff;
-  const limit = (Number(setup.durationMin) || DEFAULT_DURATION_MIN) * MS_PER_MINUTE + 60 * MS_PER_MINUTE;
-  if (elapsed < 0 || elapsed > limit) {
-    dropKey(KEY_GAME);
-    return false;
+function subPointerAt(team, changeIndex, n, gameType) {
+  const anchor = team.anchor;
+  if (anchor && Number.isFinite(Number(anchor.subIndex))) {
+    const step = changeIndex - Math.floor(Number(anchor.changeIndex) || 0);
+    return mod(Math.floor(Number(anchor.subIndex)) + step, n);
   }
-  state.base = game.base;
-  state.ops = Array.isArray(game.ops) ? game.ops : [];
-  state.setup = setup;
-  state.kickoff = game.kickoff;
-  if (debug) state.kickoff = nowMs() - debug.offsetMs;
-  startDisplay({ restored: true });
-  return true;
+  return mod(gameType + changeIndex, n);
 }
 
-/* --------------------------------------------------------- staying alive */
+function openEdit() {
+  if (!state.game) return;
+  const elapsed = elapsedMs();
+  prune(elapsed);
+  const { epoch, r, k } = view(elapsed);
+  const pending = pendingEpoch(elapsed);
+
+  draft.gameType = gameTypeOf(pending ? pending.setup : epoch.setup);
+  draft.subMinutes = Math.round((pending ? pending.setup : epoch.setup).subMinutes);
+  draft.gameMinutes = Math.round((pending ? pending.setup : epoch.setup).gameMinutes);
+  draft.mode = 'edit';
+  draft.baseChange = k;
+  draft.names = [[], []];
+  draft.keeper = [null, null];
+
+  for (let t = 0; t < 2; t += 1) {
+    if (pending) {
+      const team = pending.setup.teams[t];
+      draft.names[t] = team.players.map((p) => p.name);
+      draft.keeper[t] = team.anchor ? team.anchor.keeperIndex : null;
+      continue;
+    }
+    const team = r.teams[t];
+    const n = team.order.length;
+    if (n === 0) continue;
+    const g = draft.gameType;
+    const raw = epoch.setup.teams[t];
+    let rot;
+    let marker;
+    if (n >= g) {
+      const sIdx = subPointerAt(raw, r.changeIndex, n, g);
+      rot = mod(sIdx + 1 - g, n);
+      marker = mod(team.keeperIndex + 1 - rot, n);
+    } else {
+      const legal = legalStartKeepers(epoch.setup, t);
+      marker = legal.length > 0 ? legal[0] : 0;
+      rot = mod(team.keeperIndex + 1 - marker, n);
+    }
+    draft.names[t] = [];
+    for (let i = 0; i < n; i += 1) draft.names[t].push(team.order[mod(rot + i, n)].name);
+    draft.keeper[t] = marker;
+  }
+
+  draft.signature = draftSignature();
+  state.screen = 'setup';
+  el.display.hidden = true;
+  el.setup.hidden = false;
+  renderSetup();
+  for (let t = 0; t < 2; t += 1) reseatKeeper(t);
+  renderSetup();
+  const first = view(elapsedMs());
+  el.chipCount.textContent = formatCountdown(first.r.msToNextChange);
+}
+
+function commitEdit() {
+  const elapsed = elapsedMs();
+  const { epoch, r, k } = view(elapsed);
+  const changed = draftSignature() !== draft.signature;
+
+  if (changed) {
+    const setup = buildEditSetup(k);
+    if (setup) {
+      const boundary = epoch.fromMs + (r.changeIndex + 1) * r.intervalMs;
+      const epochs = state.game.epochs.filter((one) => one.fromMs <= elapsed);
+      epochs.push({ fromMs: boundary, index0: k + 1, setup });
+      state.game.epochs = epochs;
+      state.pendingEdit = true;
+      recordGone(setup);
+      applyNameLength(setup);
+      saveGame();
+      saveSquad();
+    }  }
+
+  draft.mode = 'pre';
+  state.screen = 'display';
+  el.setup.hidden = true;
+  el.display.hidden = false;
+  el.edit.hidden = false;
+  clearWindowTimers();
+  const after = view(elapsedMs());
+  state.shownChange = after.k;
+  if (after.r.msToNextChange <= WINDOW_MS) {
+    state.windowFor = after.k + 1;
+    paintRest(after.r);
+    openWindow(after.r, { animate: false, speak: false });
+  } else {
+    state.windowFor = null;
+    el.body.classList.remove('call');
+    paintRest(after.r);
+  }
+  applyShrink();
+  setNotes();
+  takeWakeLock();
+}
+
+function buildEditSetup(k) {
+  const sizes = draft.names.map((names) => names.length);
+  if (sizes.some((n) => n < 1)) return null;
+  let setup = createSetup({
+    gameType: draft.gameType,
+    subMinutes: draft.subMinutes,
+    gameMinutes: draft.gameMinutes,
+    teams: [
+      { name: TEAM_NAMES[0], players: draft.names[0] },
+      { name: TEAM_NAMES[1], players: draft.names[1] }
+    ]
+  });
+  const step = Math.max(0, k - draft.baseChange);
+  for (let t = 0; t < 2; t += 1) {
+    const n = draft.names[t].length;
+    if (n === 0) continue;
+    const wanted = draft.keeper[t] == null ? 0 : draft.keeper[t];
+    setup = setStartKeeper(setup, t, wanted);
+    const anchor = setup.teams[t].anchor;
+    if (anchor && step > 0) {
+      /* both pointers move together, so the offset — and the two rules — hold */
+      anchor.keeperIndex = mod(anchor.keeperIndex + step, n);
+      anchor.subIndex = mod(anchor.subIndex + step, n);
+    }
+  }
+  return setup;
+}
+
+/* Names that have left keep their place in the strip, struck through. */
+function recordGone(next) {
+  const epochs = state.game.epochs;
+  const previous = epochs.length > 1 ? epochs[epochs.length - 2].setup : null;
+  if (!previous) return;
+  for (let t = 0; t < 2; t += 1) {
+    const was = previous.teams[t].players.map((p) => p.name);
+    const now = new Set(next.teams[t].players.map((p) => p.name));
+    const live = new Set(now);
+    was.forEach((name, i) => {
+      if (live.has(name)) return;
+      let after = null;
+      for (let j = i - 1; j >= 0; j -= 1) {
+        if (now.has(was[j])) { after = was[j]; break; }
+      }
+      const already = state.game.gone[t].some((entry) => entry.name === name && entry.after === after);
+      if (!already) state.game.gone[t].push({ name, after });
+    });
+    state.game.gone[t] = state.game.gone[t].filter((entry) => !now.has(entry.name));
+  }
+}
+
+el.edit.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (state.screen === 'countdown') { abortKickOff(); return; }
+  openEdit();
+});
+
+el.chip.addEventListener('click', commitEdit);
+
+/* a tap on the display re-takes the lock and re-tests the voice, no label */
+el.display.addEventListener('click', () => {
+  if (state.screen === 'countdown') { abortKickOff(); return; }
+  resumeAudio();
+  takeWakeLock();
+  if (state.degradedVoice) unlockVoice();
+});
+
+/* ======================================================== staying alive */
 
 let wakeLock = null;
 
 function takeWakeLock() {
-  if (state.screen !== 'display') return;
+  if (state.screen === 'setup' && !state.game) return;
   if (!('wakeLock' in navigator)) {
     state.degradedLock = true;
     return;
@@ -1056,229 +1911,82 @@ function takeWakeLock() {
     state.degradedLock = false;
     lock.addEventListener('release', () => {
       wakeLock = null;
-      if (state.screen === 'display') state.degradedLock = true;
+      if (state.game) state.degradedLock = true;
     });
   }).catch(() => {
     state.degradedLock = true;
   });
 }
 
-/* A single tap on the display re-takes the lock and re-tests the voice. */
-function clearDegraded() {
-  takeWakeLock();
-  unlockVoice();
+/* ========================================================= persistence */
+
+function saveGame() {
+  if (debug || !state.game) return;
+  writeJSON(KEY_GAME, state.game);
 }
 
-/* -------------------------------------------------------- roster sheet */
+function loadSquadIntoDraft(squad) {
+  if (!squad || !Array.isArray(squad.names)) return false;
+  const names = [0, 1].map((t) => (Array.isArray(squad.names[t]) ? squad.names[t].slice() : []));
+  if (names[0].length === 0 && names[1].length === 0) return false;
+  draft.names = names;
+  if (Number.isFinite(squad.gameType)) draft.gameType = squad.gameType;
+  if (Number.isFinite(squad.gameMinutes)) draft.gameMinutes = squad.gameMinutes;
+  if (Number.isFinite(squad.subMinutes)) draft.subMinutes = squad.subMinutes;
+  return true;
+}
 
-/*
- * The two mid-game actions. Both are facts, not decisions.
- * Every change is an engine rewrite: the app keeps the kick-off setup and an
- * ordered log of operations, and the live setup is the replay of that log.
- * Undo is dropping one entry and replaying, which is why a gone name can be
- * tapped back without a confirmation dialogue.
- */
-
-const SHEET_IDLE_MS = 10000;
-let sheetIdleTimer = 0;
-
-function replay(base, ops) {
-  let setup = base;
-  for (const op of ops) {
-    if (op.type === 'add') setup = addLateArrival(setup, op.team, op.name, op.elapsed);
-    else if (op.type === 'remove') setup = removePlayer(setup, op.team, op.playerId, op.elapsed);
+function restoreGame() {
+  const game = readJSON(KEY_GAME);
+  if (!game || !Number.isFinite(game.kickoff) || !Array.isArray(game.epochs)) return false;
+  if (game.epochs.length === 0 || !game.epochs[0].setup) return false;
+  const elapsed = Date.now() - game.kickoff;
+  const setup = game.epochs[0].setup;
+  const limit = (Number(setup.gameMinutes) || DEFAULT_GAME_MINUTES) * MS_PER_MINUTE + 60 * MS_PER_MINUTE;
+  if (elapsed < 0 || elapsed > limit) {
+    dropKey(KEY_GAME);
+    return false;
   }
-  return setup;
-}
+  state.game = {
+    kickoff: game.kickoff,
+    epochs: game.epochs,
+    gone: Array.isArray(game.gone) ? game.gone : [[], []]
+  };
+  if (debug) state.game.kickoff = nowMs() - debug.offsetMs;
 
-function afterRosterChange() {
-  applyNameLength();
-  const r = rotation(state.setup, elapsedMs());
-  paint(r, state.inCall ? 'now' : 'next', 'now');
-  rebuildStrips(r);
-  renderSheet();
-}
-
-function commitOps(ops) {
-  state.ops = ops;
-  state.setup = replay(state.base, state.ops);
-  saveGame();
-  afterRosterChange();
-}
-
-function sheetPill(name, gone) {
-  const pill = document.createElement('span');
-  pill.className = gone ? 'pill gone' : 'pill';
-  const label = document.createElement('span');
-  label.className = 'pill-label';
-  label.textContent = name;
-  pill.appendChild(label);
-  return pill;
-}
-
-function renderSheet() {
-  if (!state.setup) return;
-  for (let t = 0; t < 2; t += 1) {
-    const team = state.setup.teams[t];
-    const players = team ? team.players : [];
-    el.sheetHeads[t].textContent = `${TEAM_NAMES[t]} · ${players.length}`;
-    const host = el.sheetPills[t];
-    host.textContent = '';
-    for (const player of players) {
-      const pill = sheetPill(player.name, false);
-      pill.dataset.playerId = player.id;
-      host.appendChild(pill);
-    }
-    state.ops.forEach((op, index) => {
-      if (op.type !== 'remove' || op.team !== t) return;
-      const pill = sheetPill(op.name, true);
-      pill.dataset.opIndex = String(index);
-      host.appendChild(pill);
-    });
+  const now = elapsedMs();
+  prune(now);
+  const { r, k } = view(now);
+  applyNameLength(liveEpoch(now).setup);
+  applyDrift();
+  /* no dialog, and no voice for changes missed while the phone was dead */
+  state.shownChange = k;
+  state.silentUntilChange = k;
+  state.pendingEdit = Boolean(pendingEpoch(now));
+  showDisplay();
+  paintRest(r);
+  applyShrink();
+  if (r.msToNextChange <= WINDOW_MS) {
+    state.windowFor = k + 1;
+    openWindow(r, { animate: false, speak: false });
   }
+  startLoop();
+  tick();
+  return true;
 }
 
-function showSheetNote(text) {
-  el.sheetNote.textContent = text;
-  el.sheetNote.hidden = false;
-}
-
-function clearSheetNote() {
-  el.sheetNote.hidden = true;
-  el.sheetNote.textContent = '';
-}
-
-function touchSheetIdle() {
-  window.clearTimeout(sheetIdleTimer);
-  sheetIdleTimer = window.setTimeout(closeSheet, SHEET_IDLE_MS);
-}
-
-function openSheet() {
-  if (state.screen !== 'display' || state.sheetOpen) return;
-  state.sheetOpen = true;
-  renderSheet();
-  el.scrim.hidden = false;
-  el.sheet.hidden = false;
-  void el.sheet.offsetWidth;
-  el.scrim.classList.add('up');
-  el.sheet.classList.add('up');
-  touchSheetIdle();
-}
-
-function closeSheet() {
-  if (!state.sheetOpen) return;
-  state.sheetOpen = false;
-  window.clearTimeout(sheetIdleTimer);
-  clearSheetNote();
-  for (const input of el.sheetInputs) input.value = '';
-  el.scrim.classList.remove('up');
-  el.sheet.classList.remove('up');
-  window.setTimeout(() => {
-    if (state.sheetOpen) return;
-    el.scrim.hidden = true;
-    el.sheet.hidden = true;
-  }, 300);
-}
-
-el.scrim.addEventListener('click', closeSheet);
-
-for (let t = 0; t < 2; t += 1) {
-  el.sheetPills[t].addEventListener('click', (event) => {
-    const pill = event.target.closest('.pill');
-    if (!pill || state.sheetSwiped) return;
-    touchSheetIdle();
-    if (pill.dataset.opIndex !== undefined) {
-      const index = Number(pill.dataset.opIndex);
-      commitOps(state.ops.filter((_, i) => i !== index));
-      return;
-    }
-    const playerId = pill.dataset.playerId;
-    const player = state.setup.teams[t].players.find((p) => p.id === playerId);
-    if (!player) return;
-    commitOps([...state.ops, {
-      type: 'remove', team: t, playerId, name: player.name, elapsed: elapsedMs()
-    }]);
-  });
-
-  const input = el.sheetInputs[t];
-  input.addEventListener('keydown', (event) => {
-    touchSheetIdle();
-    if (event.key !== 'Enter' && event.key !== ',') return;
-    event.preventDefault();
-    const name = input.value.trim().slice(0, NAME_MAX);
-    input.value = '';
-    if (!name) return;
-    commitOps([...state.ops, { type: 'add', team: t, name, elapsed: elapsedMs() }]);
-    /* the fairness rule, stated once, so nobody on the pitch has to argue it */
-    showSheetNote(`${name} is in goal at the next change.`);
-  });
-  input.addEventListener('focus', touchSheetIdle);
-}
-
-/* swipe down to dismiss, and never let a swipe read as a pill tap */
-let sheetDrag = null;
-el.sheet.addEventListener('pointerdown', (event) => {
-  sheetDrag = { y: event.clientY };
-  state.sheetSwiped = false;
-  touchSheetIdle();
-});
-el.sheet.addEventListener('pointermove', (event) => {
-  if (!sheetDrag) return;
-  if (event.clientY - sheetDrag.y > 60) {
-    state.sheetSwiped = true;
-    sheetDrag = null;
-    closeSheet();
-  } else if (Math.abs(event.clientY - sheetDrag.y) > 12) {
-    state.sheetSwiped = true;
-  }
-});
-el.sheet.addEventListener('pointerup', () => { sheetDrag = null; });
-el.sheet.addEventListener('pointercancel', () => { sheetDrag = null; state.sheetSwiped = false; });
-
-/* press and hold anywhere on the display opens it. a single tap clears the
-   degraded marker by re-taking the lock and re-testing the voice. */
-let displayPress = null;
-
-el.display.addEventListener('pointerdown', (event) => {
-  if (state.sheetOpen) return;
-  displayPress = { x: event.clientX, y: event.clientY, moved: false, fired: false };
-  displayPress.timer = window.setTimeout(() => {
-    if (!displayPress || displayPress.moved) return;
-    displayPress.fired = true;
-    openSheet();
-  }, 700);
-});
-
-el.display.addEventListener('pointermove', (event) => {
-  if (!displayPress) return;
-  const dx = event.clientX - displayPress.x;
-  const dy = event.clientY - displayPress.y;
-  if (Math.sqrt(dx * dx + dy * dy) > 12) {
-    displayPress.moved = true;
-    window.clearTimeout(displayPress.timer);
-  }
-});
-
-function endDisplayPress(tapped) {
-  if (!displayPress) return;
-  window.clearTimeout(displayPress.timer);
-  if (tapped && !displayPress.fired && !displayPress.moved) clearDegraded();
-  displayPress = null;
-}
-
-el.display.addEventListener('pointerup', () => endDisplayPress(true));
-el.display.addEventListener('pointercancel', () => endDisplayPress(false));
-el.display.addEventListener('contextmenu', (event) => event.preventDefault());
-
-/* ---------------------------------------------------------- debug hook */
+/* ============================================================== debug */
 
 if (debug) {
   window.rota = {
     state,
+    draft,
     rotation,
+    view: () => view(elapsedMs()),
     getElapsed: () => elapsedMs(),
     setElapsed(ms) {
-      state.kickoff = nowMs() - Math.max(0, Number(ms) || 0);
+      if (!state.game) return 0;
+      state.game.kickoff = nowMs() - Math.max(0, Number(ms) || 0);
       tick();
       return elapsedMs();
     },
@@ -1288,20 +1996,34 @@ if (debug) {
       debug.rate = Math.max(0, Number(n) || 0);
       return debug.rate;
     },
+    kickOff: () => el.start.click(),
     tick
   };
 }
 
+/* =============================================================== boot */
+
 function boot() {
-  const squad = readJSON(KEY_SQUAD);
+  if (debug) {
+    if (Number.isFinite(debug.gameType)) draft.gameType = debug.gameType;
+    if (Number.isFinite(debug.subMinutes)) draft.subMinutes = debug.subMinutes;
+    if (Number.isFinite(debug.gameMinutes)) draft.gameMinutes = debug.gameMinutes;
+    for (let t = 0; t < 2; t += 1) {
+      if (debug.squads[t]) draft.names[t] = debug.squads[t].slice(0, 24);
+    }
+  }
+  const squad = debug ? null : readJSON(KEY_SQUAD);
   const prefilled = loadSquadIntoDraft(squad);
   if (!restoreGame()) showSetup(prefilled);
   el.body.classList.remove('boot');
+  if (debug && debug.auto && !state.game) {
+    window.setTimeout(() => el.start.click(), 0);
+  }
 }
 
 boot();
 
-/* ------------------------------------------------------------- offline */
+/* ------------------------------------------------------------ offline */
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

@@ -19,116 +19,140 @@
 
 <!-- ------------------------------------------------------------- setup -->
 <section id="setup" hidden>
-  <div class="setup-inner">
 
-    <div class="readout-block">
-      <button id="readout" class="readout" type="button" aria-expanded="false">&mdash;</button>
-      <div id="steppers" class="steppers" hidden>
-        <div class="stepper">
-          <span class="stepper-label">Duration</span>
-          <button class="step" type="button" data-step="duration" data-dir="-1" aria-label="less">&minus;</button>
-          <span class="stepper-value"><span id="duration-value">90</span> <span class="stepper-unit">min</span></span>
-          <button class="step" type="button" data-step="duration" data-dir="1" aria-label="more">+</button>
-        </div>
-        <div class="stepper">
-          <span class="stepper-label">Shifts each</span>
-          <button class="step" type="button" data-step="shifts" data-dir="-1" aria-label="less">&minus;</button>
-          <span class="stepper-value"><span id="shifts-value">2</span></span>
-          <button class="step" type="button" data-step="shifts" data-dir="1" aria-label="more">+</button>
-        </div>
-      </div>
+  <div class="col team-col" data-team="0">
+    <div class="col-label" id="label-0">Bibs</div>
+    <div class="list" id="list-0"></div>
+    <div class="field">
+      <input class="name-input" id="input-0" data-team="0" type="text"
+             maxlength="10" autocapitalize="words" autocorrect="off" autocomplete="off"
+             spellcheck="false" enterkeyhint="next" placeholder="Add a name"
+             aria-label="Add a name">
+      <button class="add" id="add-0" data-team="0" type="button" aria-label="Add a name">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="col team-col" data-team="1">
+    <div class="col-label" id="label-1">No bibs</div>
+    <div class="list" id="list-1"></div>
+    <div class="field">
+      <input class="name-input" id="input-1" data-team="1" type="text"
+             maxlength="10" autocapitalize="words" autocorrect="off" autocomplete="off"
+             spellcheck="false" enterkeyhint="next" placeholder="Add a name"
+             aria-label="Add a name">
+      <button class="add" id="add-1" data-team="1" type="button" aria-label="Add a name">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="col settings-col">
+
+    <div class="settings">
+      <label class="setting" id="set-type">
+        <span class="setting-value" id="type-value">6 a side</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 18 6-6-6-6"/>
+        </svg>
+        <select id="type-select" aria-label="A side"></select>
+      </label>
+
+      <label class="setting" id="set-game">
+        <span class="setting-label">Game time</span>
+        <span class="setting-value" id="game-value">2 hours</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 18 6-6-6-6"/>
+        </svg>
+        <select id="game-select" aria-label="Game time"></select>
+      </label>
+
+      <label class="setting" id="set-sub">
+        <span class="setting-label">Change every</span>
+        <span class="setting-value" id="sub-value">10 min</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m9 18 6-6-6-6"/>
+        </svg>
+        <select id="sub-select" aria-label="Change every"></select>
+      </label>
     </div>
 
-    <div class="fields">
-      <div class="field-block">
-        <div class="field-header" id="head-0">Bibs</div>
-        <div class="field" data-team="0">
-          <div class="pills" id="pills-0"></div>
-          <input class="name-input" id="input-0" data-team="0" type="text"
-                 maxlength="12" autocapitalize="words" autocorrect="off" autocomplete="off"
-                 spellcheck="false" enterkeyhint="next" placeholder="First to arrive">
-        </div>
-      </div>
-      <div class="field-block">
-        <div class="field-header" id="head-1">No bibs</div>
-        <div class="field" data-team="1">
-          <div class="pills" id="pills-1"></div>
-          <input class="name-input" id="input-1" data-team="1" type="text"
-                 maxlength="12" autocapitalize="words" autocorrect="off" autocomplete="off"
-                 spellcheck="false" enterkeyhint="next" placeholder="First to arrive">
-        </div>
-      </div>
-    </div>
+    <div class="col-spacer"></div>
 
     <div class="foot">
-      <div class="prefilled" id="prefilled" hidden>
-        <span>Reorder for today. Delete anyone missing.</span>
+      <div class="restored" id="restored" hidden>
+        <span>Delete anyone missing.</span>
         <button class="clear" id="clear" type="button">Clear all</button>
       </div>
       <div class="notice" id="notice" hidden></div>
       <button class="start" id="start" type="button">Kick off</button>
+      <button class="chip" id="chip" type="button" hidden>
+        <span class="chip-label">Next change</span>
+        <span class="chip-count" id="chip-count">0:00</span>
+      </button>
     </div>
 
   </div>
+
 </section>
 
 <!-- ----------------------------------------------------------- display -->
 <main id="display" hidden>
 
   <section class="team" data-team="0">
-    <div class="team-header"><span class="layer"></span><span class="layer"></span></div>
-    <div class="team-name"><span class="layer"></span><span class="layer"></span></div>
-    <div class="meta">
-      <div class="subs"><span class="layer"></span><span class="layer"></span></div>
-      <div class="strip"><div class="strip-track"></div></div>
-      <div class="kickoff-hint" hidden>Press and hold to change the squad.</div>
+    <div class="line1">
+      <span class="tag"></span>
+      <span class="subgroup"></span>
+    </div>
+    <div class="line2">
+      <span class="lab">in goal</span>
+      <span class="hero"><span class="layer"></span><span class="layer"></span></span>
+    </div>
+    <div class="line3">
+      <span class="strip"><span class="strip-track"></span></span>
     </div>
   </section>
 
   <section class="team" data-team="1">
-    <div class="team-header"><span class="layer"></span><span class="layer"></span></div>
-    <div class="team-name"><span class="layer"></span><span class="layer"></span></div>
-    <div class="meta">
-      <div class="subs"><span class="layer"></span><span class="layer"></span></div>
-      <div class="strip"><div class="strip-track"></div></div>
+    <div class="line1">
+      <span class="tag"></span>
+      <span class="subgroup"></span>
+    </div>
+    <div class="line2">
+      <span class="lab">in goal</span>
+      <span class="hero"><span class="layer"></span><span class="layer"></span></span>
+    </div>
+    <div class="line3">
+      <span class="strip"><span class="strip-track"></span></span>
     </div>
   </section>
 
   <div class="spine">
     <div class="clock" id="clock">0:00</div>
-    <div class="marks">
-      <div class="mark lap" id="lap" hidden></div>
-      <div class="mark status" id="status" hidden>Tap to fix</div>
+    <div class="elapsed" id="elapsed">0:00</div>
+    <div class="spine-foot">
+      <div class="notes" id="notes"></div>
+      <button class="edit" id="edit" type="button" aria-label="Edit setup">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
+          <path d="m15 5 4 4"/>
+        </svg>
+      </button>
     </div>
   </div>
 
 </main>
-
-<!-- ------------------------------------------------------- roster sheet -->
-<div id="scrim" class="scrim" hidden></div>
-<div id="sheet" class="sheet" hidden>
-  <div class="sheet-inner">
-    <div class="field-block">
-      <div class="field-header" id="sheet-head-0">Bibs</div>
-      <div class="field" data-team="0">
-        <div class="pills" id="sheet-pills-0"></div>
-        <input class="name-input" id="sheet-input-0" data-team="0" type="text"
-               maxlength="12" autocapitalize="words" autocorrect="off" autocomplete="off"
-               spellcheck="false" enterkeyhint="done" placeholder="Name">
-      </div>
-    </div>
-    <div class="field-block">
-      <div class="field-header" id="sheet-head-1">No bibs</div>
-      <div class="field" data-team="1">
-        <div class="pills" id="sheet-pills-1"></div>
-        <input class="name-input" id="sheet-input-1" data-team="1" type="text"
-               maxlength="12" autocapitalize="words" autocorrect="off" autocomplete="off"
-               spellcheck="false" enterkeyhint="done" placeholder="Name">
-      </div>
-    </div>
-    <p class="sheet-note" id="sheet-note" hidden></p>
-  </div>
-</div>
 
 <script type="module" src="app.js"></script>
 </body>
