@@ -262,9 +262,16 @@ const teamEls = [0, 1].map((t) => {
 
 let ac = null;
 let noise = null;
+let gestured = false;
 
+/*
+ * The context is created inside a gesture and never before. A game restored
+ * after a reload has had no gesture yet, so it makes no sound and says so on
+ * the degraded line — and the first touch anywhere brings it back.
+ */
 function audio() {
   if (ac) return ac;
+  if (!gestured) return null;
   const Ctor = window.AudioContext || window.webkitAudioContext;
   if (!Ctor) return null;
   try {
@@ -273,6 +280,12 @@ function audio() {
     ac = null;
   }
   return ac;
+}
+
+function markGesture() {
+  gestured = true;
+  audio();
+  resumeAudio();
 }
 
 function resumeAudio() {
@@ -476,10 +489,11 @@ function unlockVoice() {
     utterance.onerror = () => { state.degradedVoice = true; };
     speechSynthesis.speak(utterance);
     state.degradedVoice = false;
-    window.setTimeout(() => {
-      if (started || voiceReady) return;
-      if (!speechSynthesis.speaking && !speechSynthesis.pending) state.degradedVoice = true;
-    }, 1500);
+    /* the probe unlocks, it does not diagnose. a silent volume-0 utterance is
+       reported inconsistently across engines, and a false `no voice` line on a
+       working phone is worse than no line at all. a real speak() that fails is
+       what marks the voice lost. */
+    void started;
   } catch (error) {
     state.degradedVoice = true;
   }
@@ -493,7 +507,9 @@ function speak(text, onEnd) {
   }
   try {
     /* iOS drops the queue when the page is backgrounded and leaves the engine
-       stuck. cancel() before every speak() is the only reliable reset. */
+       stuck. cancel() before every speak() is the only reliable reset — but
+       Chrome processes the cancel asynchronously and takes out an utterance
+       queued in the same tick with it, so the speak has to wait a beat. */
     speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 0.95;
@@ -516,11 +532,16 @@ function speak(text, onEnd) {
       state.degradedVoice = false;
     };
     utterance.onend = finish;
-    utterance.onerror = () => {
-      state.degradedVoice = true;
+    utterance.onerror = (event) => {
+      /* a cancel is our own doing, not a lost voice */
+      const reason = event && event.error;
+      if (reason !== 'canceled' && reason !== 'interrupted') state.degradedVoice = true;
       finish();
     };
-    speechSynthesis.speak(utterance);
+    window.setTimeout(() => {
+      if (done) return;
+      speechSynthesis.speak(utterance);
+    }, 45);
     /* a voice that never starts must not swallow the second team */
     window.setTimeout(() => {
       if (done) return;
@@ -528,11 +549,11 @@ function speak(text, onEnd) {
         state.degradedVoice = true;
         finish();
       }
-    }, 1600);
+    }, 1700);
     /* nor may one that never ends. iOS leaves the engine stuck often enough
        that `end` cannot be the only way out, and the whole announcement has
        to fit inside the ten seconds. the cap is well past a real reading. */
-    window.setTimeout(finish, Math.min(5200, 1400 + text.length * 110));
+    window.setTimeout(finish, Math.min(4200, 1200 + text.length * 100));
   } catch (error) {
     state.degradedVoice = true;
     if (onEnd) onEnd();
@@ -1659,8 +1680,7 @@ el.start.addEventListener('click', () => {
     return;
   }
   /* the gesture iOS needs, for both the audio context and the voice */
-  audio();
-  resumeAudio();
+  markGesture();
   unlockVoice();
   saveSquad();
   beginKickOff();
@@ -1927,10 +1947,17 @@ el.chip.addEventListener('click', commitEdit);
 /* a tap on the display re-takes the lock and re-tests the voice, no label */
 el.display.addEventListener('click', () => {
   if (state.screen === 'countdown') { abortKickOff(); return; }
-  resumeAudio();
+  markGesture();
   takeWakeLock();
   if (state.degradedVoice) unlockVoice();
 });
+
+/* any first touch, anywhere, is enough to bring a restored game back to life */
+document.addEventListener('pointerdown', () => {
+  if (gestured) return;
+  markGesture();
+  if (state.game && state.degradedVoice) unlockVoice();
+}, { capture: true });
 
 /* ======================================================== staying alive */
 
