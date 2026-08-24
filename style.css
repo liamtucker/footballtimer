@@ -730,6 +730,13 @@ button {
 }
 .subgroup.fading { opacity: 0; transition: opacity 250ms var(--curve); }
 
+/* A window entered late is shown arrived, with no transition to get there. */
+.team.instant .hero .layer,
+.team.instant .subgroup,
+.team.instant .subgroup .pair,
+.team.instant .strip,
+.team.instant .hero .layer .arrow { transition: none !important; }
+
 /* ====================================================== reduced motion */
 
 @media (prefers-reduced-motion: reduce) {

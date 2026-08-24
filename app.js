@@ -1323,13 +1323,11 @@ function later(ms, fn) {
  * The window is the last ten seconds of the shift. A warning beats a report.
  */
 function openWindow(r, options) {
-  const animate = options.animate && !prefersReducedMotion();
+  const reduced = prefersReducedMotion();
+  const animate = options.animate && !reduced;
   clearWindowTimers();
 
-  if (options.speak) {
-    announce(linesForChange(r));
-  }
-
+  if (options.speak) announce(linesForChange(r));
   if (state.screen !== 'display') return;
 
   el.body.classList.add('call');
@@ -1337,48 +1335,50 @@ function openWindow(r, options) {
   advanceDrift();
   applyShrink();
 
-  if (!animate) {
-    r.teams.forEach((team, t) => {
-      const parts = teamEls[t];
-      paintTeam(t, team, 'window');
-      const live = restingLayer(parts);
-      const spare = spareLayer(parts);
-      spare.className = 'layer';
-      live.className = 'layer';
-      live.style.cssText = '';
-      setHero(spare, team.nextKeeper ? team.nextKeeper.name : '', '↑');
-      spare.classList.add('on', 'walk-in', 'go', 'settle-none');
-      spare.style.color = 'var(--on)';
-      parts.strip.style.display = 'none';
-      if (prefersReducedMotion()) {
-        setHero(live, team.keeper ? team.keeper.name : '', '↓');
-        live.className = 'layer walk-out';
-      }
-    });
-    return;
-  }
-
+  /* stage both layers: the keeper now, and the keeper about to go in */
   r.teams.forEach((team, t) => {
     const parts = teamEls[t];
     const out = restingLayer(parts);
     const into = spareLayer(parts);
-
-    setHero(out, team.keeper ? team.keeper.name : '', '↓');
+    setHero(out, team.keeper ? team.keeper.name : '', '\u2193');
     out.className = 'layer on';
     out.style.cssText = '';
-    setHero(into, team.nextKeeper ? team.nextKeeper.name : '', '↑');
+    setHero(into, team.nextKeeper ? team.nextKeeper.name : '', '\u2191');
     into.className = 'layer walk-in';
     into.style.cssText = '';
     parts.hero.dataset.out = out === layers(parts)[0] ? '0' : '1';
   });
 
+  const heroPair = (parts) => {
+    const all = layers(parts);
+    const first = parts.hero.dataset.out === '0';
+    return { out: all[first ? 0 : 1], into: all[first ? 1 : 0] };
+  };
+
+  /* a window entered late — a jump, or a cold restore — is true, so it is
+     shown, but it is shown arrived rather than arriving. */
+  if (!animate) {
+    r.teams.forEach((team, t) => {
+      const parts = teamEls[t];
+      const { out, into } = heroPair(parts);
+      parts.root.classList.add('instant');
+      out.classList.add('walk-out', 'landed');
+      into.classList.add('go');
+      paintTeam(t, team, 'window');
+      parts.subgroup.classList.add('swapping', 'go');
+      parts.strip.classList.add('gone-quiet');
+      parts.strip.style.display = 'none';
+      void parts.root.offsetWidth;
+      parts.root.classList.remove('instant');
+    });
+    return;
+  }
+
   /* t 0 - 140  hold. the stillness is what makes the move read as a consequence */
   later(140, () => {
     r.teams.forEach((team, t) => {
       const parts = teamEls[t];
-      const all = layers(parts);
-      const out = all[parts.hero.dataset.out === '0' ? 0 : 1];
-      const into = all[parts.hero.dataset.out === '0' ? 1 : 0];
+      const { out, into } = heroPair(parts);
       out.classList.add('walk-out');
       into.classList.add('go');
       parts.strip.classList.add('gone-quiet');
@@ -1419,6 +1419,7 @@ function closeWindow(r) {
       into.classList.add('settle', 'on');
       window.setTimeout(() => {
         into.className = 'layer on';
+        into.style.cssText = '';
         setHero(into, team.keeper ? team.keeper.name : '', '');
       }, 260);
     }
@@ -1426,6 +1427,7 @@ function closeWindow(r) {
       out.classList.add('leaving');
       window.setTimeout(() => {
         out.className = 'layer';
+        out.style.cssText = '';
         out.textContent = '';
       }, 260);
     }
@@ -1794,13 +1796,15 @@ function openEdit() {
     draft.keeper[t] = marker;
   }
 
-  draft.signature = draftSignature();
   state.screen = 'setup';
   el.display.hidden = true;
   el.setup.hidden = false;
   renderSetup();
   for (let t = 0; t < 2; t += 1) reseatKeeper(t);
   renderSetup();
+  /* the signature is taken after the reseat, so opening the screen and closing
+     it again can never read as an edit */
+  draft.signature = draftSignature();
   const first = view(elapsedMs());
   el.chipCount.textContent = formatCountdown(first.r.msToNextChange);
 }
