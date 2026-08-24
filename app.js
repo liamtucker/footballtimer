@@ -202,12 +202,9 @@ const state = {
   countdownAt: 0,
   countdownLeft: 0,
   clockText: '',
-  clockCount: false,
-  elapsedText: '',
   pendingEdit: false,
   degradedVoice: false,
-  degradedLock: false,
-  len: 5
+  degradedLock: false
 };
 
 const $ = (id) => document.getElementById(id);
@@ -233,7 +230,6 @@ const el = {
   chip: $('chip'),
   chipCount: $('chip-count'),
   clock: $('clock'),
-  elapsed: $('elapsed'),
   notes: $('notes'),
   edit: $('edit')
 };
@@ -1166,31 +1162,27 @@ function applyDrift() {
   document.documentElement.style.setProperty('--drift-y', `${y}px`);
 }
 
-function applyNameLength(setup) {
-  let longest = 5;
-  for (const team of setup.teams) {
-    for (const player of team.players) longest = Math.max(longest, player.name.length);
-  }
-  if (longest === state.len) return;
-  state.len = longest;
-  document.documentElement.style.setProperty('--len', String(longest));
-}
-
 /*
  * --shrink is --t-name-2 over the live hero size and --fall is the travel that
  * puts the shrunk name on line 3. Both are measured, because the hero size
  * moves with the longest name and the two orientations space the lines apart
  * differently. transform and opacity only — never animate font-size.
  */
+function scalePx(name) {
+  const root = getComputedStyle(document.documentElement);
+  const raw = String(root.getPropertyValue(name) || '').trim();
+  const n = parseFloat(raw) || 0;
+  return raw.endsWith('rem') ? n * (parseFloat(root.fontSize) || 16) : n;
+}
+
 function applyShrink() {
   /* only measure while every layer is at rest and untransformed */
   if (teamEls.some((parts) => parts.hero.querySelector('.walk-out, .walk-in'))) return;
-  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-  const name2 = (isPortrait() ? 1.5 : 1.75) * rem;
+  const hero = scalePx('--t-hero');
+  const lead = scalePx('--t-lead');
+  const shrink = hero > 0 ? Math.min(1, lead / hero) : 0.45;
   for (const parts of teamEls) {
     const layer = parts.hero.querySelector('.layer');
-    const hero = parseFloat(getComputedStyle(layer).fontSize) || name2;
-    const shrink = Math.min(1, name2 / hero);
     parts.root.style.setProperty('--shrink', String(shrink));
     const box = layer.getBoundingClientRect();
     const line3 = parts.line3.getBoundingClientRect();
@@ -1519,19 +1511,10 @@ function formatCountdown(ms) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-function formatPlayed(ms) {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor(total / 60) % 60;
-  return `${hours}:${String(minutes).padStart(2, '0')}`;
-}
-
-function setClock(text, count, pop) {
-  if (text === state.clockText && count === state.clockCount) return;
+function setClock(text, pop) {
+  if (text === state.clockText) return;
   state.clockText = text;
-  state.clockCount = count;
   el.clock.textContent = text;
-  el.clock.classList.toggle('count', count);
   if (!pop || prefersReducedMotion()) return;
   el.clock.classList.remove('pop');
   void el.clock.offsetWidth;
@@ -1594,14 +1577,9 @@ function tick() {
   }
   if (state.screen !== 'display') return;
 
-  if (inWindow) setClock(String(Math.max(1, Math.ceil(r.msToNextChange / 1000))), true, false);
-  else setClock(formatCountdown(r.msToNextChange), false, false);
+  if (inWindow) setClock(String(Math.max(1, Math.ceil(r.msToNextChange / 1000))), false);
+  else setClock(formatCountdown(r.msToNextChange), false);
 
-  const played = formatPlayed(elapsed);
-  if (played !== state.elapsedText) {
-    state.elapsedText = played;
-    el.elapsed.textContent = played;
-  }
   setNotes();
 }
 
@@ -1689,7 +1667,6 @@ el.start.addEventListener('click', () => {
 function beginKickOff() {
   const setup = buildKickOffSetup();
   state.pendingSetup = setup;
-  applyNameLength(setup);
   driftStep = 0;
   applyDrift();
 
@@ -1700,9 +1677,6 @@ function beginKickOff() {
   el.body.classList.remove('call');
   paintRest(r);
   applyShrink();
-  el.elapsed.textContent = '0:00';
-  state.elapsedText = '';
-  el.elapsed.hidden = true;
   el.notes.textContent = '';
 
   if (debug && !debug.countdown) {
@@ -1726,7 +1700,7 @@ function runCountdown() {
   }
   if (left === state.countdownLeft) return;
   state.countdownLeft = left;
-  setClock(String(left), true, true);
+  setClock(String(left), true);
   if (left <= 5) tick880();
 }
 
@@ -1735,7 +1709,6 @@ function abortKickOff() {
   state.screen = 'setup';
   state.pendingSetup = null;
   state.clockText = '';
-  el.elapsed.hidden = false;
   el.display.hidden = true;
   el.setup.hidden = false;
   renderSetup();
@@ -1753,7 +1726,6 @@ function finishKickOff() {
   state.windowFor = null;
   state.pendingEdit = false;
   state.clockText = '';
-  el.elapsed.hidden = false;
   showDisplay();
   saveGame();
 
@@ -1859,7 +1831,6 @@ function commitEdit() {
       state.game.epochs = epochs;
       state.pendingEdit = true;
       recordGone(setup);
-      applyNameLength(setup);
       saveGame();
       saveSquad();
     }  }
@@ -2021,7 +1992,6 @@ function restoreGame() {
   const now = elapsedMs();
   prune(now);
   const { r, k } = view(now);
-  applyNameLength(liveEpoch(now).setup);
   applyDrift();
   /* no dialog, and no voice for changes missed while the phone was dead */
   state.shownChange = k;
