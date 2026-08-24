@@ -19,7 +19,7 @@ is the system. Every type value in this file is one of these ten numbers.
 | `count` | 40 / 2.5rem | 27 | the countdown | 1.3 m |
 | `lead` | 27 / 1.6875rem | 18 | the sub, and any name leaving a slot | 0.9 m |
 | `body` | 18 / 1.125rem | 18 | setup rows, fields, settings, the order strip | 0.6 m |
-| `eyebrow` | 12 / 0.75rem | 12 | every label, and the team tag | 0.4 m |
+| `eyebrow` | 12 / 0.75rem | 12 | every label, and the team title | 0.4 m |
 
 **The reading distance is 2 metres, not 20.** The voice carries the names to the pitch; a person
 walks over to *check*, and 2 m is where you stop. Legible cap height is distance ÷ 250, so 8 mm;
@@ -36,13 +36,60 @@ column in landscape, and 243 px against 358 px in portrait.
 step: −.02em at `hero` and `count`, −.01em at `lead`, 0 at `body`, +.1em at `eyebrow`. **Line
 height** .94 on names, 1.2 elsewhere.
 
-**Three registers, and they cannot be confused.** A **player name** is uppercase, 700, `hero` or
-`lead` — on setup only it is left as typed, because there it is data being edited. A **label** is
-uppercase, tracked, `eyebrow`, `--ink-3`, and sits **directly above** what it names, never
-beside it: over a name, over a setting, over a list. A **team** is sentence case, `eyebrow`, in a
-pill — the only sentence case on the game screen and the only text in a container, `Bibs` filled
-ink and `No bibs` a hairline outline, so **the pill is the bib**. Three signals, so a team can
-never be read as a player.
+**Everything is uppercase.** Every name, every label, every team title, on both screens, set with
+`text-transform` in the stylesheet. The stored value stays exactly as it was typed and the voice
+still speaks a normal name, so the app never has to care whether someone wrote `dom`, `Dom` or
+`DOM`. Nothing in the engine changes and no string is rewritten.
+
+**Case therefore separates nothing, and three registers do all of it.**
+
+| register | size | weight | tracking | colour |
+|---|---|---|---|---|
+| a **player name** | `hero` or `lead` | 700 | −.02em / −.01em | `--ink` |
+| a **label** | `eyebrow` | 700 | +.1em | `--ink-3` |
+| a **team title** | `eyebrow` | 500 | +.28em | `--ink-3` |
+
+A label sits **directly above** what it names, never beside it: over a name, over a setting, over
+a list. A team title sits above the whole group and names the row, not a slot in it.
+
+**The team title is the quietest thing on the screen, and that is its whole design.** It has one
+job — say which row this is — and two ways to fail: it can be mistaken for a player name, or it
+can compete with the keeper. The pill failed the second. So the title is not another shape with a
+word in it; it is a word set the way no name is ever set. It is the same size as the `GOAL` label
+beside which it sits, **lighter** than it, and stretched to +.28em, which is a texture the eye
+reads as a category before it reads the letters. No container, no fill, no rule, no ink. Three
+signals separate it from a name — size, weight and tracking — and one separates it from a label,
+which is the only place a reader could still put it: it is 200 units lighter and nearly three
+times as wide.
+
+## The space system
+
+**Five steps, the same shape as the type scale and the same ratio, 1.5, rounded to even pixels.**
+Every margin, every padding and every gap on the game screen is one of these five. If a gap needs
+a number that is not here, the layout is wrong, not the scale.
+
+| step | px | its job |
+|---|---|---|
+| `--s-tie` | 4 | ties a label to the thing it names |
+| `--s-pack` | 6 | packs the inside of one control |
+| `--s-part` | 10 | parts one group from the next inside a region |
+| `--s-edge` | 16 | holds two peers apart: a region from its neighbour's rule, a name from the name beside it |
+| `--s-gutter` | 24 | the page edge, and the gutter between two columns |
+
+**Spacing encodes relationship, so the steps have to run in the same order as the groups.** On a
+team row, reading down: `GOAL` sits `--s-tie` above its name, the title sits `--s-part` above the
+pair it opens, and the row sits `--s-edge` from the rule that divides it from the other team. Four
+apart, ten apart, sixteen apart — a label is always nearer its own thing than the next thing.
+
+**The gap between the name and the strip is not on the scale, and must not be.** It is whatever
+height the row has left, because the strip is pinned to the bottom. On a 390 px landscape it
+comes out at about 35 px, which is more than `--s-edge` — so the strip reads as the furthest
+thing from the name, which is what it is.
+
+**Two exceptions, both type and not layout.** The arrow's `.1em` and the strip separator's
+`.34em` are set in ems because they ride the size of the name beside them. A gap inside a line
+that is being shrunk to fit takes the same `--fit` multiplier the type does; a gap that did not
+shrink would push the last name out of its column.
 
 ## Tokens
 
@@ -51,9 +98,9 @@ never be read as a player.
 --ground-call #FFFFFF   page, changeover         --off    #A5261A  coming out / going off
 --surface     #FFFFFF   rows, fields, settings   --hair   #DCDCDA  the hairlines
 --ink         #121214   names, the live bar      --dim    #BFBFC4  separators, ✕, a bound
---ink-3       #6E6E76   every label              --border #D4D4D6  the No bibs pill
+--ink-3       #6E6E76   labels, the team title   --border #D4D4D6  a control that needs an edge
 --curve       cubic-bezier(0.2, 0, 0, 1)
-space         4 · 6 · 8 · 12 · 16 · 20 · 24
+space         the five steps above. see The space system
 radius        12, and full for pills, circles and round targets. that is all
 elevation     one: 0 8px 24px rgba(0,0,0,.12), on a row while it is dragged
 icons         Lucide, 24px at stroke 2 in a 44px target; 20px at stroke 2.2 inside a control
@@ -72,14 +119,15 @@ reflection is most of the light leaving the screen. No theme toggle — a toggle
 
 Type and hierarchy only; everything else is one design. Naive count **22**, all at 844×390.
 
-### A — Team, role, name ← **BUILD THIS**
+### A — Team, role, name ← **BUILT**
 
-Three registers descending in specificity, stacked: the team pill, the role eyebrow, the name.
-Two role columns per team — goal at `hero`, sub at `lead` — over one shared line. **22 → 15.**
+Three registers descending in specificity, stacked: the team title, the role eyebrow, the name.
+Two role columns per team — goal at `hero`, sub at `lead` — over one shared line pinned to the
+bottom of the row. **22 → 15.**
 
 | Merge | Cost |
 |---|---|
-| the pill is the team name and the bib | none |
+| the title is the team name and the bib, said quietly | none |
 | line 3 is the order strip at rest, the two outgoing names in the window | discoverability |
 | one clock at one size all game, the change window included | none |
 | the countdown and the changeover are one state, not two | none |
@@ -103,42 +151,65 @@ was chosen against, a static high-contrast edge runs for two hours where the dri
 it, and the changeover's ground lift then works for one team only.
 
 **Recommendation: A.** The largest of the three, and it keeps the two elements the others delete,
-because those two are what stop `Bibs` reading as a player.
+because those two are what stop `BIBS` reading as a player. B and C both delete the team title;
+A keeps it and makes it quiet instead, which is the cheaper answer to the same problem.
 
 ---
 
 ## A, exact
 
+**A team row is one column with space between.** The title, the two eyebrows and the two names
+are one group at the top. The order strip is pinned to the bottom of the row, so the row uses its
+whole height and there is no dead band under it. The void in the middle is not dead either: it is
+the runway the outgoing keeper walks down at the changeover, and a longer walk is easier for
+peripheral vision to catch, which is the whole reason that movement is slow.
+
 ```
-main     grid; grid-template-columns: minmax(0,1fr) 8rem; column-gap: 20px
-         padding: max(12px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
-                  max(12px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left))
+main     grid; grid-template-columns: minmax(0,1fr) 9.5rem; column-gap --s-gutter
+         padding: max(--s-edge, env(top)) max(--s-gutter, env(right))
+                  max(--s-edge, env(bottom)) max(--s-gutter, env(left))
+         grid-template-rows: 1fr 1fr
          transform: translate(var(--drift-x), var(--drift-y))
-teams    grid-template-rows: 1fr 1fr; the second row border-top 1px --hair
-team     centred flex column, padding 6px 0
-pill     eyebrow, full radius, padding 6px 11px, margin-bottom 10px
-slots    grid; minmax(0,1fr) auto; column-gap 20px; align-items: end
-         left  — eyebrow, margin-bottom 3px, then the keeper at hero
-         right — eyebrow, margin-bottom 3px, then the sub at lead. absent with no sub
-line 3   grid, same two columns, height 32px, margin-top 8px
-spine    border-left 1px --hair, padding-left 16px, flex column, right aligned
+team     flex column, justify-content: space-between, overflow: clip
+         row 0 — padding-bottom --s-part
+         row 1 — border-top 1px --hair, padding-top --s-edge
+top      grid; minmax(0,2.25fr) minmax(0,1fr); column-gap --s-gutter
+         title  — eyebrow / 500 / +.28em / --ink-3, spans both, margin-bottom --s-part
+         row 2  — the two eyebrows, margin-bottom --s-tie
+         row 3  — the keeper at hero, the sub at lead, align-self: end
+bottom   the same two columns. height and line-height are lead x 1.2, which is
+         the tallest thing that ever sits there. at rest the strip spans it; in
+         the window each column holds the name leaving that slot
+spine    border-left 1px --hair, padding-left --s-edge, flex column, right aligned
          clock at count, tabular, centred by auto margins
-         a conditional eyebrow, then mute and pencil as 44px targets, bottom right
+         a conditional eyebrow, then home, mute and pencil as 44px targets
 ```
+
+**One hairline in the whole section, and it is the seam between the two teams.** Nothing else is
+drawn — no rule beside a title, no border on a row. It has to exist, because space cannot do this
+particular job: the strip is further from its own name than the two teams are from each other, so
+without a line the strip would read as belonging to the team below it. The rule leans toward the
+row it closes — `--s-part` above it, `--s-edge` below — so it reads as a full stop and not as a
+divider floating between two equals.
 
 Safe-area padding is not optional: the Dynamic Island takes ~59px from one landscape side and
-the home indicator 21px from the bottom. **The strip** spans line 3 at rest: the goal order from
-the current keeper left to right, so nothing marks the pointer. `body`, 500, `--ink-3`,
-uppercase, `·` in `--dim` with `.34em` either side, a player gone home struck through in
-`--dim`, and `mask-image: linear-gradient(to right, #000 86%, transparent)` because the loop
+the home indicator 21px from the bottom. **The strip** spans the bottom line at rest: the goal
+order from the current keeper left to right, so nothing marks the pointer. `body`, 500,
+`--ink-3`, uppercase, `·` in `--dim` with `.34em` either side, a player gone home struck through
+in `--dim`, and `mask-image: linear-gradient(to right, #000 86%, transparent)` because the loop
 continues.
 
-**Portrait.** One column, rows `1fr auto 1fr`, side padding `max(16px, env(...))`. The spine
-becomes the band between the two teams — `border-top` and `border-bottom`, `padding: 10px 0`,
-`margin: 20px 0`, clock left, icons right — because both teams change on the same clock, so the
-clock is the seam. The role columns stack: `slots` to one column, `row-gap: 22px`, because
-portrait has height to spend and no width. Line 3 drops to 26px, `margin-top: 20px`. No type
-value is overridden; the rung-down rule has done it.
+**Portrait.** One column, side padding `max(--s-edge, env(...))`. The spine becomes the band
+between the two teams — `border-top` and `border-bottom`, `padding: --s-part 0`, clock left,
+icons right — because both teams change on the same clock, so the clock is the seam, and it
+replaces the landscape rule so the team rows carry none. The role columns hold.
+
+**Portrait rows are content height, not `1fr`.** A third of 844 px is 349, and a team needs 126,
+so stretching the row would put 200 px between a name and its own strip and the pin would stop
+meaning anything. Instead the rows are `auto`, the pin inside a row becomes one `--s-gutter`, and
+`align-content: space-evenly` spreads the surplus between the three blocks and the two edges. The
+air lands around the groups instead of inside them, which is the same rule the landscape spacing
+runs on. No type value is overridden; the rung-down rule has done it.
 
 **The mute.** `volume-2` in `--ink-3`, on by default. Muted is not a quieter icon but a louder
 one: `volume-x` inside a filled 28px `--off` circle, plus the spine's conditional eyebrow.
@@ -160,8 +231,10 @@ green ↑ and the incoming sub is red ↓ — he is coming off the pitch. The ey
 t 0      = T−10s. chime, then speechSynthesis speaks the change
          ground → #FFFFFF, 200ms. drift advances one step, 600ms
 t 0–140  hold. the stillness is what makes the move read as a consequence
-t 140    keeper out: --ink → --off, translateY(0 → +38px), scaling to lead, 500ms, landing
-                     on line 3 with a leading ↓
+t 140    keeper out: --ink → --off, translateY down to the bottom line, scaling to lead,
+                     500ms, landing with a leading ↓. the travel is measured, not fixed —
+                     it is the height the row has left, so it grew when the strip was
+                     pinned to the bottom
          keeper in:  enters the hero slot, translateY(28px → 0), opacity 0 → 1, 460ms, --on,
                      leading ↑ at .42em, vertical-align .16em
          strip:      opacity 1 → 0 over 180ms, then display none
@@ -193,15 +266,16 @@ share a slot and a fill (none). Deleted: both squad counts, the page title, the 
 heading, every derived number, all help text, the separate goalkeeper control.
 
 ```
-field    48px landscape / 56px portrait, full column width, #FFFFFF, 2px solid --ink,
-         radius 12, padding 0 5px 0 12px, margin-top 8px
+field    44px landscape / 56px portrait, full column width, #FFFFFF, 2px solid --ink,
+         radius 12, padding 0 5px 0 12px, margin-top --s-pack
 input    body / 700, no border, no outline. placeholder --ink-3 at 500
 add      34px circle (40px portrait), arrow-up at 20px
          empty: 1.5px --dim ring, --ink-3 glyph. armed: --on fill, white glyph, 150ms
-row      40px landscape / 52px portrait, radius 12, --surface, inset 0 0 0 1px --hair,
-         padding 0 6px 0 14px, 4px between rows, body / 500
+row      36px landscape / 52px portrait, radius 12, --surface, inset 0 0 0 1px --hair,
+         padding 0 --s-pack 0 --s-edge, --s-tie between rows, body / 500
+         the last child in a list drops its margin — dead space in a scroll box
          remove: 28px target, 16px ✕ in --dim, hard right
-divider  eyebrow, 8px, a 1px --dim rule to the column edge. 6px above, 2px below
+divider  eyebrow, --s-pack, a 1px --dim rule to the column edge. --s-tie above
 picker   72px card, radius 12, --surface, inset 0 0 0 1px --hair, padding-top 6px
          eyebrow at padding-left 14px, then 44×44 minus | value at body/700 tabular,
          centred | 44×44 plus. glyphs 20px --ink; --dim and inert at a bound
@@ -231,11 +305,25 @@ no overlay and no dismiss, and it is identical in both orientations. **Kick off*
 filled ink surface in the product except the live bar. Under two names it is a hairline button
 on transparent, and tapping it focuses the short field. No disabled control, no dead primary.
 
-**Landscape** — `padding: 12px` with `max(24px, env(...))` at the sides, `grid-template-columns:
-minmax(0,1fr) minmax(0,1fr) 13rem`, `gap: 16px`. A team column is the pill, the list
-(`flex: 0 1 auto`, `overflow: auto`, six rows visible) and the field pinned under it. The
+**Landscape** — `padding: --s-part` with `max(--s-gutter, env(...))` at the sides,
+`grid-template-columns: minmax(0,1fr) minmax(0,1fr) 13rem`, `gap: --s-edge`. A team column is
+the heading, the list (`flex: 0 1 auto`, `overflow: auto`) and the field pinned under it. The
 settings column is the three cards, a `1fr` spacer, then Kick off — bottom right, in the thumb,
 nowhere near the lists.
+
+**The divider and the first sub have to be on screen at 844×390.** The only reason the `SUBS`
+line exists is to say who is a sub, and a line with nothing readable under it says nothing. Six
+on the pitch, the divider and a seventh name is 298 px of list, and 390 px of phone leaves 298
+after the heading, the field and the page padding — so it fits exactly, with no scroll, at a
+game type of six. It fits by four decisions and not by luck: a 36 px row in landscape only, a
+44 px field, `--s-pack` where `8px` and `12px` used to be, and no trailing margin on the last
+row in the box. An eighth name scrolls, which is correct — the first sub is what has to be
+visible, not every sub.
+
+**Mid-game the list scrolls.** The live bar takes 68 px off the top, which is more than a row
+and a divider, so the divider falls below the fold on a 390 px landscape and the list has to be
+scrolled to reach it. Nothing shorter than the bar is available: it carries the countdown at
+`count`, which is 40 px of type.
 
 **Portrait** — one column, `display: flex`, `gap: 28px`, `padding: 16px 16px 96px`; the page
 scrolls, the lists do not. **The settings come first**, because the game type sets where the
@@ -303,3 +391,12 @@ pending edit are all specified in place above. What is left:
    engine needs a stated tiebreak, and whatever it picks the screen says it out loud.
 5. **Two lists, two chances to type the same person twice** — and a duplicate gets spoken aloud
    on the wrong team.
+6. **The space scale is the law on the game screen and not yet anywhere else.** Ten values on
+   setup, the live bar and the confirm card are still literals: `5px` and `12px` inside the
+   field, `8px` on the settings column, the foot and the confirm row, `14px` on a picker label
+   and inside the live bar, `20px` on the confirm card, `28px` between portrait sections, and
+   `68px` / `80px` / `96px`, which are all derived from the live bar's own height. Bringing them
+   across changes the setup design, which is why this pass did not.
+7. **This file is 392 lines against a 200-line cap.** Variations B and C describe alternatives to
+   a design that has now been built and revised twice, and nobody will go back to them. They are
+   the first thing to cut when someone is allowed to.
