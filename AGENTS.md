@@ -40,26 +40,59 @@ touched.
 
 ## State
 
-**Done.** v1 is built and live at https://liamtucker.github.io/footballtimer/
-Rotation engine with 60 passing assertions, setup screen, display, spoken
-announcement, wake lock, restore after a dead phone, offline shell, and the two
-roster taps. The repo is public, which is what GitHub Pages needs on this plan.
+**Done.** v2 is built. The engine is reworked — `subMinutes` is the interval,
+`gameType` sets who is on the pitch, the list order is the ring, and the first
+keeper is drawn at random at kick-off. 71 passing assertions. The interface is
+rebuilt against `spec.md`, `brain/design.md` variation A and `brain/copy.md`:
 
-**Next.** The field test in `plan.md` step 7. Two games. Watch whether the sub
-reads it out, whether 90 minutes is the right duration, and what anyone argues
-about.
+- **Setup.** One 2px field per team with the arrow arming to green on the first
+  keystroke, sitting under its own list. Drag anywhere on a row to reorder. The
+  divider sits after `gameType`. A tap on any name makes them the starting
+  keeper, moving the row to the nearest legal index first, so no row is dead.
+- **Kick-off.** A ten-second countdown on the assembled game screen, any tap
+  aborts, then a synthesised referee whistle and the spoken line.
+- **The game screen.** Two rows, one sentence each, keeper in the loud slot.
+  Order strip, spine, elapsed. Both orientations built and measured.
+- **The changeover.** The last ten seconds of the shift. Ground lifts to white,
+  the incoming name walks into the hero slot in green with an up arrow, the
+  outgoing name walks down onto line three in red with a down arrow. Chime and
+  voice at the start, whistle at the change.
+- **Sound.** Whistle and chime synthesised with WebAudio. No files, no network.
+- **The edit route.** The pencil opens the setup screen with the game running.
+  Any edit lands at the next change, never mid-shift, stored as a second epoch.
+
+**Next.** The field test. Watch whether ten seconds of countdown at every change
+annoys people by minute forty, whether the elapsed readout earns its place, and
+whether the chime before each team is right or one chime is enough.
 
 **Blocked.** Nothing.
 
-**Open, for Liam.** The spec puts the last person to arrive in goal first. That
-gets their shift over with while everyone else still has theirs coming, so it
-may reward lateness. One line in `rotation.js` if it needs to invert.
+**Open, for Liam.**
+
+- The changeover names the outgoing keeper on line three, per `design.md`.
+  `copy.md` says he is never named. The design's motion is the answer to "could
+  not tell what was happening", so the design won and he gets an arrow, not a
+  word.
+- The kick-off countdown shows the pencil and no words. `design.md` wanted a
+  label saying the screen can be tapped; `copy.md` forbids telling a person how
+  to use the screen. The icon does the job.
+- A late arrival joins the bench at the next change, not immediately, because
+  every edit lands at the next change. `spec.md` has them on at the next change;
+  they are now on the change after.
+- Portrait holds a ten-character name at about 42px, under the design's own
+  `4rem` floor. Landscape holds it at 80px. Landscape is the watching
+  orientation, so this is only a problem if anyone watches in portrait.
 
 ## Debug hook
 
 Only active with `?t=` in the URL. Without it `window.rota` does not exist and
 nothing is written to `localStorage`.
 
-- `?t=330` or `?t=5:30` — start the clock at that elapsed time
+- `?t=330`, `?t=5:30` or `?t=589.4` — start the clock at that elapsed time
 - `&rate=60` — run 60x real time. `&rate=0` freezes it
-- `window.rota.setElapsed(ms)`, `.rate(n)`, `.rotation`, `.state`, `.tick`
+- `&a=Dom,Dave,Chris` and `&b=Sam,Tom,Alex` — prefill the two squads
+- `&g=7` — game type. `&sub=10` and `&game=120` — the two durations
+- `&ka=2` and `&kb=3` — force the starting keeper index per team
+- `&count=0` — skip the kick-off countdown. `&auto=1` — kick off on load
+- `window.rota.setElapsed(ms)`, `.rate(n)`, `.view()`, `.rotation`, `.state`,
+  `.draft`, `.tick`

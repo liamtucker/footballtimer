@@ -1641,6 +1641,7 @@ function buildKickOffSetup() {
 }
 
 function saveSquad() {
+  if (debug) return;
   writeJSON(KEY_SQUAD, {
     gameType: draft.gameType,
     gameMinutes: draft.gameMinutes,
