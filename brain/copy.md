@@ -8,192 +8,267 @@ Every string is exact. Lift it as written. Character counts are in brackets.
 
 ## Voice
 
-1. **Third person, always.** Never "you" or "your". A bulletin states a fact. An
-   instruction picks on a person. This is the whole product.
-2. **No question is ever asked of the group.** The app absorbs the question. It
-   never passes it back.
-3. **State, not verdict.** "In goal" is a state. "Your turn" is a verdict.
-4. **Nothing enthusiastic and nothing wry.** No exclamation mark anywhere.
+1. **State a fact. Never name a category.** `Bibs in goal DOM` is a fact.
+   `BIBS - NEXT` is a category with a slot under it. That is what got this file
+   rewritten. Test every string against it.
+2. **Third person, always.** Never "you" or "your". A bulletin states a fact. An
+   instruction picks on a person.
+3. **No question is ever asked of the group, and no opinion is ever stated.**
+   No exclamation mark anywhere.
+4. **Nothing tells a person how to use the screen.** No `Tap to fix`, no
+   `Drag to reorder`. An icon or a handle does that job, or it does not get done.
 
 ## Name
 
-Keep `rota`. Home-screen name, lowercase, four characters, so both phones show
-it whole under the icon.
+Keep `rota`. The feedback does not touch it. The name appears nowhere in the
+interface, so it cannot fail the fact test. It earns its place out loud: "the
+rota says Sam" moves the instruction off a person and onto an object.
 
-The name earns its place out loud, not on screen. "The rota says Sam" moves the
-instruction off a person and onto an object, which is the mechanism the README
-describes. `Keeper` names the punishment. `Six a Side` names the game, not the
-job. `rota` names the admin.
+## Register
 
-The name appears nowhere in the interface.
+- **A NAME is uppercase and large.** Player names, always.
+- **A connective is lowercase and small.** `in goal`, `sub`, `off`, `on`.
+- **A team is capitalised and small.** `Bibs`, `No bibs`.
+
+Capitals carry the facts. Lowercase carries the grammar that joins them. No
+punctuation on screen, space does the joining. `and` exists only in speech.
 
 ## Setup screen
 
-No heading. The fields name themselves and the button says what the screen is
-for.
+No heading. The two lists name themselves and the button says what the screen is for.
 
 | key | string | count |
 |---|---|---|
-| `setup.duration.label` | `Duration` | 8 |
-| `setup.duration.unit` | `min` | 3 |
-| `setup.shifts.label` | `Shifts each` | 11 |
-| `setup.teamA.label` | `Bibs` | 4 |
-| `setup.teamB.label` | `No bibs` | 7 |
-| `setup.name.placeholder.first` | `First to arrive` | 15 |
-| `setup.name.tag.last` | `In goal first` | 13 |
-| `setup.interval` | `Change every 7:30` | 17 |
+| `setup.teamA` | `Bibs` | 4 |
+| `setup.teamB` | `No bibs` | 7 |
+| `setup.add.placeholder` | `Add a name` | 10 |
+| `setup.divider` | `Subs` | 4 |
+| `setup.keeper.tag` | `Starts in goal` | 14 |
+| `setup.gameType.value` | `{n} a side` | 8 at 6 |
+| `setup.gameTime.label` | `Game time` | 9 |
+| `setup.gameTime.value` | `2 hours` | 7 |
+| `setup.change.label` | `Change every` | 12 |
+| `setup.change.value` | `{n} min` | 6 at 10 |
 | `setup.start` | `Kick off` | 8 |
 | `setup.clear` | `Clear all` | 9 |
+| `setup.restored` | `Delete anyone missing.` | 22 |
+| `setup.edit.aria` | `Edit setup` | 10 |
 
-**Team labels.** `Bibs` and `No bibs` beat `Team 1` and `Team 2`. A player out of
-breath resolves a bib by a glance at their own chest. A team number has to be
-remembered. The same two words serve setup, display and announcement, so there
-is one word to learn. Not editable in v1.
+**The input.** `Add a name`, not `Name`. A verb reads as something to do. A bare
+noun reads as a value already sitting there, which is why the field was
+invisible. Words do half of this. The field also needs a caret, a rule or a `+`.
 
-**Arrival order.** Two elements carry it. No helper sentence.
+**The divider.** One word, on the line, aligned to the region below it. Nothing
+labels the region above it: those players are on the pitch, which is the default
+state and has no name. **Hide the word when no name sits below the line.** A live
+label over an empty region is what makes a short squad look broken.
 
-- `First to arrive` is the placeholder in the first empty row of each column
-  only. It lands at the moment of typing name one, the only moment the rule can
-  still be obeyed. Rows two and after carry no placeholder.
-- `In goal first` is a live tag beside the last filled name in each column. It
-  moves down as names are typed. It states the incentive as a fact, at the moment
-  the fact becomes true, and it cannot be skimmed past because it moves.
+**The keeper marker.** `Starts in goal` says it is a start-of-game fact, so
+nobody reads it as a permanent job.
 
-**Interval readout.** `Change every 7:30`. Verb first, and `Change` is the same
-word the display and the announcement use. Format is `m:ss`. Hide the whole
-readout until both teams hold at least two names.
+**Settings.** `6 a side` carries its own label, so it has none. The other two need
+one, because a bare duration is ambiguous against another bare duration.
+`Change every`, not `Sub duration`, so the setting, the countdown and the spoken
+line share one word.
 
-**Start button.** `Kick off`. It is pressed at kick-off, not during setup, and
-the word says so. `Start` is more literal but invites a press in the warm-up.
+**Duration values.** Whole hours read `2 hours`, `1 hour`. Hours plus minutes read
+`1 hour 30`. Under an hour reads `45 min`. `Change every` is always `{n} min`.
+Never `120 min` for the game time, it makes a person do maths.
 
-**First run.** No extra string. The defaults are filled and the placeholder is
-the empty state.
+**A squad smaller than the game type.** No message, no warning, no colour. They
+play short. The app never says a team is too small to play football.
 
-**Prefilled squad.** Shown only when the last squad is restored:
+**Prefilled squad.** Only when the last squad is restored. The reorder half of
+the old line is cut: order is now taught by the divider and the drag handle.
 
-`Reorder for today. Delete anyone missing.` [41]
+**Back to setup mid-game.** An icon, no visible label. `aria-label="Edit setup"`.
 
-Verb first, both actions, no narration. `Clear all` sits beside it.
+## Kick-off countdown
 
-## Display screen
+Ten seconds, then a whistle. **No words.** Numerals only, with the team sentences
+already on screen behind them.
+
+## Game screen at rest
+
+The model sentence is *"bibs in goal Dom, subs Dave"*. One line per team, Bibs
+always first.
+
+```
+Bibs      in goal  DOM      sub   DAVE
+No bibs   in goal  SAM      subs  TOM  ALEX
+```
 
 | key | string | count |
 |---|---|---|
-| `display.keeper.label` | `In goal` | 7 |
-| `display.sub.label` | `Sub` | 3 |
-| `display.subs.label` | `Subs` | 4 |
-| `display.subs.none` | `No sub` | 6 |
-| `display.next.label` | `Next` | 4 |
-| `display.order.label` | `Goal order` | 10 |
-| `display.change` | `Change` | 6 |
-| `display.lap` | `Round 2` | 7 |
+| `game.team.a` | `Bibs` | 4 |
+| `game.team.b` | `No bibs` | 7 |
+| `game.keeper` | `in goal` | 7 |
+| `game.sub` | `sub` | 3 |
+| `game.subs` | `subs` | 4 |
+| `game.subs.none` | `no subs` | 7 |
+| `game.order` | `then` | 4 |
 
-**Now has no label.** It is the largest thing on the screen. `Next` is the only
-section label.
+Four small words carry the whole screen. `in goal` is the product and cannot be
+cut. `sub` / `subs` agrees with the count. Everything else is a name.
 
-**No sub.** A team of six shows `No sub` in place of the whole sub block. An
-empty labelled slot reads as a fault.
+**Nothing names the players who are just playing.** No `Playing`, no `Out`, no
+`On`. A label there is a category word for a non-fact, which is the mistake
+`BIBS - NEXT` made.
 
-**Goal order** over `Order`. The list is not the order the names were typed, and
-`Goal` says which order it is before anyone can misread it.
+**There is no `Next` at rest.** Who is in goal now and who is the sub now is the
+most important information, and it gets the whole screen. What happens next is
+stated at the changeover, when it is about to be true.
 
-**Countdown.** `m:ss`. At zero the countdown is replaced by `Change` for three
-seconds, then the new countdown starts. The word is the loudest available signal
-and it matches what the voice says at the same instant.
+**`no subs`** sits in the sub slot for a team with none. Not an empty slot, which
+reads as a fault. Not `No sub`, because zero takes the plural.
 
-**Past the duration.** `Round 2`, then `Round 3`, and so on. It appears the
-moment the rotation wraps and it never leaves. It answers the only question a
-player has when their name comes up a third time: everyone has been in, and this
-is a second lap. Never `Time up`. The app does not decide when the game ends.
+**The order list, if the design keeps one.** No heading. The names follow the
+sentence, joined by `then`: `sub DAVE then CHRIS MO ALI`. Take `then` only if the
+list is on the same line. A separate strip takes nothing.
 
-## Announcement
+## The changeover
 
-Spoken by `speechSynthesis` at kick-off and at every change. Both teams in one
-utterance. Bibs always first, every time, so a half-listening player knows when
-their half arrives.
-
-**Template.**
+Ten seconds, a countdown, then the whistle. Three facts per team and no more.
 
 ```
-{event}. {teamA}. {keeperA} in goal. {subsA} off. {teamB}. {keeperB} in goal. {subsB} off.
+Bibs      in goal  CHRIS      off  MO      on  DAVE
+No bibs   in goal  SAM        off  ALEX    on  TOM
 ```
 
-- `{event}` is `Kick off` at kick-off and `Change` at every change.
-- No sub: drop ` {subs} off.` for that team.
-- Two subs: `{sub1} and {sub2} off.`
+| key | string | count |
+|---|---|---|
+| `change.keeper` | `in goal` | 7 |
+| `change.off` | `off` | 3 |
+| `change.on` | `on` | 2 |
 
-**Example.** `Change. Bibs. Sam in goal. Danny off. No bibs. Tom in goal. Alex off.`
+**What the words still have to do.** Colour and arrows carry the direction,
+leaving against arriving. They cannot carry the role. `in goal` is the one fact
+no arrow can state. `off` and `on` stay because a bare arrow beside a name does
+not say whether it points at the pitch or the bench.
 
-**Use this.** Reasons:
+**The player leaving goal is never named.** He is standing in the goal watching
+the incoming keeper walk at him.
 
+**A team with no subs** shows `in goal CHRIS` alone. No `off`, no `on`, no empty
+labelled slot.
+
+**Hold it after the whistle.** The changeover text stays five seconds past the
+change, then the rest sentence returns. Someone who looked up late has to still
+be able to read it.
+
+**Rejected.** `in goal DOM > CHRIS   sub DAVE > MO`, the rest sentence with arrows
+spliced in. Fewer words, but the arrow has to mean "becomes", `sub DAVE > MO`
+reads as Dave subbing for Mo, and it spends a name on the outgoing keeper.
+
+## The spoken line
+
+Nobody is looking at the screen. It plays through a phone into a speaker, at the
+**start** of the ten seconds, so the named players have the countdown to walk.
+The whistle lands at the end.
+
+**Two sounds, two meanings, never swapped.**
+
+- **Chime.** Names follow. One short tone, the same tone every time, no melody,
+  about 400 ms. It sounds before each team.
+- **Whistle.** The change is now. Nothing else uses it.
+
+The chime is what the throwaway first word used to be. A sleeping Bluetooth
+speaker eats the first token of any audio, so nothing carrying information may go
+first. The chime absorbs that and protects the words behind it. Sounding it
+before **each** team also marks the seam where a half-listening player has to
+re-latch, which is where the sound was asked for.
+
+**Template, a normal change.**
+
+```
+[chime] {teamA}. {keeperA} in goal. {subsA} off. [chime] {teamB}. {keeperB} in goal. {subsB} off.
+```
+
+`Bibs. Chris in goal. Mo off.` [chime] `No bibs. Sam in goal. Alex off.`
+
+**Template, kick-off.**
+
+```
+[chime] {teamA}. {keeperA} in goal. Sub, {subsA}. [chime] {teamB}. {keeperB} in goal. Sub, {subsB}.
+```
+
+`Bibs. Chris in goal. Sub, Dave.` [chime] `No bibs. Sam in goal. Subs, Tom and Alex.`
+
+Nobody comes "off" at kick-off, they never went on. Role before the name here,
+for the same reason the team goes before the names.
+
+**Template, a team with no subs.** Drop the sub clause for that team only.
+
+```
+[chime] Bibs. Chris in goal. [chime] No bibs. Sam in goal. Alex off.
+```
+
+Never say `no subs` out loud. It is information nobody can act on.
+
+**Slots.** `{subs}` is one name, or `{name} and {name}` for two. `Sub,` becomes
+`Subs,` for two. Nothing else varies.
+
+**Use this one.** Reasons:
+
+- Two facts per team: who goes in goal, and who comes off. Both are people who
+  have to move. The player coming on is the one person watching the screen, and
+  the player leaving goal is already standing there.
 - The team comes before the names, so nobody parses a name that is not theirs.
-- `Change` is a throwaway first word. The first word of a spoken utterance is the
-  one most likely to be clipped or missed, so it must carry no information and
-  must protect the team name behind it.
 - Full stops, not commas. They give the synthesiser a real pause. Commas run the
   names together at pitch distance.
-- Only two names per team are spoken. The player leaving goal and the player
-  coming on are both derivable by the people standing there.
-- Nothing in it is an opinion, so nothing in it can be argued with. Twelve
-  repeats wear well because the only variable words are names.
+- About seven seconds, so it finishes inside the ten. If it runs long, cut a name
+  before you cut a pause.
+- The only variable words are names, so twelve repeats wear well and none of it
+  can be argued with.
 
-**Option B, stateful.** `Change. Bibs. Sam in goal. Danny is sub. No bibs. Tom in
-goal. Alex is sub.` Matches the display label exactly and reads a shade softer.
-Costs two syllables per team and parses a fraction slower. Take this only if a
-field test shows `off` is misheard as "gone home".
+**Option B, one chime.** Sound it once at the start and separate the teams with a
+longer pause. Quieter, 12 tones over two hours instead of 24. Costs the listener
+who tunes in halfway: no marker tells him the second team has started. Take this
+only if the field test says the chime is annoying.
 
-**Option C, grouped by role.** `Change. In goal, Sam for the bibs and Tom for no
-bibs. Subs, Danny and Alex.` Fewest fixed words. Rejected: every listener has to
-hold both teams in mind across the whole utterance.
+**Option C, grouped by role.** `[chime] In goal, Chris and Sam. [chime] Off, Mo
+and Alex.` Fewest fixed words. Rejected: every listener has to hold both teams in
+mind across the whole utterance to know which name is his.
 
 **On `off`.** A referee says "off" to a person. This says it about a person, with
-no name addressed and no imperative. Third person is what keeps it a bulletin.
-Never `Danny, you're off`.
+no name addressed and no imperative. Never `Mo, you're off`.
 
-## Mid-game actions
+**Build note.** `speechSynthesis` cannot schedule a sound inside an utterance.
+Split it into two utterances and fire the chime from an `<audio>` element before
+each, on the `end` of the one before.
 
-Two buttons. Parallel words, so neither reads as the punitive one.
+## Time played
 
-| key | string | count |
-|---|---|---|
-| `action.add` | `Arrived` | 7 |
-| `action.remove` | `Gone` | 4 |
-| `add.placeholder` | `Name` | 4 |
-| `add.confirm` | `Add` | 3 |
-| `add.result` | `{name} is in goal at the next change.` | 35 |
-| `remove.result` | `{name} gone.` | 10 |
-| `remove.undo` | `Undo` | 4 |
+The clock counts up from kick-off. `h:mm`, no leading zero on the hour: `0:07`,
+`1:12`, `2:34`.
 
-`Arrived` and `Gone` are both reports of something that already happened. Neither
-is a decision and neither is done to a person. `Add name` and `Remove name` are
-the plainer option and are rejected: `Remove` is something the operator does to
-a player, while `Gone` is something the player did.
+**Past the game time it does nothing.** It keeps counting: `2:07`, `2:31`. No
+marker, no colour, no `Time up`, no `Round 2`. The app never decides when the
+game ends.
 
-`Arrived` opens a field with the placeholder `Name` and the button `Add`. The
-result line is required. It states the fairness rule so nobody has to argue it: a
-late arrival covers the very next shift.
+**Two clocks on one screen.** The change countdown reads `m:ss` and ticks every
+second. Time played reads `h:mm` and visibly does not. That separates them
+without a word. If the design still needs one, `played` [6] goes beside the time
+played, lowercase and small. Never a word on the countdown.
 
-`Gone` opens the list of names already on screen. No heading and no confirm
-dialogue, because a confirm dialogue asks for a judgement. `Undo` sits beside the
-result line for four seconds instead.
-
-## Errors
+## Errors and edges
 
 | key | string | count | blocks kick-off |
 |---|---|---|---|
 | `error.team.tooSmall` | `Two names minimum.` | 18 | yes |
 | `warn.duplicate` | `Same name twice. Add an initial.` | 32 | no |
 
-**Squad size.** The only floor is two names per team, which is what the rotation
-maths needs. The app never says a team is too small to play football. That is a
-judgement and it is not the app's.
+**Squad size.** The floor is two names per team, which is what the rotation
+needs. With one name that player is in goal forever. Anything above two plays,
+short-handed or not, with no comment.
 
 **Duplicate names.** A warning, never a block. Two Sams rotate correctly. Only
-the spoken line is ambiguous, so the message names the real fix and nothing else.
+the spoken line is ambiguous, so the message names the real fix.
 
-**Empty name field.** No message. Trim blank rows and ignore them.
+**Empty input.** No message. Trim it and ignore it.
 
-**Long names.** No message. Set `maxlength="12"` on every name field. Twelve
-characters holds every realistic first name, so the display never truncates and
-the voice never reads something absurd. A longer paste is cut at twelve,
-silently.
+**Long names.** No message. `maxlength="10"`. Ten characters holds every
+realistic first name, the display never truncates, and the voice never reads
+something absurd. A longer paste is cut at ten, silently. **The hero name must be
+sized for ten characters.** If the design cannot hold ten, come back here before
+dropping the limit.
