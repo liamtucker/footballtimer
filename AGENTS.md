@@ -40,9 +40,10 @@ touched.
 
 ## State
 
-**Done.** Nothing yet.
+**Done.** `rotation.js`, the engine. `test.js` covers it, 60 assertions.
 
-**Next.** Rotation engine, then setup screen, then display, then announcement,
-then wake lock and restore, then the two roster taps.
+**Next.** Setup screen, then display, then announcement, then wake lock and
+restore, then the two roster taps. The engine already holds the late arrival and
+the gone home rewrites, so step 6 is a screen only.
 
 **Blocked.** Nothing.
