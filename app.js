@@ -331,18 +331,29 @@ function whistle(ms) {
   const bp1 = ctx.createBiquadFilter();
   bp1.type = 'bandpass';
   bp1.frequency.setValueAtTime(3400, t);
-  bp1.Q.setValueAtTime(11, t);
+  bp1.Q.setValueAtTime(7, t);
   const bp2 = ctx.createBiquadFilter();
   bp2.type = 'bandpass';
   bp2.frequency.setValueAtTime(3400, t);
-  bp2.Q.setValueAtTime(11, t);
+  bp2.Q.setValueAtTime(7, t);
+  /* the band breathes with the pea, so the air is part of the rattle */
+  const airWobble = ctx.createOscillator();
+  airWobble.type = 'sine';
+  airWobble.frequency.setValueAtTime(18, t);
+  const airWobbleGain = ctx.createGain();
+  airWobbleGain.gain.setValueAtTime(190, t);
+  airWobble.connect(airWobbleGain);
+  airWobbleGain.connect(bp1.frequency);
+  airWobbleGain.connect(bp2.frequency);
+  airWobble.start(t);
+  airWobble.stop(t + dur);
   const airGain = ctx.createGain();
-  airGain.gain.setValueAtTime(0.55, t);
+  airGain.gain.setValueAtTime(1.1, t);
   air.connect(bp1).connect(bp2).connect(airGain).connect(trem);
   air.start(t);
   air.stop(t + dur);
 
-  for (const [freq, gain] of [[2350, 0.17], [2570, 0.13]]) {
+  for (const [freq, gain] of [[2350, 0.15], [2570, 0.114]]) {
     const osc = ctx.createOscillator();
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(freq * 0.94, t);
