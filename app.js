@@ -1326,8 +1326,9 @@ function later(ms, fn) {
  * The window is the last ten seconds of the shift. A warning beats a report.
  */
 function openWindow(r, options) {
-  const reduced = prefersReducedMotion();
-  const animate = options.animate && !reduced;
+  /* only a window walked in on is shown arrived. reduced motion still runs the
+     timeline — the css turns each step into a 200ms crossfade in place. */
+  const late = !options.animate;
   clearWindowTimers();
 
   if (options.speak) announce(linesForChange(r));
@@ -1360,7 +1361,7 @@ function openWindow(r, options) {
 
   /* a window entered late — a jump, or a cold restore — is true, so it is
      shown, but it is shown arrived rather than arriving. */
-  if (!animate) {
+  if (late) {
     r.teams.forEach((team, t) => {
       const parts = teamEls[t];
       const { out, into } = heroPair(parts);
