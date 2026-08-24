@@ -738,12 +738,21 @@ function startClockSwap(text) {
 }
 
 function updateClock(r) {
+  /* the change holds the clock on zero, then swaps instantly. never a digit
+     animation at a change: the swap belongs to T-9s and nowhere else. */
+  if (Date.now() < state.holdClockUntil) {
+    if (state.clockText !== '0' || !state.bigClock) {
+      state.clockSwapping = false;
+      state.bigClock = true;
+      el.clock.classList.remove('swapping', 'swap-hidden', 'swap-enter');
+      applyClock('0', true);
+    }
+    return;
+  }
+
   let text;
   let big;
-  if (Date.now() < state.holdClockUntil) {
-    text = '0';
-    big = true;
-  } else if (r.msToNextChange <= 9000) {
+  if (r.msToNextChange <= 9000) {
     text = String(Math.max(0, Math.ceil(r.msToNextChange / 1000)));
     big = true;
   } else {
