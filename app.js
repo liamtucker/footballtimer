@@ -207,7 +207,6 @@ const state = {
   pendingEdit: false,
   degradedVoice: false,
   degradedLock: false,
-  silentUntilChange: null,
   len: 5
 };
 
@@ -519,6 +518,10 @@ function speak(text, onEnd) {
         finish();
       }
     }, 1600);
+    /* nor may one that never ends. iOS leaves the engine stuck often enough
+       that `end` cannot be the only way out, and the whole announcement has
+       to fit inside the ten seconds. the cap is well past a real reading. */
+    window.setTimeout(finish, Math.min(5200, 1400 + text.length * 110));
   } catch (error) {
     state.degradedVoice = true;
     if (onEnd) onEnd();
@@ -1518,16 +1521,16 @@ let rafId = 0;
 let intervalId = 0;
 
 function tick() {
+  /* the kick-off countdown runs before there is a game to count from */
+  if (state.screen === 'countdown') {
+    runCountdown();
+    return;
+  }
   if (!state.game) return;
   const elapsed = elapsedMs();
   prune(elapsed);
   const { r, k } = view(elapsed);
   const inWindow = r.msToNextChange <= WINDOW_MS;
-
-  if (state.screen === 'countdown') {
-    runCountdown();
-    return;
-  }
 
   /* the crossing, not the tick */
   if (k !== state.shownChange) {
@@ -1546,11 +1549,11 @@ function tick() {
 
   if (inWindow && state.windowFor !== k + 1) {
     state.windowFor = k + 1;
+    /* a window entered late was missed, not announced. everything else is a
+       real warning and must be spoken. */
     const late = r.msToNextChange < WINDOW_MS - 900;
-    const silent = late || state.silentUntilChange !== null;
-    openWindow(r, { animate: !late, speak: !silent });
+    openWindow(r, { animate: !late, speak: !late });
   }
-  if (state.silentUntilChange !== null && k > state.silentUntilChange) state.silentUntilChange = null;
 
   if (state.screen === 'setup') {
     el.chipCount.textContent = formatCountdown(r.msToNextChange);
@@ -1982,7 +1985,6 @@ function restoreGame() {
   applyDrift();
   /* no dialog, and no voice for changes missed while the phone was dead */
   state.shownChange = k;
-  state.silentUntilChange = k;
   state.pendingEdit = Boolean(pendingEpoch(now));
   showDisplay();
   paintRest(r);
