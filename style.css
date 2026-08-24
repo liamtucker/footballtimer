@@ -10,7 +10,6 @@
   --ground-call: #FFFFFF;
   --surface: #FFFFFF;
   --ink: #121214;
-  --border: #D4D4D6;
   --ink-3: #6E6E76;
   --dim: #BFBFC4;
   --hair: #DCDCDA;
@@ -26,7 +25,7 @@
   --t-count: 2.5rem;      /* 40 - the countdown */
   --t-lead: 1.6875rem;    /* 27 - the sub, and any name leaving a slot */
   --t-body: 1.125rem;     /* 18 - setup rows, fields, settings, the strip */
-  --t-eyebrow: 0.75rem;   /* 12 - every label, and the team pill */
+  --t-eyebrow: 0.75rem;   /* 12 - every label, and the team heading */
   /* the arrow rides its own name, so it is a ratio and not a step */
   --arrow: .42em;
 
@@ -91,8 +90,9 @@ button {
 /*
  * Three registers, and they cannot be confused.
  * A name is uppercase, 700, hero or lead. A label is uppercase, tracked,
- * eyebrow, --ink-3, and sits directly above what it names. A team is sentence
- * case, eyebrow, in a pill. See .pill under the game screen.
+ * eyebrow, --ink-3, and sits directly above what it names. A team is lower
+ * case, eyebrow, in full ink, and it opens a section rather than sitting in
+ * one. See .team-head under the game screen.
  */
 .eyebrow,
 .divider-label,
@@ -134,12 +134,8 @@ button {
   min-width: 0;
 }
 
-/* the same pill as the game screen, so the team reads the same on both */
-.team-col > .pill {
-  flex: none;
-  align-self: flex-start;
-  margin-bottom: 10px;
-}
+/* the same heading as the game screen, so the team reads the same on both */
+.team-col > .team-head { flex: none; }
 
 /* ------------------------------------------------------------------ list */
 
@@ -480,8 +476,8 @@ button {
 }
 
 /*
- * One grid per team, three registers descending: the pill, the eyebrow, the
- * name. Four rows — team, the two eyebrows, the two names, line three — so
+ * One grid per team, three registers descending: the heading, the eyebrow,
+ * the name. Four rows — team, the two eyebrows, the two names, line three — so
  * `GOAL` sits level with `SUB`, the names sit level under them, and the order
  * strip is the last thing in the section rather than a line inside it.
  *
@@ -501,32 +497,46 @@ button {
   min-width: 0;
   overflow: clip;
 }
+/* the heading rule is the seam between the two sections, so the section
+   itself carries no border of its own */
 .team[data-team="0"] { grid-row: 1; }
-.team[data-team="1"] { grid-row: 2; border-top: 1px solid var(--hair); }
+.team[data-team="1"] { grid-row: 2; }
 
-/* --------------------------------------------------------------- the pill */
+/* ------------------------------------------------------- the team heading */
 
-/* the only sentence case on the screen and the only text in a container:
-   Bibs filled, No bibs a hairline. the pill is the bib. */
-.pill {
+/*
+ * The team is the heading of its section, not a tag sitting inside it: the
+ * name, then a rule that runs from it to the edge of the section it opens.
+ * It is the shape the SUBS divider already has, so the two read as one kind
+ * of thing. The same heading opens a team column on the setup screen.
+ *
+ * The words are the only lower case on either screen, which is the third
+ * register: a name is uppercase and big, a label is uppercase and small.
+ */
+.team-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.team > .team-head {
   grid-column: 1 / -1;
   grid-row: 1;
-  justify-self: start;
+}
+
+.team-name {
+  flex: none;
   font-size: var(--t-eyebrow);
   font-weight: 700;
   letter-spacing: .1em;
   line-height: 1.2;
-  border-radius: 999px;
-  padding: 6px 11px;
-  margin-bottom: 10px;
-  background: var(--ink);
-  color: #FFFFFF;
-}
-.team[data-team="1"] .pill,
-.team-col[data-team="1"] .pill {
-  background: transparent;
   color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.team-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--hair);
 }
 
 /* ------------------------------------------------- the labels and the names */
@@ -727,7 +737,7 @@ button {
   /* the two role columns hold in portrait: the names shrink to fit them, and
      one layout in both orientations is one thing to read, not two */
   .team[data-team="0"] { grid-row: 1; }
-  .team[data-team="1"] { grid-row: 3; border-top: 0; }
+  .team[data-team="1"] { grid-row: 3; }
 
   /* both teams change on the same clock, so the clock is the seam */
   .spine {

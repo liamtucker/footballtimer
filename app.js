@@ -48,8 +48,8 @@ const COUNTDOWN_S = 10;
 
 /* Every string, lifted from brain/copy.md. */
 const COPY = {
-  teamA: 'Bibs',
-  teamB: 'No bibs',
+  teamA: 'bibs',
+  teamB: 'non-bibs',
   addPlaceholder: 'Add a name',
   divider: 'SUBS',
   keeperTag: 'GOAL',
@@ -236,7 +236,7 @@ const teamEls = [0, 1].map((t) => {
   const root = el.display.querySelector(`.team[data-team="${t}"]`);
   return {
     root,
-    pill: root.querySelector('.pill'),
+    name: root.querySelector('.team-name'),
     lab: root.querySelector('.lab'),
     labSub: root.querySelector('.lab-sub'),
     hero: root.querySelector('.hero'),
@@ -567,7 +567,7 @@ function joinNames(names) {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
-/* [chime] Bibs. Chris in goal. Mo off.  —  the chime sounds before each team */
+/* [chime] bibs. Chris in goal. Mo off.  —  the chime sounds before each team */
 function linesForChange(r) {
   const lines = [];
   for (const team of r.teams) {
@@ -580,7 +580,7 @@ function linesForChange(r) {
   return lines;
 }
 
-/* [chime] Bibs. Chris in goal. Sub, Dave. — nobody comes off at kick-off */
+/* [chime] bibs. Chris in goal. Sub, Dave. — nobody comes off at kick-off */
 function linesForKickOff(r) {
   const lines = [];
   for (const team of r.teams) {
@@ -1446,7 +1446,9 @@ function buildStrip(track, team, gone) {
 
 function paintTeam(t, team, mode) {
   const parts = teamEls[t];
-  parts.pill.textContent = team.name;
+  /* from COPY and not from the setup, so a game restored under an older
+     wording of the two teams still reads the way the screen reads now */
+  parts.name.textContent = TEAM_NAMES[t];
   parts.lab.textContent = COPY.keeper;
   const gone = (state.game && state.game.gone[t]) || [];
   buildStrip(parts.track, team, gone);
