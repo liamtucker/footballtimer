@@ -128,19 +128,18 @@ system does not need volunteers.
 clock keeps moving, the named players get free passes. When they've had enough,
 whoever the clock is pointing at goes in.
 
-**Injury, or going home.** People sort it out between themselves. See the open
-decision below.
+**Injury, or going home.** Their name is removed on the setup screen. Whoever
+is in goal at that moment stays in goal — a removal never pulls someone out
+mid-shift. The bench gives up its far end so the gap between the keeper and the
+subs stays legal.
 
-**Turning up after kick-off.** The one case the app cannot infer, and the one
-case that needs a tap. Their name is typed in, and:
+**Turning up after kick-off.** Their name is typed in on the setup screen and
+they join the **front of the bench**, so they come on at the next change. Nobody
+on the pitch moves. The squad and the bench both grow by one, which leaves the
+legal window unchanged.
 
-- they cover the **very next shift** — handled exactly like a volunteer, so the
-  clock does not move and the player who was up gets a free pass;
-- they are then inserted into the list **immediately behind the pointer**, which
-  guarantees them a full lap before they come round again.
-
-This is why the volunteer rule earns its keep: late arrivals need no separate
-mechanism, only the same one.
+Neither of these is a decision. Both are reports of a fact, and both land at the
+next change rather than immediately.
 
 ## Display
 
