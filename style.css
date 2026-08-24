@@ -638,9 +638,21 @@ body.call .team-name { color: var(--ink-call); }
   background: transparent;
 }
 
+.sheet-note {
+  font-size: var(--t-label);
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin: 0;
+}
+
+.sheet-note[hidden] { display: none; }
+
 @media (orientation: landscape) {
-  .sheet-inner { flex-direction: row; }
+  .sheet-inner { flex-direction: row; flex-wrap: wrap; }
   .sheet-inner .field-block { flex: 1 1 0; }
+  .sheet-note { flex: 0 0 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

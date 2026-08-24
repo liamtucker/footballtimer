@@ -165,7 +165,8 @@ const el = {
   sheet: $('sheet'),
   sheetHeads: [$('sheet-head-0'), $('sheet-head-1')],
   sheetPills: [$('sheet-pills-0'), $('sheet-pills-1')],
-  sheetInputs: [$('sheet-input-0'), $('sheet-input-1')]
+  sheetInputs: [$('sheet-input-0'), $('sheet-input-1')],
+  sheetNote: $('sheet-note')
 };
 
 function draftSetup() {
@@ -1137,6 +1138,16 @@ function renderSheet() {
   }
 }
 
+function showSheetNote(text) {
+  el.sheetNote.textContent = text;
+  el.sheetNote.hidden = false;
+}
+
+function clearSheetNote() {
+  el.sheetNote.hidden = true;
+  el.sheetNote.textContent = '';
+}
+
 function touchSheetIdle() {
   window.clearTimeout(sheetIdleTimer);
   sheetIdleTimer = window.setTimeout(closeSheet, SHEET_IDLE_MS);
@@ -1158,6 +1169,7 @@ function closeSheet() {
   if (!state.sheetOpen) return;
   state.sheetOpen = false;
   window.clearTimeout(sheetIdleTimer);
+  clearSheetNote();
   for (const input of el.sheetInputs) input.value = '';
   el.scrim.classList.remove('up');
   el.sheet.classList.remove('up');
@@ -1197,6 +1209,8 @@ for (let t = 0; t < 2; t += 1) {
     input.value = '';
     if (!name) return;
     commitOps([...state.ops, { type: 'add', team: t, name, elapsed: elapsedMs() }]);
+    /* the fairness rule, stated once, so nobody on the pitch has to argue it */
+    showSheetNote(`${name} is in goal at the next change.`);
   });
   input.addEventListener('focus', touchSheetIdle);
 }
