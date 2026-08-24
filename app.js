@@ -226,8 +226,10 @@ const el = {
   clear: $('clear'),
   notice: $('notice'),
   start: $('start'),
-  chip: $('chip'),
-  chipCount: $('chip-count'),
+  livebar: $('livebar'),
+  liveClock: $('live-clock'),
+  liveNote: $('live-note'),
+  liveClose: $('live-close'),
   clock: $('clock'),
   notes: $('notes'),
   edit: $('edit')
@@ -802,11 +804,17 @@ function renderSetup() {
   el.notice.textContent = notice;
   el.notice.hidden = notice === '';
 
+  /* the ink moves: a corner button before kick-off, the top bar during */
   const editing = draft.mode === 'edit';
   el.start.hidden = editing;
-  el.chip.hidden = !editing;
+  el.livebar.hidden = !editing;
+  el.setup.classList.toggle('live', editing);
   el.start.classList.toggle('hairline', !valid);
   el.restored.hidden = editing || !state.prefilled;
+
+  const dirty = editing && (state.pendingEdit ||
+    (draft.signature !== '' && draftSignature() !== draft.signature));
+  el.liveNote.textContent = dirty ? COPY.pending : '';
 }
 
 /* --------------------------------------------------------- the marker */
@@ -1128,7 +1136,7 @@ function endDrag(event, commit) {
   try { current.row.releasePointerCapture(current.pointerId); } catch (error) { /* ignore */ }
 
   if (!current.active) {
-    if (commit) chooseKeeper(current.teamIndex, current.index);
+    if (commit && draft.mode !== 'edit') chooseKeeper(current.teamIndex, current.index);
     return;
   }
 
@@ -1466,10 +1474,11 @@ function openWindow(r, options) {
   clearWindowTimers();
 
   if (options.speak) announce(linesForChange(r));
-  if (state.screen !== 'display') return;
 
   el.body.classList.add('call');
   el.body.style.setProperty('--ground-ms', '200ms');
+  if (state.screen !== 'display') return;
+
   advanceDrift();
   applyShrink();
 
@@ -1543,12 +1552,12 @@ function openWindow(r, options) {
 /* t 10s = T. The change is now. No travel on the way back. */
 function closeWindow(r) {
   clearWindowTimers();
+  el.body.style.setProperty('--ground-ms', '300ms');
+  el.body.classList.remove('call');
   if (state.screen !== 'display') {
     paintRest(r);
     return;
   }
-  el.body.style.setProperty('--ground-ms', '300ms');
-  el.body.classList.remove('call');
 
   r.teams.forEach((team, t) => {
     const parts = teamEls[t];
@@ -1678,6 +1687,7 @@ function tick() {
     state.shownChange = k;
     state.windowFor = null;
     if (state.pendingEdit && !pendingEpoch(elapsed)) state.pendingEdit = false;
+    if (state.screen === 'setup' && draft.mode === 'edit') refreshEditList();
   }
 
   if (inWindow && state.windowFor !== k + 1) {
@@ -1689,7 +1699,7 @@ function tick() {
   }
 
   if (state.screen === 'setup') {
-    el.chipCount.textContent = formatCountdown(r.msToNextChange);
+    el.liveClock.textContent = formatCountdown(r.msToNextChange);
     return;
   }
   if (state.screen !== 'display') return;
@@ -1890,6 +1900,7 @@ function openEdit() {
   draft.subMinutes = onGrid('sub', Math.round((pending ? pending.setup : epoch.setup).subMinutes));
   draft.gameMinutes = onGrid('time', Math.round((pending ? pending.setup : epoch.setup).gameMinutes));
   draft.mode = 'edit';
+  draft.signature = '';
   draft.baseChange = k;
   draft.names = [[], []];
   draft.keeper = [null, null];
@@ -1931,8 +1942,21 @@ function openEdit() {
   /* the signature is taken after the reseat, so opening the screen and closing
      it again can never read as an edit */
   draft.signature = draftSignature();
+  renderSetup();
   const first = view(elapsedMs());
-  el.chipCount.textContent = formatCountdown(first.r.msToNextChange);
+  el.liveClock.textContent = formatCountdown(first.r.msToNextChange);
+}
+
+/*
+ * A change fires while setup is open. The list is the picture of the next
+ * change, so it has to be rebuilt — but never under a person's hands. A
+ * half-typed name, a live drag or an edit already made all hold it back.
+ */
+function refreshEditList() {
+  if (drag) return;
+  if (draft.signature === '' || draftSignature() !== draft.signature) return;
+  if (el.inputs.some((input) => input.value.trim() !== '')) return;
+  openEdit();
 }
 
 function commitEdit() {
@@ -1954,6 +1978,7 @@ function commitEdit() {
     }  }
 
   draft.mode = 'pre';
+  draft.signature = '';
   state.screen = 'display';
   el.setup.hidden = true;
   el.display.hidden = false;
@@ -2031,7 +2056,7 @@ el.edit.addEventListener('click', (event) => {
   openEdit();
 });
 
-el.chip.addEventListener('click', commitEdit);
+el.liveClose.addEventListener('click', commitEdit);
 
 /* a tap on the display re-takes the lock and re-tests the voice, no label */
 el.display.addEventListener('click', () => {
