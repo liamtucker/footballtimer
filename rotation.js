@@ -1,77 +1,140 @@
 /*
- * rotation.js — the goalkeeper rota engine.
+ * rotation.js — the rota engine.
  *
  * One pure function. No clock, no stored state, no mutation of its arguments.
  * `rotation(setup, elapsedMs)` always returns the same answer for the same two
  * inputs, so a phone that dies mid-game restores the setup and the kick-off
  * timestamp from localStorage and carries on at the right shift.
  *
- * WHY THE SETUP HOLDS A RESOLVED ORDER
+ * THE ORDER IS THE RING
  *
- * Names are typed in arrival order. The rota runs alphabetically, and the first
- * keeper is the last person to arrive. `createSetup()` does that translation
- * once, at setup time, and stores the result: `team.players` IS the goal order.
- * The engine never sorts. Two reasons. A sort at read time is locale dependent,
- * and the order must be identical on every device and after every restore. And
- * a late arrival lands in a position that is not their alphabetical one, so the
- * order stops being derivable from the names the moment the roster changes. An
- * explicit list is the only honest description of the live order.
+ * `team.players` is an ordered list, and that order IS the rotation ring. A
+ * person sets it by hand, by dragging. Nothing here sorts it, ever. The
+ * dividing line falls after `gameType` names: those players start on the pitch,
+ * everyone below the line starts as a sub. The list is the only honest
+ * description of the live order, because a late arrival lands in a slot that no
+ * rule about names could predict.
  *
- * WHY THE START POINT IS AN ANCHOR AND NOT AN INDEX
+ * THE INTERVAL IS A SETTING, NOT A SUM
  *
- * `team.anchor = { changeIndex, playerId }` reads "at this change, this player
- * is in goal". Everything else counts forward from it:
+ * `subMinutes` is the interval. Nobody can reason about "two shifts each" and
+ * everybody can reason about "we change every ten minutes", so the number a
+ * person sets is the number the clock uses. `intervalMs` is `subMinutes` in
+ * milliseconds and nothing else touches it, which is why a squad that grows or
+ * shrinks mid-game never moves the countdown.
  *
- *     keeper(k) = order[(indexOf(anchor.playerId) + k - anchor.changeIndex) mod n]
+ * `gameMinutes` is reference only. The display uses it to say how much of the
+ * game has gone. The rotation never stops and nothing at all happens when it
+ * elapses.
  *
- * At kick-off the anchor is `{ changeIndex: 0, playerId: <last to arrive> }`,
- * which is the spec rule written down directly. An index would move under a
- * roster change; a player id plus the change it applies to does not. A roster
- * change re-anchors on the player who is in goal at that moment, which is what
- * keeps the current keeper fixed mid-shift.
+ * TWO POINTERS
+ *
+ * With N players, G on the pitch and C = max(0, N - G) subs:
+ *
+ *     keeper(k) = ring[(kStart + k) mod N]
+ *     subs(k)   = ring[(sStart + k + j) mod N]   for j = 0 .. C-1
+ *
+ * Both pointers advance by exactly one per change. At kick-off `sStart` is G,
+ * the dividing line, so change 0 is exactly what the setup screen showed. Over
+ * one lap of N changes every player keeps goal once, sits C times and plays the
+ * rest. A squad smaller than G has C = 0 and simply plays short. Nothing about
+ * that is an error.
+ *
+ * Because both pointers move at the same speed, the gap between them never
+ * changes. Write it `o = (sStart - kStart) mod N`. That one number decides
+ * whether the rota is legal.
+ *
+ * THE TWO HARD RULES, AND THE ONE NUMBER THAT KEEPS THEM
+ *
+ * A player must never come out of goal and become a sub at the next change, and
+ * a sub must never go straight into goal. Measure every slot from the keeper.
+ * The subs sit at o, o+1 ... o+C-1. Then:
+ *
+ *   - the keeper is also a sub          if some o+j = 0
+ *   - the keeper sits down next change  if some o+j = N-1
+ *   - a sub goes into goal next change  if some o+j = 1
+ *
+ * So the run of C slots has to miss 0, 1 and N-1, and a run of C consecutive
+ * slots misses all three exactly when
+ *
+ *     2 <= o <= N - 1 - C
+ *
+ * At kick-off o = G - kStart, so that condition reads `1 <= kStart <= G - 2`.
+ * The two ends of the starting line-up are the only two illegal starts, and a
+ * sub can never start in goal either — that falls out of the same inequality
+ * rather than needing a rule of its own. `legalStartKeepers()` returns the rest.
+ * `test.js` proves both halves: the legal starts never break a rule over three
+ * laps, and the excluded ones break exactly the rule the arithmetic names.
+ *
+ * The window is empty when G <= 2, because a run of one slot cannot miss 0, 1
+ * and N-1 at once. There the whole starting line-up is offered and one of the
+ * two rules gives way. The app's minimum game type is 4, so this is a guard and
+ * not a path.
+ *
+ * THE START IS DRAWN ONCE AND WRITTEN DOWN
+ *
+ * `kickOff()` draws the starting keeper at random from the legal starts and
+ * stores it, so `rotation()` stays pure and a restored phone gets the same
+ * answer as the one that died. A person can override the draw by tapping a
+ * name: `isLegalStartKeeper()` lets the interface refuse the tap, and
+ * `setStartKeeper()` moves it to the nearest legal name if the interface would
+ * rather adjust than refuse.
+ *
+ * The draw uses 1 .. G-2 even when C is 0 and no rule can break yet. A team of
+ * exactly G has no bench until somebody turns up, and a start that is legal
+ * only while nobody turns up is not legal. It costs nothing: at a game type of
+ * 4 there are still two names to draw from.
+ *
+ * WHY THE ANCHOR SURVIVED, WITH A SECOND POINTER IN IT
+ *
+ * `team.anchor = { changeIndex, keeperIndex, subIndex }` reads "at this change
+ * the keeper is this slot and the bench starts at that one". At kick-off it is
+ * `{ 0, kStart, G }`, which is the setup screen written down directly, and
+ * everything counts forward from it. A roster change writes a new anchor at the
+ * change it happens on, so no query ever has to reason about a squad size that
+ * no longer exists.
+ *
+ * The old anchor held a player id, because an index moves under a roster
+ * change. It holds indexes now. Both roster helpers rewrite the anchor against
+ * the new list in the same breath as they change it, so the id bought nothing —
+ * and the bench pointer has no player to name in any case. It is a position,
+ * not a person.
  *
  * THE TWO ROSTER CHANGES ARE SETUP REWRITES, NOT HISTORY
  *
  * `addLateArrival()` and `removePlayer()` each return a NEW setup. There is no
  * event log to replay. The app writes the returned setup to localStorage and
- * everything stays a pure function of (setup, elapsedMs). `Undo` is free: keep
+ * everything stays a pure function of (setup, elapsedMs). Undo is free: keep
  * the previous setup object and put it back.
  *
- * Late arrival. The new player is spliced in immediately behind the pointer —
- * the slot straight after the player who is in goal now — and the team is
- * re-anchored on that same current keeper. Consequences, all of them wanted:
- * the current shift does not change, the late arrival is in goal at the very
- * next change, the clock does not move, and their next turn is a full lap of
- * the new list away. The player who was due next is pushed one change back, not
- * skipped for good; every player still serves once per lap, which is the thing
- * the on-screen order has to be able to justify to a sceptic on the pitch.
+ * Late arrival. The new player goes in at the front of the bench and the anchor
+ * keeps the same o. Nobody on the pitch is disturbed: the newcomer is a sub for
+ * the rest of the current change and comes on at the next one, which is what
+ * actually happens when somebody jogs up mid-game. N and C both grow by one, so
+ * `2 <= o <= N - 1 - C` reads the same as before and the rota stays legal by
+ * construction. A team still short of `gameType` has no bench, so the newcomer
+ * simply walks on instead, and the one case where o has to move is the arrival
+ * that ends a spell of playing short — see `safeOffset()`.
  *
- * Gone home. The player is filtered out of `team.players`, so their name can
- * never come up again as keeper or as sub. The team is re-anchored on the
- * player who is in goal at that moment, so a removal never changes the current
- * keeper. If the person who leaves IS the keeper, the shift they abandoned goes
- * to the player who was next, and the rota carries on from there — the clock
- * does not move for them either.
+ * Gone home. The player drops out of the list and the anchor keeps the same o,
+ * measured from whoever is in goal once the dust settles. If the person who
+ * leaves IS the keeper, the player who was due next goes in for the rest of
+ * that shift. N and C both fall by one, so again the condition is unchanged.
+ * The bench gives up its far end, so when the leaver was on the pitch a sub
+ * comes on at once to fill the hole — sometimes the one who has sat longest,
+ * sometimes the one who has just sat down, depending where the leaver stood.
+ * Always taking it from the near end would be fairer by a minute, but it moves
+ * o out of the legal window, and a hard rule beats a minute of bench time.
  *
- * THE INTERVAL IS FROZEN AT KICK-OFF
+ * WHAT THE DISPLAY GETS
  *
- * `setup.clockN` holds the squad size the interval is computed from. `null`
- * means "work it out from the current squads", which is what the setup screen
- * wants while names are still being typed. `lockClock()` writes the value in,
- * and both roster helpers call it first, so the interval is frozen no later
- * than the first mid-game change. A recomputed interval would move every future
- * change time the instant a player arrives or leaves — the countdown on the
- * screen would jump, and a rota that jumps is a rota people argue with. Frozen
- * costs only this: after a change the larger squad no longer gets exactly S
- * shifts. That is arithmetic nobody watches. A clock that jumps is.
- *
- * SUB SLOTS
- *
- * Spec: `subs = (keeper + floor(n / 2) + j) mod n`. The offset is clamped to
- * `n - subCount` so a sub slot can never land on the keeper. The clamp is
- * inert at every realistic squad size (it first bites at 14 in one team) and
- * `n - subCount` is always 6, so above 12 the subs are simply everyone who is
- * not one of the six on the pitch.
+ * Per team: `keeper`, `subs` and `onPitch` — the players who are neither — and
+ * `nextKeeper`, `nextSubs` for the change to come. Arrows come from `comingOn`
+ * and `goingOff`, which are those two sets differenced for you. With a bench
+ * each list holds exactly one name, and `comingOn` is always `subs[0]` while
+ * `goingOff` is always the last of `nextSubs`. With no bench both are empty.
+ * The keeper handover is in neither list, because coming out of goal is not
+ * coming off the pitch.
  *
  * A NOTE ON ASKING ABOUT THE PAST
  *
@@ -82,10 +145,11 @@
  */
 
 export const MS_PER_MINUTE = 60000;
-export const QUANTUM_MS = 15000; // the interval floors to whole 15 seconds
-export const PLAYERS_ON_PITCH = 6;
-export const DEFAULT_DURATION_MIN = 90;
-export const DEFAULT_SHIFTS_EACH = 2;
+export const MIN_GAME_TYPE = 4;
+export const MAX_GAME_TYPE = 11;
+export const DEFAULT_GAME_TYPE = 6;
+export const DEFAULT_SUB_MINUTES = 10;
+export const DEFAULT_GAME_MINUTES = 120;
 export const DEFAULT_TEAM_NAMES = ['Bibs', 'No bibs'];
 
 /* ---------------------------------------------------------------- helpers */
@@ -99,145 +163,266 @@ function num(value, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function clamp(value, low, high) {
+  return Math.min(high, Math.max(low, value));
+}
+
 function copyPlayer(player) {
   return { id: player.id, name: player.name };
 }
 
-function subCountFor(squadSize) {
-  return Math.max(0, squadSize - PLAYERS_ON_PITCH);
-}
-
 /* ------------------------------------------------------------------ setup */
 
+/** Players on the pitch per team. Read defensively — a stored setup is data. */
+export function gameTypeOf(setup) {
+  return Math.max(1, Math.floor(num(setup && setup.gameType, DEFAULT_GAME_TYPE)));
+}
+
+/** The interval, in whole minutes. */
+export function subMinutesOf(setup) {
+  return Math.max(1, Math.floor(num(setup && setup.subMinutes, DEFAULT_SUB_MINUTES)));
+}
+
+/** Reference only. The rotation never reads this. */
+export function gameMinutesOf(setup) {
+  return Math.max(0, Math.floor(num(setup && setup.gameMinutes, DEFAULT_GAME_MINUTES)));
+}
+
+/** Subs on the bench. A squad short of `gameType` has none and plays short. */
+export function subCountFor(squadSize, gameType) {
+  return Math.max(0, Math.floor(num(squadSize, 0)) - Math.max(1, Math.floor(num(gameType, DEFAULT_GAME_TYPE))));
+}
+
 /**
- * Build a setup from names in arrival order.
+ * Build a setup from the order a person dragged.
  *
  * createSetup({
- *   durationMin: 90,
- *   shiftsEach: 2,
- *   teams: [{ name: 'Bibs', arrivals: ['Zoe', 'Alex', 'Sam'] }, { ... }]
+ *   gameType: 6,
+ *   subMinutes: 10,
+ *   gameMinutes: 120,
+ *   teams: [{ name: 'Bibs', players: ['Zoe', 'Alex', 'Sam'] }, { ... }]
  * })
  *
- * Call it again on every keystroke while the setup screen is open. The ids are
- * derived from the arrival position, so the result is stable and pure.
+ * Call it again on every keystroke and every drag while the setup screen is
+ * open. The ids come from the list position, so the result is stable and pure,
+ * and a drag renames nobody. The starting keeper is not drawn here — that
+ * happens once, at `kickOff()`.
  */
 export function createSetup(input = {}) {
-  const durationMin = Math.max(1, num(input.durationMin, DEFAULT_DURATION_MIN));
-  const shiftsEach = Math.max(1, Math.floor(num(input.shiftsEach, DEFAULT_SHIFTS_EACH)));
+  const gameType = clamp(Math.floor(num(input.gameType, DEFAULT_GAME_TYPE)), MIN_GAME_TYPE, MAX_GAME_TYPE);
+  const subMinutes = Math.max(1, Math.floor(num(input.subMinutes, DEFAULT_SUB_MINUTES)));
+  const gameMinutes = Math.max(0, Math.floor(num(input.gameMinutes, DEFAULT_GAME_MINUTES)));
   const teamsIn = Array.isArray(input.teams) ? input.teams : [];
 
   const teams = teamsIn.map((team, teamIndex) => {
-    const arrivals = (Array.isArray(team.arrivals) ? team.arrivals : [])
+    const players = (Array.isArray(team.players) ? team.players : [])
       .map((name) => String(name).trim())
-      .filter((name) => name.length > 0);
-
-    const records = arrivals.map((name, arrivalIndex) => ({
-      id: `t${teamIndex}p${arrivalIndex}`,
-      name,
-      arrivalIndex
-    }));
-
-    const players = records
-      .slice()
-      .sort(byFirstName)
-      .map(copyPlayer);
-
-    const last = records[records.length - 1];
+      .filter((name) => name.length > 0)
+      .map((name, i) => ({ id: `t${teamIndex}p${i}`, name }));
 
     return {
       name: String(team.name ?? DEFAULT_TEAM_NAMES[teamIndex] ?? `Team ${teamIndex + 1}`),
       players,
-      anchor: last ? { changeIndex: 0, playerId: last.id } : null
+      anchor: null
     };
   });
 
-  return { durationMin, shiftsEach, clockN: null, teams };
+  return { gameType, subMinutes, gameMinutes, teams };
 }
 
-function byFirstName(a, b) {
-  const compared = a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
-  if (compared !== 0) return compared;
-  if (a.name < b.name) return -1;
-  if (a.name > b.name) return 1;
-  return a.arrivalIndex - b.arrivalIndex;
-}
-
-/** The squad size the interval comes from. The larger of the two, until locked. */
-export function clockSquadSize(setup) {
-  const locked = num(setup.clockN, 0);
-  if (locked > 0) return Math.floor(locked);
-  const sizes = (setup.teams ?? []).map((team) => (team.players ?? []).length);
-  return Math.max(1, ...sizes);
-}
-
-/** Freeze the interval. Idempotent. Both roster helpers call it first. */
-export function lockClock(setup) {
-  if (num(setup.clockN, 0) > 0) return setup;
-  return { ...setup, clockN: clockSquadSize(setup) };
-}
-
-/** interval = duration / (N * S), floored to whole 15 seconds. */
+/** intervalMs = subMinutes in milliseconds. Nothing else feeds it. */
 export function computeIntervalMs(setup) {
-  const shiftsEach = Math.max(1, Math.floor(num(setup.shiftsEach, DEFAULT_SHIFTS_EACH)));
-  const durationMs = Math.max(0, num(setup.durationMin, DEFAULT_DURATION_MIN)) * MS_PER_MINUTE;
-  const changes = clockSquadSize(setup) * shiftsEach;
-  const raw = durationMs / changes;
-  return Math.max(QUANTUM_MS, Math.floor(raw / QUANTUM_MS) * QUANTUM_MS);
+  return subMinutesOf(setup) * MS_PER_MINUTE;
 }
 
-/** Changes in one planned rotation. After this many, the larger squad has had S each. */
-export function totalChangesIn(setup) {
-  const shiftsEach = Math.max(1, Math.floor(num(setup.shiftsEach, DEFAULT_SHIFTS_EACH)));
-  return clockSquadSize(setup) * shiftsEach;
-}
-
-/** Which change the game is on. Counts past the duration and never stops. */
+/** Which change the game is on. Counts past `gameMinutes` and never stops. */
 export function changeIndexAt(setup, elapsedMs) {
   const elapsed = Math.max(0, num(elapsedMs, 0));
   return Math.floor(elapsed / computeIntervalMs(setup));
 }
 
-/* ----------------------------------------------------------------- engine */
+/* --------------------------------------------------- the starting keeper */
 
-function slotsAt(team, changeIndex) {
-  const order = (team.players ?? []).map(copyPlayer);
-  const n = order.length;
-  if (n === 0) return { order, n, keeperIndex: -1, subIndexes: [] };
-
-  const anchor = team.anchor ?? null;
-  const anchorAt = num(anchor && anchor.changeIndex, 0);
-  let anchorIndex = order.findIndex((player) => player.id === (anchor && anchor.playerId));
-  if (anchorIndex < 0) anchorIndex = 0;
-
-  const keeperIndex = mod(anchorIndex + (changeIndex - anchorAt), n);
-
-  const subCount = subCountFor(n);
-  const subIndexes = [];
-  if (subCount > 0) {
-    const offset = Math.min(Math.floor(n / 2), n - subCount);
-    for (let j = 0; j < subCount; j += 1) {
-      subIndexes.push(mod(keeperIndex + offset + j, n));
-    }
-  }
-
-  return { order, n, keeperIndex, subIndexes };
+/** The legal starting slots for a squad of n with g on the pitch. */
+function legalStartsFor(n, g) {
+  if (n <= 0) return [];
+  const starters = Math.min(g, n);
+  const all = [];
+  for (let i = 0; i < starters; i += 1) all.push(i);
+  const window = all.filter((i) => i >= 1 && i <= g - 2);
+  return window.length > 0 ? window : all;
 }
 
-function teamStateAt(team, changeIndex) {
-  const now = slotsAt(team, changeIndex);
-  const next = slotsAt(team, changeIndex + 1);
+/**
+ * Which players may start in goal. Indexes into `team.players`.
+ *
+ * Everyone who starts on the pitch except the two ends of the line-up. The
+ * first would come out of goal into the bench one change later; the last would
+ * be replaced in goal by a sub. See the header for the arithmetic.
+ */
+export function legalStartKeepers(setup, teamIndex) {
+  const team = ((setup && setup.teams) ?? [])[teamIndex];
+  if (!team) return [];
+  return legalStartsFor((team.players ?? []).length, gameTypeOf(setup));
+}
+
+/** Can this player start in goal? Ask before you offer the tap. */
+export function isLegalStartKeeper(setup, teamIndex, index) {
+  return legalStartKeepers(setup, teamIndex).includes(Math.floor(num(index, -1)));
+}
+
+/** The closest slot that is legal, for an interface that adjusts a tap rather than refusing it. */
+export function nearestLegalStartKeeper(setup, teamIndex, index) {
+  const legal = legalStartKeepers(setup, teamIndex);
+  if (legal.length === 0) return -1;
+  const wanted = Math.floor(num(index, 0));
+  let best = legal[0];
+  for (const candidate of legal) {
+    if (Math.abs(candidate - wanted) < Math.abs(best - wanted)) best = candidate;
+  }
+  return best;
+}
+
+function startAnchor(keeperIndex, n, g) {
+  return { changeIndex: 0, keeperIndex, subIndex: mod(g, n) };
+}
+
+/**
+ * A person taps a name to choose the starting keeper. Returns a new setup.
+ *
+ * An illegal tap moves to the nearest legal slot, so this module never stores
+ * an anchor that breaks one of the two rules. Call `isLegalStartKeeper()` first
+ * if the interface would rather refuse the tap outright.
+ */
+export function setStartKeeper(setup, teamIndex, index) {
+  const team = ((setup && setup.teams) ?? [])[teamIndex];
+  if (!team) return setup;
+  const n = (team.players ?? []).length;
+  if (n === 0) return setup;
+  const keeperIndex = nearestLegalStartKeeper(setup, teamIndex, index);
+  return replaceTeam(setup, teamIndex, { ...team, anchor: startAnchor(keeperIndex, n, gameTypeOf(setup)) });
+}
+
+/**
+ * Draw the starting keeper for any team that has not had one chosen. Returns a
+ * new setup. Idempotent: a team that already has an anchor keeps it, so a tap
+ * before kick-off survives, and calling this twice changes nothing.
+ *
+ * This is the one impure moment in the module, and it happens once. After it
+ * the answer is written into the setup and everything downstream is a pure
+ * function of (setup, elapsedMs). Pass `random` to make it deterministic.
+ */
+export function kickOff(setup, random = Math.random) {
+  const g = gameTypeOf(setup);
+  const teams = ((setup && setup.teams) ?? []).map((team, teamIndex) => {
+    if (team.anchor) return team;
+    const n = (team.players ?? []).length;
+    const legal = legalStartsFor(n, g);
+    if (legal.length === 0) return { ...team, anchor: null };
+    const roll = clamp(num(random(), 0), 0, 0.999999);
+    return { ...team, anchor: startAnchor(legal[Math.floor(roll * legal.length)], n, g) };
+  });
+  return { ...setup, teams };
+}
+
+/* ----------------------------------------------------------------- engine */
+
+/**
+ * Push an offset into the legal window. Every anchor this module writes goes
+ * through here, so the two rules hold by construction and not by the caller's
+ * discipline.
+ *
+ * It is a no-op on all but one path. A legal start lands inside the window. A
+ * removal drops N and C together, which leaves the window exactly where it was.
+ * So does an arrival — unless the team has been under `gameType` and has just
+ * climbed back over it, because a team with no bench has no window to sit in
+ * and its offset drifts while it is short. The arrival that hands that team a
+ * bench again pulls the offset back in. That bench is one seat wide and the
+ * newcomer is the one sitting in it, so nobody else on the pitch notices.
+ */
+function safeOffset(n, c, offset) {
+  if (n <= 0) return 0;
+  const o = mod(offset, n);
+  if (c <= 0) return o;
+  const high = n - 1 - c;
+  if (high < 2) return o;
+  return clamp(o, 2, high);
+}
+
+function resolveAnchor(team, g) {
+  const n = (team.players ?? []).length;
+  if (n === 0) return null;
+  const stored = team.anchor;
+  if (stored && Number.isFinite(Number(stored.keeperIndex))) {
+    return {
+      changeIndex: Math.floor(num(stored.changeIndex, 0)),
+      keeperIndex: mod(Math.floor(num(stored.keeperIndex, 0)), n),
+      subIndex: mod(Math.floor(num(stored.subIndex, g)), n)
+    };
+  }
+  return startAnchor(legalStartsFor(n, g)[0] ?? 0, n, g);
+}
+
+function slotsAt(team, changeIndex, g) {
+  const order = (team.players ?? []).map(copyPlayer);
+  const n = order.length;
+  if (n === 0) {
+    return { order, n, keeperIndex: -1, subIndexes: [], onPitchIndexes: [], offset: 0 };
+  }
+
+  const anchor = resolveAnchor(team, g);
+  const step = changeIndex - anchor.changeIndex;
+  const keeperIndex = mod(anchor.keeperIndex + step, n);
+  const subStart = mod(anchor.subIndex + step, n);
+
+  const subIndexes = [];
+  for (let j = 0; j < subCountFor(n, g); j += 1) subIndexes.push(mod(subStart + j, n));
+
+  const off = new Set(subIndexes);
+  off.add(keeperIndex);
+  const onPitchIndexes = [];
+  for (let i = 0; i < n; i += 1) if (!off.has(i)) onPitchIndexes.push(i);
+
+  return {
+    order,
+    n,
+    keeperIndex,
+    subIndexes,
+    onPitchIndexes,
+    offset: mod(anchor.subIndex - anchor.keeperIndex, n)
+  };
+}
+
+function pick(state, indexes) {
+  return indexes.map((i) => state.order[i]);
+}
+
+function teamStateAt(team, changeIndex, g) {
+  const now = slotsAt(team, changeIndex, g);
+  const next = slotsAt(team, changeIndex + 1, g);
+
+  const nowSubs = new Set(now.subIndexes.map((i) => now.order[i].id));
+  const nextSubs = new Set(next.subIndexes.map((i) => next.order[i].id));
 
   return {
     name: String(team.name ?? ''),
     order: now.order,
-    subCount: subCountFor(now.n),
+    subCount: subCountFor(now.n, g),
+
     keeper: now.keeperIndex < 0 ? null : now.order[now.keeperIndex],
     keeperIndex: now.keeperIndex,
-    subs: now.subIndexes.map((i) => now.order[i]),
+    subs: pick(now, now.subIndexes),
     subIndexes: now.subIndexes,
+    onPitch: pick(now, now.onPitchIndexes),
+    onPitchIndexes: now.onPitchIndexes,
+
     nextKeeper: next.keeperIndex < 0 ? null : next.order[next.keeperIndex],
     nextKeeperIndex: next.keeperIndex,
-    nextSubs: next.subIndexes.map((i) => next.order[i])
+    nextSubs: pick(next, next.subIndexes),
+    nextSubIndexes: next.subIndexes,
+
+    comingOn: pick(now, now.subIndexes.filter((i) => !nextSubs.has(now.order[i].id))),
+    goingOff: pick(next, next.subIndexes.filter((i) => !nowSubs.has(next.order[i].id)))
   };
 }
 
@@ -245,29 +430,33 @@ function teamStateAt(team, changeIndex) {
  * The whole engine.
  *
  * rotation(setup, elapsedMs) -> {
- *   intervalMs, changeIndex, msToNextChange, totalChanges,
+ *   intervalMs, changeIndex, msToNextChange, elapsedMs, gameMs, gameType,
  *   teams: [{ name, order, subCount,
- *             keeper, keeperIndex, subs, subIndexes,
- *             nextKeeper, nextKeeperIndex, nextSubs }]
+ *             keeper, keeperIndex, subs, subIndexes, onPitch, onPitchIndexes,
+ *             nextKeeper, nextKeeperIndex, nextSubs, nextSubIndexes,
+ *             comingOn, goingOff }]
  * }
  *
  * `msToNextChange` is in (0, intervalMs]. It reads intervalMs exactly on a
  * change boundary, so the announcement fires on the crossing, never twice.
- * Every player record in the result is a fresh copy. Nothing in `setup` is
- * touched, and nothing the caller does to the result reaches the setup.
+ * `gameMs` is the reference duration and stops nothing. Every player record in
+ * the result is a fresh copy: nothing in `setup` is touched, and nothing the
+ * caller does to the result reaches the setup.
  */
 export function rotation(setup, elapsedMs) {
   const intervalMs = computeIntervalMs(setup);
   const elapsed = Math.max(0, num(elapsedMs, 0));
   const changeIndex = Math.floor(elapsed / intervalMs);
-  const msToNextChange = intervalMs - (elapsed - changeIndex * intervalMs);
+  const gameType = gameTypeOf(setup);
 
   return {
     intervalMs,
     changeIndex,
-    msToNextChange,
-    totalChanges: totalChangesIn(setup),
-    teams: (setup.teams ?? []).map((team) => teamStateAt(team, changeIndex))
+    msToNextChange: intervalMs - (elapsed - changeIndex * intervalMs),
+    elapsedMs: elapsed,
+    gameMs: gameMinutesOf(setup) * MS_PER_MINUTE,
+    gameType,
+    teams: ((setup && setup.teams) ?? []).map((team) => teamStateAt(team, changeIndex, gameType))
   };
 }
 
@@ -285,35 +474,47 @@ function nextLateId(team, teamIndex) {
   return `t${teamIndex}L${n}`;
 }
 
+function reAnchor(setup, teamIndex, team, players, keeperIndex, changeIndex, offset) {
+  const n = players.length;
+  const o = safeOffset(n, subCountFor(n, gameTypeOf(setup)), offset);
+  return replaceTeam(setup, teamIndex, {
+    ...team,
+    players,
+    anchor: { changeIndex, keeperIndex, subIndex: mod(keeperIndex + o, n) }
+  });
+}
+
 /**
  * Someone turns up after kick-off. Returns a new setup.
  *
- * They go in goal at the very next change. The clock does not move. They then
- * wait a full lap of the new list. The current keeper does not change.
+ * They join the front of the bench and come on at the next change. Nobody on
+ * the pitch moves, the keeper does not change, and the clock does not move. A
+ * team still short of `gameType` has no bench, so they walk straight on.
  */
 export function addLateArrival(setup, teamIndex, name, elapsedMs) {
-  const locked = lockClock(setup);
-  const team = locked.teams[teamIndex];
-  if (!team) return locked;
+  const team = ((setup && setup.teams) ?? [])[teamIndex];
+  if (!team) return setup;
 
   const trimmed = String(name).trim();
-  if (trimmed.length === 0) return locked;
+  if (trimmed.length === 0) return setup;
 
-  const changeIndex = changeIndexAt(locked, elapsedMs);
-  const state = slotsAt(team, changeIndex);
+  const g = gameTypeOf(setup);
+  const changeIndex = changeIndexAt(setup, elapsedMs);
+  const now = slotsAt(team, changeIndex, g);
   const player = { id: nextLateId(team, teamIndex), name: trimmed };
   const players = (team.players ?? []).map(copyPlayer);
 
-  let anchor;
-  if (state.n === 0) {
+  if (now.n === 0) {
     players.push(player);
-    anchor = { changeIndex, playerId: player.id };
-  } else {
-    players.splice(state.keeperIndex + 1, 0, player);
-    anchor = { changeIndex, playerId: state.order[state.keeperIndex].id };
+    return reAnchor(setup, teamIndex, team, players, 0, changeIndex, 0);
   }
 
-  return replaceTeam(locked, teamIndex, { ...team, players, anchor });
+  const grown = now.n + 1;
+  const offset = safeOffset(grown, subCountFor(grown, g), now.offset);
+  const at = mod(now.keeperIndex + offset, now.n);
+  players.splice(at, 0, player);
+  const keeperIndex = now.keeperIndex < at ? now.keeperIndex : now.keeperIndex + 1;
+  return reAnchor(setup, teamIndex, team, players, keeperIndex, changeIndex, offset);
 }
 
 /**
@@ -321,31 +522,24 @@ export function addLateArrival(setup, teamIndex, name, elapsedMs) {
  *
  * Their name never comes up again, in goal or on the bench. The current keeper
  * does not change, unless the person who leaves IS the keeper — then the player
- * who was next goes in for the rest of that shift.
+ * who was due next goes in for the rest of that shift. The clock does not move.
  */
 export function removePlayer(setup, teamIndex, playerId, elapsedMs) {
-  const locked = lockClock(setup);
-  const team = locked.teams[teamIndex];
-  if (!team) return locked;
+  const team = ((setup && setup.teams) ?? [])[teamIndex];
+  if (!team) return setup;
 
-  const players = (team.players ?? [])
-    .filter((player) => player.id !== playerId)
-    .map(copyPlayer);
-  if (players.length === (team.players ?? []).length) return locked;
+  const before = team.players ?? [];
+  const players = before.filter((player) => player.id !== playerId).map(copyPlayer);
+  if (players.length === before.length) return setup;
+  if (players.length === 0) return replaceTeam(setup, teamIndex, { ...team, players, anchor: null });
 
-  if (players.length === 0) {
-    return replaceTeam(locked, teamIndex, { ...team, players, anchor: null });
-  }
-
-  const changeIndex = changeIndexAt(locked, elapsedMs);
-  const state = slotsAt(team, changeIndex);
-  const keeper = state.order[state.keeperIndex];
-  const successor = state.order[mod(state.keeperIndex + 1, state.n)];
+  const g = gameTypeOf(setup);
+  const changeIndex = changeIndexAt(setup, elapsedMs);
+  const now = slotsAt(team, changeIndex, g);
+  const keeper = now.order[now.keeperIndex];
+  const successor = now.order[mod(now.keeperIndex + 1, now.n)];
   const holdOn = keeper.id === playerId ? successor : keeper;
+  const keeperIndex = players.findIndex((player) => player.id === holdOn.id);
 
-  return replaceTeam(locked, teamIndex, {
-    ...team,
-    players,
-    anchor: { changeIndex, playerId: holdOn.id }
-  });
+  return reAnchor(setup, teamIndex, team, players, keeperIndex, changeIndex, now.offset);
 }

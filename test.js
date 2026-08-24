@@ -6,13 +6,22 @@
 import {
   rotation,
   createSetup,
-  lockClock,
   computeIntervalMs,
   changeIndexAt,
-  totalChangesIn,
+  subCountFor,
+  legalStartKeepers,
+  isLegalStartKeeper,
+  nearestLegalStartKeeper,
+  setStartKeeper,
+  kickOff,
   addLateArrival,
   removePlayer,
-  QUANTUM_MS
+  MS_PER_MINUTE,
+  MIN_GAME_TYPE,
+  MAX_GAME_TYPE,
+  DEFAULT_GAME_TYPE,
+  DEFAULT_SUB_MINUTES,
+  DEFAULT_GAME_MINUTES
 } from './rotation.js';
 
 /* ---------------------------------------------------------------- harness */
@@ -52,260 +61,480 @@ function same(actual, expected, message) {
 
 /* ------------------------------------------------------------- test data */
 
-const ALPHABET = ['Alex', 'Ben', 'Cara', 'Dan', 'Eve', 'Finn', 'Gus', 'Hal', 'Iris', 'Jo', 'Kai', 'Lena', 'Mo', 'Nia'];
+const NAMES = [
+  'Zoe', 'Alex', 'Sam', 'Ben', 'Cara', 'Dan', 'Eve', 'Finn', 'Gus', 'Hal',
+  'Iris', 'Jo', 'Kai', 'Lena', 'Mo', 'Nia', 'Otto', 'Pia', 'Rey', 'Sky'
+];
 
-/** Names in arrival order, deliberately not alphabetical. */
-function arrivals(size) {
-  const names = ALPHABET.slice(0, size);
-  return names.slice().reverse();
+/** Names in the order a person dragged them. Deliberately not alphabetical. */
+function squad(size) {
+  return NAMES.slice(0, size);
 }
 
 function setupOf(sizeA, sizeB, options = {}) {
   return createSetup({
-    durationMin: options.durationMin ?? 90,
-    shiftsEach: options.shiftsEach ?? 2,
+    gameType: options.gameType ?? 6,
+    subMinutes: options.subMinutes ?? 10,
+    gameMinutes: options.gameMinutes ?? 120,
     teams: [
-      { name: 'Bibs', arrivals: options.arrivalsA ?? arrivals(sizeA) },
-      { name: 'No bibs', arrivals: options.arrivalsB ?? arrivals(sizeB) }
+      { name: 'Bibs', players: options.playersA ?? squad(sizeA) },
+      { name: 'No bibs', players: options.playersB ?? squad(sizeB) }
     ]
   });
 }
 
-function keeperAt(setup, teamIndex, changeIndex) {
-  const interval = computeIntervalMs(setup);
-  return rotation(setup, changeIndex * interval).teams[teamIndex].keeper;
+function stateAt(setup, teamIndex, changeIndex) {
+  return rotation(setup, changeIndex * computeIntervalMs(setup)).teams[teamIndex];
 }
 
-function subsAt(setup, teamIndex, changeIndex) {
-  const interval = computeIntervalMs(setup);
-  return rotation(setup, changeIndex * interval).teams[teamIndex].subs;
+function ids(players) {
+  return players.map((player) => player.id);
 }
 
-/* ------------------------------------------------------ interval arithmetic */
+/** Force an anchor the module would never write. Used to test the boundary. */
+function withRawStart(setup, teamIndex, keeperIndex) {
+  const teams = setup.teams.map((team, i) => {
+    if (i !== teamIndex) return team;
+    const n = team.players.length;
+    return { ...team, anchor: { changeIndex: 0, keeperIndex, subIndex: setup.gameType % n } };
+  });
+  return { ...setup, teams };
+}
 
-console.log('\ninterval');
+/** A repeatable stand-in for Math.random. Spread matters — the draw is tested. */
+function dice(seed) {
+  let s = ((seed + 1) * 2654435761) >>> 0;
+  return () => {
+    s = (s ^ (s << 13)) >>> 0;
+    s = (s ^ (s >>> 17)) >>> 0;
+    s = (s ^ (s << 5)) >>> 0;
+    return s / 4294967296;
+  };
+}
 
-test('90 minutes, 6 a side, 2 shifts each — 7:30', () => {
-  eq(computeIntervalMs(setupOf(6, 6)), 450000);
+/** A draw that always rolls the same number. */
+function roll(value) {
+  return () => value;
+}
+
+/** The two hard rules, plus the roles adding up, over a run of changes. */
+function checkRules(setup, teamIndex, changes, label) {
+  for (let k = 0; k <= changes; k += 1) {
+    const team = stateAt(setup, teamIndex, k);
+    const here = `${label} change ${k}`;
+    if (!team.keeper) continue;
+
+    const subs = new Set(ids(team.subs));
+    const next = new Set(ids(team.nextSubs));
+
+    ok(!subs.has(team.keeper.id), `${here}: the keeper is also a sub`);
+    ok(!next.has(team.keeper.id), `${here}: ${team.keeper.name} comes out of goal and sits down`);
+    ok(!subs.has(team.nextKeeper.id), `${here}: ${team.nextKeeper.name} goes from the bench into goal`);
+
+    eq(subs.size, team.subs.length, `${here}: the subs are not distinct`);
+    eq(
+      team.subs.length + team.onPitch.length + 1,
+      team.order.length,
+      `${here}: the roles do not add up`
+    );
+    const seen = new Set([team.keeper.id, ...ids(team.subs), ...ids(team.onPitch)]);
+    eq(seen.size, team.order.length, `${here}: a player holds two roles at once`);
+  }
+}
+
+/* ------------------------------------------------------------ the setup */
+
+console.log('\nthe setup');
+
+test('the list order is kept exactly — nothing is sorted', () => {
+  const names = ['Zoe', 'Alex', 'Sam', 'Ben', 'Cara', 'Dan'];
+  const setup = setupOf(6, 6, { playersA: names });
+  same(setup.teams[0].players.map((player) => player.name), names);
 });
 
-test('the larger squad sets the interval', () => {
-  eq(computeIntervalMs(setupOf(6, 8)), 330000);
-  eq(computeIntervalMs(setupOf(8, 6)), 330000);
+test('the defaults are 6 a side, 10 minutes, 120 minutes', () => {
+  const setup = createSetup({ teams: [{ players: squad(6) }] });
+  eq(setup.gameType, DEFAULT_GAME_TYPE);
+  eq(setup.subMinutes, DEFAULT_SUB_MINUTES);
+  eq(setup.gameMinutes, DEFAULT_GAME_MINUTES);
 });
 
-test('the 15 second floor bites — 7 a side is 6:15, not 6:25.7', () => {
-  const interval = computeIntervalMs(setupOf(7, 7));
-  eq(interval, 375000);
-  ok(interval < 5400000 / 14, 'floored down, never up');
+test('gameType clamps to 4 .. 11', () => {
+  eq(createSetup({ gameType: 1, teams: [] }).gameType, MIN_GAME_TYPE);
+  eq(createSetup({ gameType: 99, teams: [] }).gameType, MAX_GAME_TYPE);
+  eq(createSetup({ gameType: 5, teams: [] }).gameType, 5);
 });
 
-test('the 15 second floor bites — 11 a side is 4:00', () => {
-  eq(computeIntervalMs(setupOf(11, 6)), 240000);
+test('blank names drop out and ids are stable', () => {
+  const setup = setupOf(0, 0, { playersA: ['Zoe', '  ', 'Sam', ''] });
+  eq(setup.teams[0].players.length, 2);
+  same(ids(setup.teams[0].players), ['t0p0', 't0p1']);
+  same(setupOf(0, 0, { playersA: ['Zoe', 'Sam'] }), setupOf(0, 0, { playersA: ['Zoe', 'Sam'] }));
 });
 
-test('every interval is a whole number of 15 second blocks', () => {
-  for (let size = 2; size <= 14; size += 1) {
-    for (let shifts = 1; shifts <= 4; shifts += 1) {
-      for (const durationMin of [45, 60, 70, 90, 120]) {
-        const interval = computeIntervalMs(setupOf(size, 6, { shiftsEach: shifts, durationMin }));
-        eq(interval % QUANTUM_MS, 0, `${size} players, ${shifts} shifts, ${durationMin} min`);
-        ok(interval >= QUANTUM_MS, 'never zero');
+test('a fresh setup has no starting keeper until kick-off', () => {
+  eq(setupOf(8, 8).teams[0].anchor, null);
+});
+
+/* ---------------------------------------------------------- the interval */
+
+console.log('\nthe interval');
+
+test('the interval is subMinutes, straight through', () => {
+  for (let minutes = 1; minutes <= 20; minutes += 1) {
+    eq(computeIntervalMs(setupOf(8, 6, { subMinutes: minutes })), minutes * MS_PER_MINUTE, `${minutes} minutes`);
+  }
+});
+
+test('squad size does not touch the interval', () => {
+  const ten = 10 * MS_PER_MINUTE;
+  for (let size = 1; size <= 16; size += 1) {
+    eq(computeIntervalMs(setupOf(size, 6)), ten, `squad of ${size}`);
+  }
+});
+
+test('gameType does not touch the interval', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    eq(computeIntervalMs(setupOf(11, 11, { gameType: g })), 10 * MS_PER_MINUTE, `${g} a side`);
+  }
+});
+
+test('gameMinutes is reference only — it changes nothing but gameMs', () => {
+  const short = setupOf(8, 7, { gameMinutes: 45 });
+  const long = setupOf(8, 7, { gameMinutes: 120 });
+  for (const ms of [0, 600000, 5400000, 12345678]) {
+    same(rotation(short, ms).teams, rotation(long, ms).teams, `elapsed ${ms}`);
+    eq(rotation(short, ms).intervalMs, rotation(long, ms).intervalMs);
+  }
+  eq(rotation(short, 0).gameMs, 45 * MS_PER_MINUTE);
+  eq(rotation(long, 0).gameMs, 120 * MS_PER_MINUTE);
+});
+
+test('the interval is a whole number of minutes, never zero', () => {
+  eq(computeIntervalMs(setupOf(8, 6, { subMinutes: 0 })), MS_PER_MINUTE);
+  eq(computeIntervalMs(setupOf(8, 6, { subMinutes: 7.9 })), 7 * MS_PER_MINUTE);
+});
+
+/* ------------------------------------------------------------- kick-off */
+
+console.log('\nthe kick-off line-up');
+
+test('subCount is squad minus gameType, floor 0', () => {
+  eq(subCountFor(6, 6), 0);
+  eq(subCountFor(9, 6), 3);
+  eq(subCountFor(4, 6), 0, 'a short squad plays short');
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = 1; n <= 16; n += 1) {
+      eq(rotation(setupOf(n, n, { gameType: g }), 0).teams[0].subCount, Math.max(0, n - g), `${g} a side, squad ${n}`);
+    }
+  }
+});
+
+test('at change 0 the subs are exactly the players below the dividing line', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g; n <= g + 5; n += 1) {
+      const setup = kickOff(setupOf(n, n, { gameType: g }), dice(n * 31 + g));
+      const team = stateAt(setup, 0, 0);
+      same(team.subIndexes, [...Array(n - g).keys()].map((j) => g + j), `${g} a side, squad ${n}`);
+      same(
+        team.subs.map((player) => player.name),
+        squad(n).slice(g),
+        `${g} a side, squad ${n}`
+      );
+    }
+  }
+});
+
+test('at change 0 the keeper and the pitch are exactly the players above the line', () => {
+  const setup = kickOff(setupOf(9, 9, { gameType: 6 }), dice(7));
+  const team = stateAt(setup, 0, 0);
+  const above = [team.keeperIndex, ...team.onPitchIndexes].sort((a, b) => a - b);
+  same(above, [0, 1, 2, 3, 4, 5]);
+});
+
+test('a squad shorter than gameType plays short and nothing is wrong', () => {
+  const setup = kickOff(setupOf(4, 6, { gameType: 6 }), dice(3));
+  const team = stateAt(setup, 0, 0);
+  eq(team.subCount, 0);
+  eq(team.subs.length, 0);
+  eq(team.onPitch.length, 3);
+  ok(team.keeper !== null);
+  checkRules(setup, 0, 12, 'short squad');
+});
+
+/* ------------------------------------------------------ the start keeper */
+
+console.log('\nthe starting keeper');
+
+test('the legal starts are 1 .. gameType - 2', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g; n <= g + 5; n += 1) {
+      const wanted = [];
+      for (let i = 1; i <= g - 2; i += 1) wanted.push(i);
+      same(legalStartKeepers(setupOf(n, n, { gameType: g }), 0), wanted, `${g} a side, squad ${n}`);
+    }
+  }
+});
+
+test('the two ends of the line-up and every sub are refused', () => {
+  const setup = setupOf(9, 9, { gameType: 6 });
+  eq(isLegalStartKeeper(setup, 0, 0), false, 'the first name');
+  eq(isLegalStartKeeper(setup, 0, 5), false, 'the last name above the line');
+  eq(isLegalStartKeeper(setup, 0, 6), false, 'a sub');
+  eq(isLegalStartKeeper(setup, 0, 8), false, 'the last sub');
+  for (let i = 1; i <= 4; i += 1) eq(isLegalStartKeeper(setup, 0, i), true, `index ${i}`);
+});
+
+test('an illegal tap has a nearest legal name', () => {
+  const setup = setupOf(9, 9, { gameType: 6 });
+  eq(nearestLegalStartKeeper(setup, 0, 0), 1);
+  eq(nearestLegalStartKeeper(setup, 0, 5), 4);
+  eq(nearestLegalStartKeeper(setup, 0, 8), 4);
+  eq(nearestLegalStartKeeper(setup, 0, 3), 3, 'a legal tap does not move');
+});
+
+test('setStartKeeper stores the tap, and moves an illegal one', () => {
+  const setup = setupOf(9, 9, { gameType: 6 });
+  eq(stateAt(setStartKeeper(setup, 0, 3), 0, 0).keeperIndex, 3);
+  eq(stateAt(setStartKeeper(setup, 0, 0), 0, 0).keeperIndex, 1);
+  eq(stateAt(setStartKeeper(setup, 0, 7), 0, 0).keeperIndex, 4);
+  same(setStartKeeper(setup, 0, 3).teams[1], setup.teams[1], 'the other team is untouched');
+});
+
+test('kickOff draws from the legal starts only, and covers all of them', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    const setup = setupOf(g + 2, g + 2, { gameType: g });
+    const legal = legalStartKeepers(setup, 0);
+    const drawn = new Set();
+    for (let step = 0; step < 1000; step += 1) {
+      const draw = step < 500 ? roll(step / 500) : dice(step);
+      const index = kickOff(setup, draw).teams[0].anchor.keeperIndex;
+      ok(legal.includes(index), `${g} a side drew an illegal start ${index}`);
+      drawn.add(index);
+    }
+    eq(drawn.size, legal.length, `${g} a side never drew some of ${JSON.stringify(legal)}`);
+  }
+});
+
+test('the draw is written down, so the same setup always gives the same answer', () => {
+  const kicked = kickOff(setupOf(8, 8), dice(11));
+  ok(kicked.teams[0].anchor !== null);
+  const restored = JSON.parse(JSON.stringify(kicked));
+  for (const ms of [0, 600000, 5400000]) same(rotation(restored, ms), rotation(kicked, ms), `elapsed ${ms}`);
+});
+
+test('kickOff is idempotent and never overrides a tap', () => {
+  const tapped = setStartKeeper(setupOf(8, 8), 0, 2);
+  const kicked = kickOff(tapped, dice(5));
+  eq(kicked.teams[0].anchor.keeperIndex, 2, 'the tap survives');
+  same(kickOff(kicked, dice(9)), kicked, 'a second kick-off changes nothing');
+});
+
+test('the two teams draw separately', () => {
+  const seen = new Set();
+  for (let seed = 1; seed <= 200; seed += 1) {
+    const kicked = kickOff(setupOf(8, 8), dice(seed));
+    seen.add(`${kicked.teams[0].anchor.keeperIndex}-${kicked.teams[1].anchor.keeperIndex}`);
+  }
+  ok(seen.size > 4, 'the two teams always drew the same pair');
+});
+
+test('a preview before kick-off is legal and deterministic', () => {
+  const setup = setupOf(9, 9);
+  eq(stateAt(setup, 0, 0).keeperIndex, 1);
+  checkRules(setup, 0, 27, 'no anchor yet');
+});
+
+/* --------------------------------------------------------- the two rules */
+
+console.log('\nthe two hard rules');
+
+test('no player goes goal to bench or bench to goal — every game type, squad and legal start', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g; n <= g + 5; n += 1) {
+      const base = setupOf(n, n, { gameType: g });
+      for (const start of legalStartKeepers(base, 0)) {
+        checkRules(setStartKeeper(base, 0, start), 0, 3 * n, `${g} a side, squad ${n}, start ${start}`);
       }
     }
   }
 });
 
-test('more shifts each means a shorter interval', () => {
-  ok(computeIntervalMs(setupOf(8, 8, { shiftsEach: 3 })) < computeIntervalMs(setupOf(8, 8, { shiftsEach: 2 })));
-});
-
-test('totalChanges is N x S', () => {
-  eq(totalChangesIn(setupOf(8, 6)), 16);
-  eq(totalChangesIn(setupOf(6, 6, { shiftsEach: 3 })), 18);
-  eq(rotation(setupOf(8, 6), 0).totalChanges, 16);
-});
-
-/* --------------------------------------------------------------- sub count */
-
-console.log('\nsubs per team');
-
-test('a team of 6 has no sub', () => {
-  const state = rotation(setupOf(6, 6), 0).teams[0];
-  eq(state.subCount, 0);
-  eq(state.subs.length, 0);
-  eq(state.nextSubs.length, 0);
-});
-
-test('a team of 7 has one sub', () => {
-  const state = rotation(setupOf(7, 7), 0).teams[0];
-  eq(state.subCount, 1);
-  eq(state.subs.length, 1);
-});
-
-test('a team of 8 has two subs', () => {
-  const state = rotation(setupOf(8, 8), 0).teams[0];
-  eq(state.subCount, 2);
-  eq(state.subs.length, 2);
-});
-
-test('one team with a sub and one without is fine', () => {
-  const state = rotation(setupOf(7, 6), 0);
-  eq(state.teams[0].subs.length, 1);
-  eq(state.teams[1].subs.length, 0);
-});
-
-/* ------------------------------------------------------------- the order */
-
-console.log('\nthe order');
-
-test('the order is alphabetical by first name, not arrival order', () => {
-  const setup = setupOf(6, 6);
-  same(
-    setup.teams[0].players.map((player) => player.name),
-    ['Alex', 'Ben', 'Cara', 'Dan', 'Eve', 'Finn']
-  );
-});
-
-test('the first keeper is the last name entered', () => {
-  const setup = setupOf(6, 6, { arrivalsA: ['Zoe', 'Alex', 'Sam', 'Ben', 'Cara', 'Dan'] });
-  eq(rotation(setup, 0).teams[0].keeper.name, 'Dan');
-});
-
-test('the first keeper is the last name entered, even when alphabetically first', () => {
-  const setup = setupOf(6, 6, { arrivalsA: ['Zoe', 'Sam', 'Ben', 'Cara', 'Dan', 'Alex'] });
-  eq(rotation(setup, 0).teams[0].keeper.name, 'Alex');
-});
-
-test('the rota runs alphabetically from the first keeper and wraps', () => {
-  const setup = setupOf(6, 6, { arrivalsA: ['Zoe', 'Alex', 'Sam', 'Ben', 'Cara', 'Dan'] });
-  const order = ['Dan', 'Sam', 'Zoe', 'Alex', 'Ben', 'Cara'];
-  for (let k = 0; k < 18; k += 1) {
-    eq(keeperAt(setup, 0, k).name, order[k % 6], `change ${k}`);
-  }
-});
-
-test('nextKeeper is the keeper of the following change', () => {
-  const setup = setupOf(8, 7);
-  const interval = computeIntervalMs(setup);
-  for (let k = 0; k < 20; k += 1) {
-    const now = rotation(setup, k * interval);
-    const next = rotation(setup, (k + 1) * interval);
-    for (let t = 0; t < 2; t += 1) {
-      same(now.teams[t].nextKeeper, next.teams[t].keeper, `team ${t}, change ${k}`);
-      same(now.teams[t].nextSubs, next.teams[t].subs, `team ${t} subs, change ${k}`);
+test('starting at index 0 breaks the first rule, exactly as the arithmetic says', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g + 1; n <= g + 3; n += 1) {
+      const setup = withRawStart(setupOf(n, n, { gameType: g }), 0, 0);
+      for (let k = 0; k < 3; k += 1) {
+        const team = stateAt(setup, 0, k);
+        ok(
+          ids(team.nextSubs).includes(team.keeper.id),
+          `${g} a side, squad ${n}: index 0 was expected to send the keeper to the bench`
+        );
+        ok(!ids(team.subs).includes(team.nextKeeper.id), 'and to leave the second rule alone');
+      }
     }
   }
 });
 
-test('duplicate first names still rotate as two separate players', () => {
-  const setup = setupOf(6, 6, { arrivalsA: ['Sam', 'Sam', 'Ben', 'Cara', 'Dan', 'Eve'] });
-  const ids = new Set(setup.teams[0].players.map((player) => player.id));
-  eq(ids.size, 6);
-  const seen = new Set();
-  for (let k = 0; k < 6; k += 1) seen.add(keeperAt(setup, 0, k).id);
-  eq(seen.size, 6, 'six distinct players in six changes');
+test('starting at index gameType - 1 breaks the second rule, and only that one', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g + 1; n <= g + 3; n += 1) {
+      const setup = withRawStart(setupOf(n, n, { gameType: g }), 0, g - 1);
+      for (let k = 0; k < 3; k += 1) {
+        const team = stateAt(setup, 0, k);
+        ok(
+          ids(team.subs).includes(team.nextKeeper.id),
+          `${g} a side, squad ${n}: index ${g - 1} was expected to put a sub into goal`
+        );
+        ok(!ids(team.nextSubs).includes(team.keeper.id), 'and to leave the first rule alone');
+      }
+    }
+  }
 });
 
-/* ------------------------------------------------------------ the whole lap */
+test('starting a sub in goal makes them keeper and sub at once', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    const n = g + 3;
+    for (let start = g; start < n; start += 1) {
+      const team = stateAt(withRawStart(setupOf(n, n, { gameType: g }), 0, start), 0, 0);
+      ok(ids(team.subs).includes(team.keeper.id), `${g} a side, start ${start}`);
+    }
+  }
+});
+
+test('every anchor the module writes is legal, however the roster moves', () => {
+  const random = dice(2024);
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    let setup = kickOff(setupOf(g, g + 4, { gameType: g }), dice(g));
+    let elapsed = 0;
+    for (let round = 0; round < 12; round += 1) {
+      elapsed += computeIntervalMs(setup) * (1 + round) + 1234;
+      const team = setup.teams[0];
+      if (random() < 0.5 || team.players.length < 3) {
+        setup = addLateArrival(setup, 0, NAMES[round % NAMES.length] + round, elapsed);
+      } else {
+        const victim = team.players[Math.floor(random() * team.players.length)];
+        setup = removePlayer(setup, 0, victim.id, elapsed);
+      }
+      checkRules(setup, 0, 3 * setup.teams[0].players.length, `${g} a side after round ${round}`);
+    }
+  }
+});
+
+/* ------------------------------------------------------------ the lap */
 
 console.log('\nthe lap');
 
-test('every player in the larger squad gets exactly S shifts in the duration', () => {
-  for (const shiftsEach of [1, 2, 3]) {
-    for (const size of [6, 7, 8, 9, 11]) {
-      const setup = setupOf(size, 6, { shiftsEach });
-      const counts = new Map();
-      for (let k = 0; k < totalChangesIn(setup); k += 1) {
-        const keeper = keeperAt(setup, 0, k);
-        counts.set(keeper.id, (counts.get(keeper.id) ?? 0) + 1);
+test('over one lap every player keeps goal once and sits exactly subCount times', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g; n <= g + 5; n += 1) {
+      const setup = kickOff(setupOf(n, n, { gameType: g }), dice(n + g));
+      const goal = new Map();
+      const bench = new Map();
+      for (const player of setup.teams[0].players) {
+        goal.set(player.id, 0);
+        bench.set(player.id, 0);
       }
-      eq(counts.size, size, `${size} players get a turn`);
-      for (const count of counts.values()) eq(count, shiftsEach, `${size} players, ${shiftsEach} shifts each`);
+      for (let k = 0; k < n; k += 1) {
+        const team = stateAt(setup, 0, k);
+        goal.set(team.keeper.id, goal.get(team.keeper.id) + 1);
+        for (const sub of team.subs) bench.set(sub.id, bench.get(sub.id) + 1);
+      }
+      for (const count of goal.values()) eq(count, 1, `${g} a side, squad ${n}: goal shifts in a lap`);
+      for (const count of bench.values()) eq(count, n - g, `${g} a side, squad ${n}: bench shifts in a lap`);
     }
   }
 });
 
-test('uneven teams: the larger squad gets exactly S, the smaller gets more', () => {
-  const setup = setupOf(9, 6);
-  const total = totalChangesIn(setup);
-  eq(total, 18);
-
-  const big = new Map();
-  const small = new Map();
-  for (let k = 0; k < total; k += 1) {
-    const a = keeperAt(setup, 0, k);
-    const b = keeperAt(setup, 1, k);
-    big.set(a.id, (big.get(a.id) ?? 0) + 1);
-    small.set(b.id, (small.get(b.id) ?? 0) + 1);
-  }
-  for (const count of big.values()) eq(count, 2, 'larger squad');
-  eq(small.size, 6);
-  for (const count of small.values()) eq(count, 3, 'smaller squad shares the same goal time between fewer people');
-});
-
-test('the rota keeps going past the duration and wraps', () => {
-  const setup = setupOf(7, 7);
-  const total = totalChangesIn(setup);
+test('the rota repeats exactly one lap later, forever', () => {
+  const setup = kickOff(setupOf(7, 7), dice(4));
   for (let k = 0; k < 40; k += 1) {
-    ok(keeperAt(setup, 0, k) !== null, `change ${k} still has a keeper`);
-    eq(keeperAt(setup, 0, k).id, keeperAt(setup, 0, k + 7).id, `change ${k} repeats one lap later`);
+    same(stateAt(setup, 0, k).keeper, stateAt(setup, 0, k + 7).keeper, `change ${k}`);
+    same(stateAt(setup, 0, k).subs, stateAt(setup, 0, k + 7).subs, `change ${k} subs`);
   }
-  const past = rotation(setup, (total + 5) * computeIntervalMs(setup) + 1000);
-  eq(past.changeIndex, total + 5, 'the change index never stops');
-  ok(past.teams[0].keeper !== null);
 });
 
-/* -------------------------------------------------------------- sub slots */
+test('the rotation runs on past gameMinutes and never stops', () => {
+  const setup = kickOff(setupOf(8, 7, { gameMinutes: 45 }), dice(6));
+  const state = rotation(setup, 6 * 3600000); // six hours
+  eq(state.changeIndex, 36);
+  ok(state.elapsedMs > state.gameMs, 'well past the reference duration');
+  ok(state.teams[0].keeper !== null);
+  eq(state.teams[0].subs.length, 2);
+  eq(state.teams[1].subs.length, 1);
+});
 
-console.log('\nsub slots');
-
-test('the sub is never the keeper', () => {
-  for (let size = 6; size <= 14; size += 1) {
-    const setup = setupOf(size, size);
-    for (let k = 0; k < size * 3; k += 1) {
-      const keeper = keeperAt(setup, 0, k);
-      for (const sub of subsAt(setup, 0, k)) {
-        ok(sub.id !== keeper.id, `squad of ${size}, change ${k}: ${sub.name} is both keeper and sub`);
-      }
+test('nextKeeper and nextSubs are the following change, read now', () => {
+  const setup = kickOff(setupOf(9, 7), dice(8));
+  for (let k = 0; k < 20; k += 1) {
+    for (let t = 0; t < 2; t += 1) {
+      same(stateAt(setup, t, k).nextKeeper, stateAt(setup, t, k + 1).keeper, `team ${t}, change ${k}`);
+      same(stateAt(setup, t, k).nextSubs, stateAt(setup, t, k + 1).subs, `team ${t} subs, change ${k}`);
     }
   }
 });
 
-test('the sub is never the player who has just come out of goal', () => {
-  // Holds up to 11 in a team. At 12 the subs are, unavoidably, everyone who is
-  // not one of the six on the pitch, so the last keeper must sit down.
-  for (let size = 6; size <= 11; size += 1) {
-    const setup = setupOf(size, size);
-    for (let k = 1; k < size * 3; k += 1) {
-      const wasKeeper = keeperAt(setup, 0, k - 1);
-      for (const sub of subsAt(setup, 0, k)) {
-        ok(sub.id !== wasKeeper.id, `squad of ${size}, change ${k}: ${sub.name} came out of goal and sat down`);
-      }
+/* ---------------------------------------------------- what the display gets */
+
+console.log('\nwhat the display gets');
+
+test('onPitch is everyone who is neither keeper nor sub', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = Math.max(1, g - 2); n <= g + 4; n += 1) {
+      const setup = kickOff(setupOf(n, n, { gameType: g }), dice(n * g));
+      const team = stateAt(setup, 0, 5);
+      eq(team.onPitch.length, n - 1 - Math.max(0, n - g), `${g} a side, squad ${n}`);
+      eq(team.onPitch.length + 1, Math.min(n, g), 'the pitch holds gameType, or the whole squad');
+      same(ids(team.onPitch), team.onPitchIndexes.map((i) => team.order[i].id));
     }
   }
 });
 
-test('the subs are distinct players', () => {
-  for (let size = 7; size <= 12; size += 1) {
-    const setup = setupOf(size, size);
-    for (let k = 0; k < size * 2; k += 1) {
-      const subs = subsAt(setup, 0, k);
-      eq(new Set(subs.map((sub) => sub.id)).size, subs.length, `squad of ${size}, change ${k}`);
+test('comingOn and goingOff are one name each, and the arrows point the right way', () => {
+  for (let n = 7; n <= 12; n += 1) {
+    const setup = kickOff(setupOf(n, n), dice(n));
+    for (let k = 0; k < 2 * n; k += 1) {
+      const team = stateAt(setup, 0, k);
+      const label = `squad ${n}, change ${k}`;
+      eq(team.comingOn.length, 1, label);
+      eq(team.goingOff.length, 1, label);
+      same(team.comingOn[0], team.subs[0], `${label}: comingOn is the front of the bench`);
+      same(team.goingOff[0], team.nextSubs[team.nextSubs.length - 1], `${label}: goingOff is the back of the next bench`);
+      ok(ids(team.onPitch).includes(team.goingOff[0].id), `${label}: the player going off was on the pitch`);
+      ok(!ids(team.nextSubs).includes(team.comingOn[0].id), `${label}: the player coming on is still a sub`);
+      ok(team.goingOff[0].id !== team.keeper.id, `${label}: the keeper is not going off`);
+      ok(team.comingOn[0].id !== team.nextKeeper.id, `${label}: nobody comes on straight into goal`);
     }
   }
 });
 
-test('every player takes the same number of bench shifts over a lap', () => {
-  for (const size of [7, 8, 9]) {
-    const setup = setupOf(size, size);
-    const counts = new Map();
-    for (const player of setup.teams[0].players) counts.set(player.id, 0);
-    for (let k = 0; k < size; k += 1) {
-      for (const sub of subsAt(setup, 0, k)) counts.set(sub.id, counts.get(sub.id) + 1);
-    }
-    for (const count of counts.values()) eq(count, size - 6, `squad of ${size}`);
+test('a team with no bench has no arrows', () => {
+  const team = stateAt(kickOff(setupOf(6, 6), dice(2)), 0, 3);
+  eq(team.subs.length, 0);
+  eq(team.nextSubs.length, 0);
+  eq(team.comingOn.length, 0);
+  eq(team.goingOff.length, 0);
+  ok(team.keeper.id !== team.nextKeeper.id, 'the goal still changes hands');
+});
+
+test('the keeper handover is not an arrow — the keeper stays on the pitch', () => {
+  const setup = kickOff(setupOf(9, 9), dice(12));
+  for (let k = 0; k < 18; k += 1) {
+    const team = stateAt(setup, 0, k);
+    const next = stateAt(setup, 0, k + 1);
+    ok(ids(next.onPitch).includes(team.keeper.id), `change ${k}: the old keeper left the pitch`);
+    ok(ids(team.onPitch).includes(next.keeper.id), `change ${k}: the new keeper came from the bench`);
   }
+});
+
+test('two teams of different sizes both work off one clock', () => {
+  const setup = kickOff(setupOf(9, 6), dice(1));
+  const state = rotation(setup, 4 * computeIntervalMs(setup) + 10);
+  eq(state.teams[0].order.length, 9);
+  eq(state.teams[1].order.length, 6);
+  eq(state.teams[0].subs.length, 3);
+  eq(state.teams[1].subs.length, 0);
+  eq(state.changeIndex, 4, 'one clock, both teams change together');
 });
 
 /* ------------------------------------------------------------- the clock */
@@ -313,10 +542,10 @@ test('every player takes the same number of bench shifts over a lap', () => {
 console.log('\nthe clock');
 
 test('elapsed 0 is change 0 with a full interval to run', () => {
-  const setup = setupOf(8, 6);
-  const state = rotation(setup, 0);
+  const state = rotation(setupOf(8, 6), 0);
   eq(state.changeIndex, 0);
   eq(state.msToNextChange, state.intervalMs);
+  eq(state.elapsedMs, 0);
 });
 
 test('msToNextChange counts down and resets on the crossing', () => {
@@ -354,82 +583,121 @@ test('changeIndexAt agrees with rotation', () => {
 
 console.log('\nlate arrival');
 
-test('a late arrival is in goal at the very next change, and the clock does not move', () => {
-  const before = lockClock(setupOf(7, 7));
+test('a late arrival waits on the bench and comes on at the next change', () => {
+  const before = kickOff(setupOf(8, 8), dice(3));
   const interval = computeIntervalMs(before);
   const elapsed = 2 * interval + 90000; // part way through change 2
-  const wasKeeper = rotation(before, elapsed).teams[0].keeper;
-  const wasNext = rotation(before, elapsed).teams[0].nextKeeper;
+  const was = rotation(before, elapsed).teams[0];
 
-  const after = addLateArrival(before, 0, 'Zoe', elapsed);
-  const state = rotation(after, elapsed);
+  const after = addLateArrival(before, 0, 'Wren', elapsed);
+  const now = rotation(after, elapsed).teams[0];
 
-  eq(state.intervalMs, interval, 'the interval is frozen');
-  eq(state.msToNextChange, rotation(before, elapsed).msToNextChange, 'the countdown does not move');
-  eq(state.changeIndex, 2);
-  eq(state.teams[0].keeper.id, wasKeeper.id, 'the current keeper does not change mid-shift');
-  eq(state.teams[0].nextKeeper.name, 'Zoe', 'the late arrival is in goal at the next change');
-  ok(wasNext.name !== 'Zoe');
+  eq(now.keeper.id, was.keeper.id, 'the keeper does not change mid-shift');
+  same(ids(now.onPitch), ids(was.onPitch), 'nobody on the pitch is disturbed');
+  eq(now.subs.length, was.subs.length + 1, 'the bench grows by one');
+  eq(now.subs[0].name, 'Wren', 'the newcomer is at the front of the bench');
+  eq(now.comingOn[0].name, 'Wren', 'and comes on at the next change');
+  ok(!ids(rotation(after, elapsed + interval).teams[0].subs).includes(now.subs[0].id));
 });
 
-test('a late arrival does not come round again inside a full lap', () => {
-  const before = lockClock(setupOf(7, 7));
+test('a late arrival does not move the clock', () => {
+  const before = kickOff(setupOf(8, 8), dice(3));
   const interval = computeIntervalMs(before);
   const elapsed = 2 * interval + 90000;
-  const after = addLateArrival(before, 0, 'Zoe', elapsed);
-
-  const lap = after.teams[0].players.length;
-  eq(lap, 8);
-
-  const covered = 3; // the change the late arrival covers
-  eq(keeperAt(after, 0, covered).name, 'Zoe');
-  for (let k = covered + 1; k < covered + lap; k += 1) {
-    ok(keeperAt(after, 0, k).name !== 'Zoe', `back in goal too soon at change ${k}`);
-  }
-  eq(keeperAt(after, 0, covered + lap).name, 'Zoe', 'back in goal after exactly one lap');
+  const after = addLateArrival(before, 0, 'Wren', elapsed);
+  eq(rotation(after, elapsed).intervalMs, interval);
+  eq(rotation(after, elapsed).msToNextChange, rotation(before, elapsed).msToNextChange);
+  eq(rotation(after, elapsed).changeIndex, 2);
 });
 
-test('the player who was due next is not lost, only pushed one change back', () => {
-  const before = lockClock(setupOf(7, 7));
-  const interval = computeIntervalMs(before);
-  const elapsed = 2 * interval;
-  const wasDue = rotation(before, elapsed).teams[0].nextKeeper;
+test('a full team gains a bench, and still nobody on the pitch moves', () => {
+  const before = kickOff(setupOf(6, 6), dice(9));
+  const elapsed = 3 * computeIntervalMs(before) + 500;
+  const was = rotation(before, elapsed).teams[0];
+  const after = addLateArrival(before, 0, 'Wren', elapsed);
+  const now = rotation(after, elapsed).teams[0];
 
-  const after = addLateArrival(before, 0, 'Zoe', elapsed);
-  eq(keeperAt(after, 0, 4).id, wasDue.id, 'they go in one change later');
+  eq(was.subCount, 0);
+  eq(now.subCount, 1);
+  eq(now.subs[0].name, 'Wren');
+  eq(now.keeper.id, was.keeper.id);
+  same(ids(now.onPitch), ids(was.onPitch));
+  checkRules(after, 0, 21, 'a bench arrived mid-game');
 });
 
-test('a late arrival joins the goal order and shows in it once', () => {
-  const before = lockClock(setupOf(7, 7));
-  const after = addLateArrival(before, 0, 'Zoe', 3 * computeIntervalMs(before));
+test('a short team puts the late arrival straight on', () => {
+  const before = kickOff(setupOf(5, 6), dice(2));
+  const elapsed = 2 * computeIntervalMs(before);
+  const after = addLateArrival(before, 0, 'Wren', elapsed);
+  const now = rotation(after, elapsed).teams[0];
+  eq(now.subCount, 0);
+  eq(now.onPitch.length + 1, 6, 'a full six on the pitch');
+  ok(ids(now.onPitch).includes(after.teams[0].players.find((p) => p.name === 'Wren').id));
+});
+
+test('a late arrival joins the order once and the other team is untouched', () => {
+  const before = kickOff(setupOf(7, 7), dice(5));
+  const after = addLateArrival(before, 0, 'Wren', 3 * computeIntervalMs(before));
   const names = after.teams[0].players.map((player) => player.name);
-  eq(names.filter((name) => name === 'Zoe').length, 1);
+  eq(names.filter((name) => name === 'Wren').length, 1);
   eq(names.length, 8);
-  eq(after.teams[1].players.length, 7, 'the other team is untouched');
+  same(after.teams[1], before.teams[1]);
 });
 
-test('a late arrival grows the sub count, not the interval', () => {
-  const before = lockClock(setupOf(6, 6));
-  eq(rotation(before, 0).teams[0].subCount, 0);
-  const after = addLateArrival(before, 0, 'Zoe', 0);
-  eq(rotation(after, 0).teams[0].subCount, 1);
-  eq(computeIntervalMs(after), computeIntervalMs(before), 'the interval is frozen at kick-off');
-});
-
-test('two late arrivals both work', () => {
-  const before = lockClock(setupOf(7, 7));
+test('a late arrival takes their turn in goal in the normal cycle', () => {
+  const before = kickOff(setupOf(8, 8), dice(13));
   const interval = computeIntervalMs(before);
-  const one = addLateArrival(before, 0, 'Zoe', interval);
-  const two = addLateArrival(one, 0, 'Yves', 2 * interval);
+  const after = addLateArrival(before, 0, 'Wren', 2 * interval);
+  const late = after.teams[0].players.find((player) => player.name === 'Wren');
+
+  let turns = 0;
+  for (let k = 2; k < 2 + 9; k += 1) {
+    if (stateAt(after, 0, k).keeper.id === late.id) turns += 1;
+  }
+  eq(turns, 1, 'exactly one turn in goal per lap of nine');
+});
+
+test('two late arrivals both work and the ids stay unique', () => {
+  const before = kickOff(setupOf(7, 7), dice(15));
+  const interval = computeIntervalMs(before);
+  const one = addLateArrival(before, 0, 'Wren', interval);
+  const two = addLateArrival(one, 0, 'Vic', 2 * interval);
   eq(two.teams[0].players.length, 9);
-  eq(keeperAt(one, 0, 2).name, 'Zoe');
-  eq(keeperAt(two, 0, 2).name, 'Zoe', 'the second arrival does not disturb the current shift');
-  eq(keeperAt(two, 0, 3).name, 'Yves');
-  eq(new Set(two.teams[0].players.map((player) => player.id)).size, 9, 'ids stay unique');
+  eq(new Set(ids(two.teams[0].players)).size, 9);
+  checkRules(two, 0, 27, 'two late arrivals');
+});
+
+test('a late arrival never disturbs the pitch, even after a team has been short', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    const random = dice(g * 7);
+    let setup = kickOff(setupOf(g + 1, g + 1, { gameType: g }), dice(g));
+    let elapsed = 0;
+    for (let round = 0; round < 24; round += 1) {
+      elapsed += computeIntervalMs(setup) + 4321;
+      const team = setup.teams[0];
+      const shrink = team.players.length > 2 && random() < 0.45;
+      if (shrink) {
+        setup = removePlayer(setup, 0, team.players[Math.floor(random() * team.players.length)].id, elapsed);
+        continue;
+      }
+
+      const was = rotation(setup, elapsed).teams[0];
+      const after = addLateArrival(setup, 0, `Late${round}`, elapsed);
+      const now = rotation(after, elapsed).teams[0];
+      const newcomer = after.teams[0].players.find((player) => player.name === `Late${round}`);
+      const label = `${g} a side, squad ${team.players.length}, round ${round}`;
+
+      eq(now.keeper.id, was.keeper.id, `${label}: the keeper moved`);
+      same(ids(now.subs).filter((id) => id !== newcomer.id), ids(was.subs), `${label}: the bench moved`);
+      same(ids(now.onPitch).filter((id) => id !== newcomer.id), ids(was.onPitch), `${label}: the pitch moved`);
+      checkRules(after, 0, 2 * after.teams[0].players.length, label);
+      setup = after;
+    }
+  }
 });
 
 test('a blank late arrival name is ignored', () => {
-  const before = lockClock(setupOf(7, 7));
+  const before = kickOff(setupOf(7, 7), dice(1));
   same(addLateArrival(before, 0, '   ', 0), before);
 });
 
@@ -438,27 +706,24 @@ test('a blank late arrival name is ignored', () => {
 console.log('\ngone home');
 
 test('a removed player never comes up again, in goal or on the bench', () => {
-  const before = lockClock(setupOf(8, 8));
-  const interval = computeIntervalMs(before);
-  const elapsed = 3 * interval + 1000;
+  const before = kickOff(setupOf(9, 9), dice(21));
+  const elapsed = 3 * computeIntervalMs(before) + 1000;
   const victim = before.teams[0].players[5];
 
   const after = removePlayer(before, 0, victim.id, elapsed);
-  eq(after.teams[0].players.length, 7);
-
+  eq(after.teams[0].players.length, 8);
   for (let k = 0; k < 40; k += 1) {
-    ok(keeperAt(after, 0, k).id !== victim.id, `back in goal at change ${k}`);
-    for (const sub of subsAt(after, 0, k)) {
-      ok(sub.id !== victim.id, `back on the bench at change ${k}`);
-    }
+    const team = stateAt(after, 0, k);
+    ok(team.keeper.id !== victim.id, `back in goal at change ${k}`);
+    ok(!ids(team.subs).includes(victim.id), `back on the bench at change ${k}`);
+    ok(!ids(team.onPitch).includes(victim.id), `back on the pitch at change ${k}`);
   }
-  ok(!after.teams[0].players.some((player) => player.id === victim.id), 'gone from the order');
 });
 
-test('removing a player never changes the current keeper', () => {
-  const before = lockClock(setupOf(8, 8));
+test('removing anyone but the keeper never changes the keeper', () => {
+  const before = kickOff(setupOf(9, 9), dice(22));
   const interval = computeIntervalMs(before);
-  for (let k = 0; k < 16; k += 1) {
+  for (let k = 0; k < 12; k += 1) {
     const elapsed = k * interval + 1000;
     const keeper = rotation(before, elapsed).teams[0].keeper;
     for (const player of before.teams[0].players) {
@@ -469,19 +734,44 @@ test('removing a player never changes the current keeper', () => {
   }
 });
 
-test('if the keeper goes home, the player who was next goes in now', () => {
-  const before = lockClock(setupOf(8, 8));
+test('if the keeper goes home, the player who was due next goes in now', () => {
+  const before = kickOff(setupOf(9, 9), dice(23));
   const interval = computeIntervalMs(before);
   const elapsed = 5 * interval + 2000;
-  const state = rotation(before, elapsed).teams[0];
+  const was = rotation(before, elapsed).teams[0];
 
-  const after = removePlayer(before, 0, state.keeper.id, elapsed);
-  eq(rotation(after, elapsed).teams[0].keeper.id, state.nextKeeper.id);
-  eq(keeperAt(after, 0, 6).id, keeperAt(before, 0, 7).id, 'and the rota carries on from there');
+  const after = removePlayer(before, 0, was.keeper.id, elapsed);
+  eq(rotation(after, elapsed).teams[0].keeper.id, was.nextKeeper.id);
+  checkRules(after, 0, 24, 'the keeper went home');
+});
+
+test('a removal fills the hole on the pitch from the bench', () => {
+  const before = kickOff(setupOf(9, 9), dice(24));
+  const elapsed = 4 * computeIntervalMs(before) + 10;
+  const was = rotation(before, elapsed).teams[0];
+  const leaver = was.onPitch[1];
+
+  const after = removePlayer(before, 0, leaver.id, elapsed);
+  const now = rotation(after, elapsed).teams[0];
+  eq(now.onPitch.length, was.onPitch.length, 'the pitch is full again');
+  eq(now.subs.length, was.subs.length - 1, 'and the bench is one shorter');
+  eq(now.keeper.id, was.keeper.id);
+});
+
+test('removing a sub leaves the pitch alone', () => {
+  const before = kickOff(setupOf(9, 9), dice(25));
+  const elapsed = 2 * computeIntervalMs(before) + 10;
+  const was = rotation(before, elapsed).teams[0];
+
+  const after = removePlayer(before, 0, was.subs[1].id, elapsed);
+  const now = rotation(after, elapsed).teams[0];
+  same(ids(now.onPitch), ids(was.onPitch));
+  eq(now.keeper.id, was.keeper.id);
+  eq(now.subs.length, was.subs.length - 1);
 });
 
 test('removing a player does not move the clock', () => {
-  const before = lockClock(setupOf(8, 6));
+  const before = kickOff(setupOf(8, 6), dice(26));
   const elapsed = 4 * computeIntervalMs(before) + 12345;
   const after = removePlayer(before, 0, before.teams[0].players[2].id, elapsed);
   eq(rotation(after, elapsed).intervalMs, rotation(before, elapsed).intervalMs);
@@ -489,56 +779,39 @@ test('removing a player does not move the clock', () => {
   eq(rotation(after, elapsed).changeIndex, rotation(before, elapsed).changeIndex);
 });
 
-test('removing a player shrinks the sub count', () => {
-  const before = lockClock(setupOf(7, 7));
-  eq(rotation(before, 0).teams[0].subCount, 1);
-  const after = removePlayer(before, 0, before.teams[0].players[0].id, 0);
-  eq(rotation(after, 0).teams[0].subCount, 0);
-  eq(rotation(after, 0).teams[0].subs.length, 0);
-});
-
-test('the other team is untouched by a removal', () => {
-  const before = lockClock(setupOf(8, 7));
+test('the other team is untouched by a removal, and an unknown id changes nothing', () => {
+  const before = kickOff(setupOf(8, 7), dice(27));
   const after = removePlayer(before, 0, before.teams[0].players[1].id, 100000);
   same(after.teams[1], before.teams[1]);
-});
-
-test('an unknown player id changes nothing', () => {
-  const before = lockClock(setupOf(7, 7));
   same(removePlayer(before, 0, 'nobody', 100000), before);
 });
 
-test('a removed player can be put back by keeping the old setup — undo is free', () => {
-  const before = lockClock(setupOf(8, 8));
-  const elapsed = 3 * computeIntervalMs(before);
-  const after = removePlayer(before, 0, before.teams[0].players[4].id, elapsed);
-  ok(JSON.stringify(after) !== JSON.stringify(before));
-  same(rotation(before, elapsed), rotation(before, elapsed));
-});
-
 test('a team emptied by removals does not crash the engine', () => {
-  let setup = lockClock(setupOf(6, 6));
+  let setup = kickOff(setupOf(6, 6), dice(28));
   for (const player of setup.teams[0].players.slice()) {
     setup = removePlayer(setup, 0, player.id, 100000);
   }
   const state = rotation(setup, 100000);
   eq(state.teams[0].keeper, null);
   eq(state.teams[0].subs.length, 0);
+  eq(state.teams[0].onPitch.length, 0);
   eq(state.teams[0].order.length, 0);
+  eq(state.teams[0].comingOn.length, 0);
   ok(state.teams[1].keeper !== null, 'the other team plays on');
 });
 
 test('a late arrival and a removal work together', () => {
-  const kickOff = lockClock(setupOf(7, 7));
-  const interval = computeIntervalMs(kickOff);
+  const kicked = kickOff(setupOf(7, 7), dice(29));
+  const interval = computeIntervalMs(kicked);
 
-  const withZoe = addLateArrival(kickOff, 0, 'Zoe', 2 * interval + 1000);
-  const keeperNow = rotation(withZoe, 4 * interval + 500).teams[0].keeper;
-  const gone = removePlayer(withZoe, 0, withZoe.teams[0].players[0].id, 4 * interval + 500);
+  const withLate = addLateArrival(kicked, 0, 'Wren', 2 * interval + 1000);
+  const keeperNow = rotation(withLate, 4 * interval + 500).teams[0].keeper;
+  const gone = removePlayer(withLate, 0, withLate.teams[0].players[0].id, 4 * interval + 500);
 
   eq(rotation(gone, 4 * interval + 500).teams[0].keeper.id, keeperNow.id);
   eq(gone.teams[0].players.length, 7);
-  eq(computeIntervalMs(gone), interval, 'still frozen');
+  eq(computeIntervalMs(gone), interval, 'the clock never moved');
+  checkRules(gone, 0, 21, 'one in, one out');
 });
 
 /* ----------------------------------------------------------------- purity */
@@ -546,14 +819,16 @@ test('a late arrival and a removal work together', () => {
 console.log('\npurity');
 
 test('the same inputs always give the same output', () => {
-  const setup = setupOf(8, 7);
+  const setup = kickOff(setupOf(8, 7), dice(31));
   for (const ms of [0, 1, 331000, 5400000, 12345678]) {
     same(rotation(setup, ms), rotation(setup, ms), `elapsed ${ms}`);
   }
 });
 
 test('a setup written to JSON and read back behaves identically — a dead phone recovers', () => {
-  const setup = lockClock(setupOf(8, 7));
+  let setup = kickOff(setupOf(8, 7), dice(32));
+  setup = addLateArrival(setup, 0, 'Wren', 1200000);
+  setup = removePlayer(setup, 1, setup.teams[1].players[3].id, 1800000);
   const restored = JSON.parse(JSON.stringify(setup));
   for (const ms of [0, 331000, 5400000, 12345678]) {
     same(rotation(restored, ms), rotation(setup, ms), `elapsed ${ms}`);
@@ -561,7 +836,7 @@ test('a setup written to JSON and read back behaves identically — a dead phone
 });
 
 test('rotation does not touch the setup', () => {
-  const setup = setupOf(8, 7);
+  const setup = kickOff(setupOf(8, 7), dice(33));
   const snapshot = JSON.stringify(setup);
   rotation(setup, 0);
   rotation(setup, 4000000);
@@ -569,27 +844,30 @@ test('rotation does not touch the setup', () => {
 });
 
 test('the result holds copies — the caller cannot reach into the setup', () => {
-  const setup = setupOf(8, 7);
+  const setup = kickOff(setupOf(8, 7), dice(34));
   const snapshot = JSON.stringify(setup);
   const state = rotation(setup, 0);
   state.teams[0].keeper.name = 'Wrecked';
   state.teams[0].order[0].name = 'Wrecked';
   state.teams[0].order.push({ id: 'x', name: 'Wrecked' });
+  state.teams[0].subs[0].name = 'Wrecked';
   eq(JSON.stringify(setup), snapshot);
-  eq(rotation(setup, 0).teams[0].keeper.name !== 'Wrecked', true);
+  ok(rotation(setup, 0).teams[0].keeper.name !== 'Wrecked');
 });
 
-test('addLateArrival and removePlayer do not touch the setup they are given', () => {
-  const setup = lockClock(setupOf(8, 7));
+test('the helpers do not touch the setup they are given', () => {
+  const setup = kickOff(setupOf(8, 7), dice(35));
   const snapshot = JSON.stringify(setup);
-  addLateArrival(setup, 0, 'Zoe', 900000);
+  addLateArrival(setup, 0, 'Wren', 900000);
   removePlayer(setup, 1, setup.teams[1].players[0].id, 900000);
+  setStartKeeper(setup, 0, 2);
+  kickOff(setup, dice(36));
   eq(JSON.stringify(setup), snapshot);
 });
 
 test('the roster helpers are pure — same call, same new setup', () => {
-  const setup = lockClock(setupOf(8, 7));
-  same(addLateArrival(setup, 0, 'Zoe', 900000), addLateArrival(setup, 0, 'Zoe', 900000));
+  const setup = kickOff(setupOf(8, 7), dice(37));
+  same(addLateArrival(setup, 0, 'Wren', 900000), addLateArrival(setup, 0, 'Wren', 900000));
   same(
     removePlayer(setup, 0, setup.teams[0].players[3].id, 900000),
     removePlayer(setup, 0, setup.teams[0].players[3].id, 900000)
@@ -604,66 +882,36 @@ test('createSetup is pure — same names in, same setup out', () => {
 
 console.log('\nedges');
 
-test('a team of exactly 6 — no subs, and the rota still turns', () => {
-  const setup = setupOf(6, 6);
-  const state = rotation(setup, 0);
-  eq(state.teams[0].subs.length, 0);
-  eq(state.teams[0].nextSubs.length, 0);
-  eq(state.teams[0].order.length, 6);
-  ok(state.teams[0].keeper !== null);
-  eq(state.intervalMs, 450000);
-});
-
-test('two teams of different sizes both work off one clock', () => {
-  const setup = setupOf(9, 6);
-  const state = rotation(setup, 4 * computeIntervalMs(setup) + 10);
-  eq(state.teams[0].order.length, 9);
-  eq(state.teams[1].order.length, 6);
-  eq(state.teams[0].subs.length, 3);
-  eq(state.teams[1].subs.length, 0);
-  eq(state.changeIndex, 4, 'one clock, both teams change together');
-});
-
-test('a team of two — the smallest the setup screen allows', () => {
-  const setup = setupOf(2, 6);
-  const names = [];
-  for (let k = 0; k < 4; k += 1) names.push(keeperAt(setup, 0, k).name);
-  same(names, ['Alex', 'Ben', 'Alex', 'Ben']);
-  eq(rotation(setup, 0).teams[0].subs.length, 0);
-});
-
-test('elapsed far past the duration still names a keeper and a sub', () => {
-  const setup = setupOf(8, 7);
-  const state = rotation(setup, 6 * 3600000); // six hours
-  ok(state.teams[0].keeper !== null);
-  eq(state.teams[0].subs.length, 2);
-  eq(state.teams[1].subs.length, 1);
-  ok(state.changeIndex > state.totalChanges);
-});
-
 test('an empty setup does not throw', () => {
-  const setup = createSetup({});
-  const state = rotation(setup, 0);
+  const state = rotation(createSetup({}), 0);
   eq(state.teams.length, 0);
-  ok(state.intervalMs >= QUANTUM_MS);
+  eq(state.intervalMs, DEFAULT_SUB_MINUTES * MS_PER_MINUTE);
 });
 
-test('lockClock is idempotent and freezes the larger squad size', () => {
-  const setup = setupOf(8, 6);
-  const locked = lockClock(setup);
-  eq(locked.clockN, 8);
-  eq(lockClock(locked), locked);
-  const grown = addLateArrival(locked, 1, 'Zoe', 0);
-  eq(grown.clockN, 8, 'still the kick-off value');
-  eq(computeIntervalMs(grown), computeIntervalMs(locked));
+test('a team of one turns over on its own', () => {
+  const setup = kickOff(setupOf(1, 6), dice(41));
+  const team = stateAt(setup, 0, 3);
+  eq(team.keeper.name, 'Zoe');
+  eq(team.subs.length, 0);
+  eq(team.onPitch.length, 0);
+  eq(team.nextKeeper.name, 'Zoe');
 });
 
-test('a roster change before lockClock freezes the interval on the spot', () => {
-  const setup = setupOf(7, 7); // clockN is null
-  const before = computeIntervalMs(setup);
-  const after = addLateArrival(setup, 0, 'Zoe', 0);
-  eq(after.clockN, 7);
-  eq(computeIntervalMs(after), before, 'the countdown never jumps under people');
+test('a game type of two falls back to the whole line-up and still answers', () => {
+  const setup = { ...setupOf(5, 5), gameType: 2 };
+  same(legalStartKeepers(setup, 0), [0, 1], 'no legal window exists at two a side');
+  const team = stateAt(setup, 0, 0);
+  eq(team.subCount, 3);
+  eq(team.onPitch.length, 1);
+  ok(team.keeper !== null);
+  for (let k = 0; k < 10; k += 1) ok(stateAt(setup, 0, k).keeper !== null, `change ${k}`);
+});
+
+test('eleven a side with a bench of five holds every rule for three laps', () => {
+  const setup = kickOff(setupOf(16, 16, { gameType: 11, subMinutes: 4 }), dice(42));
+  eq(rotation(setup, 0).teams[0].subCount, 5);
+  eq(computeIntervalMs(setup), 4 * MS_PER_MINUTE);
+  checkRules(setup, 0, 48, 'eleven a side');
 });
 
 /* ------------------------------------------------------------------ report */
