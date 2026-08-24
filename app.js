@@ -616,27 +616,26 @@ function announce(lines) {
 /* ================================================================= mute */
 
 /*
- * On by default. Muted is not a quieter icon but a louder one — a filled red
- * circle among two outline icons, so it reads at a glance without depending on
- * colour. It silences the voice and nothing else: the whistle and the chime
- * are separate sounds and they still land.
+ * On by default. Muted is the same icon with a line through it and nothing
+ * else changed — no second shape to learn, no colour and no container, so the
+ * two states differ by exactly the thing that says off. It silences the voice
+ * and nothing else: the whistle and the chime are separate sounds and they
+ * still land.
  *
  * It also suppresses `No voice`. A muted phone and a broken one look alike on
  * a spine and mean opposite things.
  */
 
-const SPEAKER = '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/>';
+const SPEAKER = '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/>' +
+  '<path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>';
 
-const ICON_UNMUTED =
+const ICON_SVG = (extra) =>
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + SPEAKER +
-  '<path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg>';
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  SPEAKER + extra + '</svg>';
 
-const ICON_MUTED =
-  '<span class="muted-dot">' +
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + SPEAKER +
-  '<path d="m16 9 6 6"/><path d="m22 9-6 6"/></svg></span>';
+const ICON_UNMUTED = ICON_SVG('');
+const ICON_MUTED = ICON_SVG('<path d="m3 3 18 18"/>');
 
 function renderMute() {
   const label = state.muted ? COPY.muteOff : COPY.muteOn;

@@ -713,19 +713,6 @@ button {
 }
 .icon-btn svg { width: 24px; height: 24px; display: block; }
 
-/* muted is not a quieter icon but a louder one */
-.icon-btn .muted-dot {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--off);
-  color: #FFFFFF;
-  display: grid;
-  place-items: center;
-}
-/* 18, not the design's 20: a 20px glyph touches the walls of a 28px circle */
-.icon-btn .muted-dot svg { width: 18px; height: 18px; }
-
 /* ------------------------------------------------------- game, portrait */
 
 @media (orientation: portrait) {
