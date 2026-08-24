@@ -244,7 +244,7 @@ const teamEls = [0, 1].map((t) => {
   const root = el.display.querySelector(`.team[data-team="${t}"]`);
   return {
     root,
-    name: root.querySelector('.team-name'),
+    name: root.querySelector('.team-title'),
     lab: root.querySelector('.lab'),
     labSub: root.querySelector('.lab-sub'),
     hero: root.querySelector('.hero'),
@@ -1335,12 +1335,22 @@ function fitLine(node) {
   node.style.setProperty('--fit', '1');
   const room = node.getBoundingClientRect().width;
   if (room <= 0) return;
-  /* max-content is the width the line wants. it is put back in the same tick,
-     so nothing is ever painted at it. */
-  node.style.width = 'max-content';
-  const need = node.getBoundingClientRect().width;
-  node.style.width = '';
-  if (need > room) node.style.setProperty('--fit', String(room / need));
+  const want = () => {
+    /* max-content is the width the line wants. it is put back in the same
+       tick, so nothing is ever painted at it. */
+    node.style.width = 'max-content';
+    const need = node.getBoundingClientRect().width;
+    node.style.width = '';
+    return need;
+  };
+  const need = want();
+  if (need <= room) return;
+  const fit = room / need;
+  node.style.setProperty('--fit', String(fit));
+  /* type does not scale perfectly linearly, so a line of three names can
+     still be a pixel or two over after one pass. one correction closes it. */
+  const got = want();
+  if (got > room) node.style.setProperty('--fit', String(fit * (room / got)));
 }
 
 /*
