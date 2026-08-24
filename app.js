@@ -1183,6 +1183,7 @@ for (let t = 0; t < 2; t += 1) {
 
 const PICKERS = {
   type: {
+    label: COPY.gameTypeLabel,
     min: MIN_GAME_TYPE,
     max: MAX_GAME_TYPE,
     step: 1,
@@ -1200,6 +1201,7 @@ const PICKERS = {
      card in index.html and one field in the draft — cut those three and
      nothing else in the app changes. */
   time: {
+    label: COPY.gameTimeLabel,
     min: 30,
     max: 180,
     step: 15,
@@ -1208,6 +1210,7 @@ const PICKERS = {
     text: durationWords
   },
   sub: {
+    label: COPY.changeLabel,
     min: 3,
     max: 20,
     step: 1,
@@ -1218,6 +1221,34 @@ const PICKERS = {
 };
 
 const stepButtons = [...document.querySelectorAll('.step')];
+
+/*
+ * COPY is the only place a string is written. Everything index.html carries as
+ * text is set from it once, at boot, so no string can drift between the two
+ * files and nothing in the table is left unused.
+ */
+function applyStaticCopy() {
+  for (const input of el.inputs) {
+    input.placeholder = COPY.addPlaceholder;
+    input.setAttribute('aria-label', COPY.addPlaceholder);
+  }
+  for (const add of el.adds) add.setAttribute('aria-label', COPY.addPlaceholder);
+  for (const [key, picker] of Object.entries(PICKERS)) {
+    const card = el.values[key].closest('.picker');
+    card.setAttribute('aria-label', picker.label);
+    card.querySelector('.picker-label').textContent = picker.label;
+  }
+  el.start.textContent = COPY.start;
+  el.clear.textContent = COPY.clear;
+  el.restored.querySelector('span').textContent = COPY.restored;
+  el.edit.setAttribute('aria-label', COPY.editAria);
+  el.liveClose.setAttribute('aria-label', COPY.closeAria);
+  /* the bar and the spine both hold one number, and it is the same number */
+  el.clock.setAttribute('aria-label', COPY.chipLabel);
+  el.liveClock.setAttribute('aria-label', COPY.chipLabel);
+}
+
+applyStaticCopy();
 
 function renderPickers() {
   for (const [key, picker] of Object.entries(PICKERS)) {
