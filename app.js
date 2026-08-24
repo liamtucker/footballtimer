@@ -205,7 +205,8 @@ const state = {
   clockText: '',
   pendingEdit: false,
   degradedVoice: false,
-  degradedLock: false
+  degradedLock: false,
+  muted: false
 };
 
 const $ = (id) => document.getElementById(id);
@@ -500,6 +501,11 @@ function unlockVoice() {
 }
 
 function speak(text, onEnd) {
+  if (state.muted) {
+    /* hold the slot open so the two chimes keep their spacing */
+    if (onEnd) window.setTimeout(onEnd, 800);
+    return;
+  }
   if (!('speechSynthesis' in window)) {
     state.degradedVoice = true;
     if (onEnd) onEnd();
@@ -612,6 +618,63 @@ function announce(lines) {
   };
   next();
 }
+
+/* ================================================================= mute */
+
+/*
+ * On by default. Muted is not a quieter icon but a louder one — a filled red
+ * circle among two outline icons, so it reads at a glance without depending on
+ * colour. It silences the voice and nothing else: the whistle and the chime
+ * are separate sounds and they still land.
+ *
+ * It also suppresses `No voice`. A muted phone and a broken one look alike on
+ * a spine and mean opposite things.
+ */
+
+const SPEAKER = '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/>';
+
+const ICON_UNMUTED =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + SPEAKER +
+  '<path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg>';
+
+const ICON_MUTED =
+  '<span class="muted-dot">' +
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + SPEAKER +
+  '<path d="m16 9 6 6"/><path d="m22 9-6 6"/></svg></span>';
+
+function renderMute() {
+  const label = state.muted ? COPY.muteOff : COPY.muteOn;
+  for (const node of document.querySelectorAll('.mute')) {
+    node.innerHTML = state.muted ? ICON_MUTED : ICON_UNMUTED;
+    node.setAttribute('aria-label', label);
+    node.setAttribute('aria-pressed', state.muted ? 'true' : 'false');
+  }
+}
+
+function toggleMute() {
+  state.muted = !state.muted;
+  if (state.muted) {
+    announceToken += 1;
+    try { speechSynthesis.cancel(); } catch (error) { /* ignore */ }
+  }
+  renderMute();
+  setNotes();
+}
+
+for (const node of document.querySelectorAll('.mute')) {
+  node.addEventListener('click', (event) => {
+    /* a tap on the mute is not a tap on the screen: it must not abort the
+       kick-off countdown and it must not re-open the edit route */
+    event.preventDefault();
+    event.stopPropagation();
+    markGesture();
+    toggleMute();
+  });
+}
+
+renderMute();
 
 /* ========================================================= setup screen */
 
@@ -1523,7 +1586,7 @@ function setClock(text, pop) {
 function setNotes() {
   const lines = [];
   if (state.pendingEdit) lines.push(COPY.pending);
-  if (state.degradedVoice) lines.push(COPY.noVoice);
+  if (state.degradedVoice && !state.muted) lines.push(COPY.noVoice);
   if (state.degradedLock) lines.push(COPY.noLock);
   const text = lines.join(' · ');
   if (el.notes.textContent === text) return;
@@ -1672,7 +1735,7 @@ function beginKickOff() {
   const r = rotation(setup, 0);
   el.setup.hidden = true;
   el.display.hidden = false;
-  el.edit.hidden = false;
+  el.edit.hidden = true;
   el.body.classList.remove('call');
   paintRest(r);
   applyShrink();
@@ -1705,6 +1768,7 @@ function runCountdown() {
 
 function abortKickOff() {
   if (state.screen !== 'countdown') return;
+  el.edit.hidden = false;
   state.screen = 'setup';
   state.pendingSetup = null;
   state.clockText = '';

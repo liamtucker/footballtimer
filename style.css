@@ -659,7 +659,8 @@ button {
   display: grid;
   place-items: center;
 }
-.icon-btn .muted-dot svg { width: 20px; height: 20px; }
+/* 18, not the design's 20: a 20px glyph touches the walls of a 28px circle */
+.icon-btn .muted-dot svg { width: 18px; height: 18px; }
 
 /* ------------------------------------------------------- game, portrait */
 
