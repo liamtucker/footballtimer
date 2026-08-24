@@ -226,7 +226,6 @@ const el = {
   livebar: $('livebar'),
   liveClock: $('live-clock'),
   liveNote: $('live-note'),
-  liveClose: $('live-close'),
   clock: $('clock'),
   notes: $('notes'),
   edit: $('edit')
@@ -1231,7 +1230,7 @@ function applyStaticCopy() {
   }
   el.start.textContent = COPY.start;
   el.edit.setAttribute('aria-label', COPY.editAria);
-  el.liveClose.setAttribute('aria-label', COPY.closeAria);
+  el.livebar.setAttribute('aria-label', COPY.closeAria);
   /* the bar and the spine both hold one number, and it is the same number */
   el.clock.setAttribute('aria-label', COPY.chipLabel);
   el.liveClock.setAttribute('aria-label', COPY.chipLabel);
@@ -2102,7 +2101,16 @@ el.edit.addEventListener('click', (event) => {
   openEdit();
 });
 
-el.liveClose.addEventListener('click', commitEdit);
+/*
+ * The whole bar is the way back, so there is nothing small to hit with a cold
+ * thumb and no x to look for. The mute sits inside it and stops its own click.
+ */
+el.livebar.addEventListener('click', commitEdit);
+el.livebar.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  commitEdit();
+});
 
 /* a tap on the display re-takes the lock and re-tests the voice, no label */
 el.display.addEventListener('click', () => {

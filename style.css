@@ -371,8 +371,8 @@ button {
  * The ink moves. Before kick-off the only ink surface is a 56px button in the
  * bottom-right corner. During the game that button is gone and the ink is a
  * full-bleed bar across the top. Size, position, colour and content all
- * invert, so the two states cannot be mistaken at a glance, and the x is the
- * way back.
+ * invert, so the two states cannot be mistaken at a glance, and the whole bar
+ * is the way back.
  */
 
 .livebar {
@@ -389,6 +389,9 @@ button {
   display: flex;
   align-items: center;
   gap: 16px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .live-clock {
@@ -407,8 +410,7 @@ button {
 }
 .live-note:empty { display: none; }
 
-.livebar .icon-btn { color: #FFFFFF; margin-left: auto; }
-.livebar .icon-btn + .icon-btn { margin-left: 0; }
+.livebar .icon-btn { color: #FFFFFF; margin-left: auto; cursor: pointer; }
 
 #setup.live { padding-top: calc(68px + env(safe-area-inset-top)); }
 

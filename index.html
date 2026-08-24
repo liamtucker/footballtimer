@@ -21,17 +21,12 @@
 <section id="setup" hidden>
 
   <!-- before kick-off the only ink surface is the 56px button in the corner.
-       during the game that button is gone and the ink is this bar. -->
-  <div class="livebar" id="livebar" hidden>
+       during the game that button is gone and the ink is this bar, and the
+       whole of the bar is the way back to the game. -->
+  <div class="livebar" id="livebar" role="button" tabindex="0" hidden>
     <span class="live-clock" id="live-clock">0:00</span>
     <span class="live-note eyebrow" id="live-note"></span>
     <button class="icon-btn mute" type="button"></button>
-    <button class="icon-btn" id="live-close" type="button" aria-label="Close setup">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-      </svg>
-    </button>
   </div>
 
   <div class="col team-col" data-team="0">
