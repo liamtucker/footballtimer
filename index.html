@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>rota</title>
+<meta name="theme-color" content="#F2F2F0">
+<meta name="color-scheme" content="light">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="rota">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-512.png" sizes="512x512" type="image/png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="boot">
+
+<!-- ------------------------------------------------------------- setup -->
+<section id="setup" hidden>
+  <div class="setup-inner">
+
+    <div class="readout-block">
+      <button id="readout" class="readout" type="button" aria-expanded="false">&mdash;</button>
+      <div id="steppers" class="steppers" hidden>
+        <div class="stepper">
+          <span class="stepper-label">Duration</span>
+          <button class="step" type="button" data-step="duration" data-dir="-1" aria-label="less">&minus;</button>
+          <span class="stepper-value"><span id="duration-value">90</span> <span class="stepper-unit">min</span></span>
+          <button class="step" type="button" data-step="duration" data-dir="1" aria-label="more">+</button>
+        </div>
+        <div class="stepper">
+          <span class="stepper-label">Shifts each</span>
+          <button class="step" type="button" data-step="shifts" data-dir="-1" aria-label="less">&minus;</button>
+          <span class="stepper-value"><span id="shifts-value">2</span></span>
+          <button class="step" type="button" data-step="shifts" data-dir="1" aria-label="more">+</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="fields">
+      <div class="field-block">
+        <div class="field-header" id="head-0">Bibs</div>
+        <div class="field" data-team="0">
+          <div class="pills" id="pills-0"></div>
+          <input class="name-input" id="input-0" data-team="0" type="text"
+                 maxlength="12" autocapitalize="words" autocorrect="off" autocomplete="off"
+                 spellcheck="false" enterkeyhint="next" placeholder="First to arrive">
+        </div>
+      </div>
+      <div class="field-block">
+        <div class="field-header" id="head-1">No bibs</div>
+        <div class="field" data-team="1">
+          <div class="pills" id="pills-1"></div>
+          <input class="name-input" id="input-1" data-team="1" type="text"
+                 maxlength="12" autocapitalize="words" autocorrect="off" autocomplete="off"
+                 spellcheck="false" enterkeyhint="next" placeholder="First to arrive">
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <div class="prefilled" id="prefilled" hidden>
+        <span>Reorder for today. Delete anyone missing.</span>
+        <button class="clear" id="clear" type="button">Clear all</button>
+      </div>
+      <div class="notice" id="notice" hidden></div>
+      <button class="start" id="start" type="button">Kick off</button>
+    </div>
+
+  </div>
+</section>
+
+<!-- ----------------------------------------------------------- display -->
+<main id="display" hidden>
+
+  <section class="team" data-team="0">
+    <div class="team-header"><span class="layer"></span><span class="layer"></span></div>
+    <div class="team-name"><span class="layer"></span><span class="layer"></span></div>
+    <div class="meta">
+      <div class="subs"><span class="layer"></span><span class="layer"></span></div>
+      <div class="strip"><div class="strip-track"></div></div>
+      <div class="kickoff-hint" hidden>Press and hold to change the squad.</div>
+    </div>
+  </section>
+
+  <section class="team" data-team="1">
+    <div class="team-header"><span class="layer"></span><span class="layer"></span></div>
+    <div class="team-name"><span class="layer"></span><span class="layer"></span></div>
+    <div class="meta">
+      <div class="subs"><span class="layer"></span><span class="layer"></span></div>
+      <div class="strip"><div class="strip-track"></div></div>
+      <div class="kickoff-hint" hidden>Press and hold to change the squad.</div>
+    </div>
+  </section>
+
+  <div class="spine">
+    <div class="clock" id="clock">0:00</div>
+    <div class="marks">
+      <div class="mark lap" id="lap" hidden></div>
+      <div class="mark status" id="status" hidden>Tap to fix</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ------------------------------------------------------- roster sheet -->
+<div id="scrim" class="scrim" hidden></div>
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-inner">
+    <div class="field-block">
+      <div class="field-header" id="sheet-head-0">Bibs</div>
+      <div class="field" data-team="0">
+        <div class="pills" id="sheet-pills-0"></div>
+        <input class="name-input" id="sheet-input-0" data-team="0" type="text"
+               maxlength="12" autocapitalize="words" autocorrect="off" autocomplete="off"
+               spellcheck="false" enterkeyhint="done" placeholder="Name">
+      </div>
+    </div>
+    <div class="field-block">
+      <div class="field-header" id="sheet-head-1">No bibs</div>
+      <div class="field" data-team="1">
+        <div class="pills" id="sheet-pills-1"></div>
+        <input class="name-input" id="sheet-input-1" data-team="1" type="text"
+               maxlength="12" autocapitalize="words" autocorrect="off" autocomplete="off"
+               spellcheck="false" enterkeyhint="done" placeholder="Name">
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
