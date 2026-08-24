@@ -57,8 +57,6 @@ const COPY = {
   gameTimeLabel: 'Time',
   changeLabel: 'Intervals',
   start: 'Kick off',
-  clear: 'Clear all',
-  restored: 'Delete anyone missing.',
   editAria: 'Edit setup',
   keeper: 'GOAL',
   sub: 'SUB',
@@ -196,8 +194,7 @@ const draft = {
 
 const state = {
   screen: 'setup',
-  prefilled: false,
-  game: null,         /* { kickoff, epochs: [...], gone: [[], []] } */
+  game: null,        /* { kickoff, epochs: [...], gone: [[], []] } */
   shownChange: null,
   windowFor: null,
   countdownAt: 0,
@@ -224,8 +221,6 @@ const el = {
     time: $('time-value'),
     sub: $('sub-value')
   },
-  restored: $('restored'),
-  clear: $('clear'),
   notice: $('notice'),
   start: $('start'),
   livebar: $('livebar'),
@@ -812,7 +807,6 @@ function renderSetup() {
   el.livebar.hidden = !editing;
   el.setup.classList.toggle('live', editing);
   el.start.classList.toggle('hairline', !valid);
-  el.restored.hidden = editing || !state.prefilled;
 
   const dirty = editing && (state.pendingEdit ||
     (draft.signature !== '' && draftSignature() !== draft.signature));
@@ -950,7 +944,6 @@ function addName(teamIndex, raw) {
   } else {
     names.push(name);
   }
-  state.prefilled = false;
   renderSetup();
   reseatKeeper(teamIndex);
   renderSetup();
@@ -976,7 +969,6 @@ function removeName(teamIndex, index) {
     if (keeper === index) draft.keeper[teamIndex] = draft.mode === 'edit' ? Math.min(keeper, names.length - 1) : null;
     else if (keeper > index) draft.keeper[teamIndex] = keeper - 1;
   }
-  state.prefilled = false;
   renderSetup();
   reseatKeeper(teamIndex);
   renderSetup();
@@ -1239,8 +1231,6 @@ function applyStaticCopy() {
     card.querySelector('.picker-label').textContent = picker.label;
   }
   el.start.textContent = COPY.start;
-  el.clear.textContent = COPY.clear;
-  el.restored.querySelector('span').textContent = COPY.restored;
   el.edit.setAttribute('aria-label', COPY.editAria);
   el.liveClose.setAttribute('aria-label', COPY.closeAria);
   /* the bar and the spine both hold one number, and it is the same number */
@@ -1300,14 +1290,6 @@ for (const button of stepButtons) {
 }
 
 window.addEventListener('blur', stopHold);
-
-el.clear.addEventListener('click', () => {
-  draft.names = [[], []];
-  draft.keeper = [null, null];
-  state.prefilled = false;
-  dropKey(KEY_SQUAD);
-  renderSetup();
-});
 
 /* ==================================================== the game, painted */
 
@@ -1766,9 +1748,8 @@ window.addEventListener('resize', () => {
 
 /* ============================================================= kick off */
 
-function showSetup(prefilled) {
+function showSetup() {
   state.screen = 'setup';
-  state.prefilled = Boolean(prefilled);
   el.setup.hidden = false;
   el.display.hidden = true;
   el.body.classList.remove('call');
@@ -2145,15 +2126,14 @@ function onGrid(key, value) {
 }
 
 function loadSquadIntoDraft(squad) {
-  if (!squad || !Array.isArray(squad.names)) return false;
+  if (!squad || !Array.isArray(squad.names)) return;
   const names = [0, 1].map((t) => (Array.isArray(squad.names[t]) ? squad.names[t].slice() : []));
-  if (names[0].length === 0 && names[1].length === 0) return false;
+  if (names[0].length === 0 && names[1].length === 0) return;
   draft.names = names;
   /* a squad stored under an older range has to land on the picker's grid */
   if (Number.isFinite(squad.gameType)) draft.gameType = onGrid('type', squad.gameType);
   if (Number.isFinite(squad.gameMinutes)) draft.gameMinutes = onGrid('time', squad.gameMinutes);
   if (Number.isFinite(squad.subMinutes)) draft.subMinutes = onGrid('sub', squad.subMinutes);
-  return true;
 }
 
 function restoreGame() {
@@ -2230,9 +2210,8 @@ function boot() {
       if (debug.squads[t]) draft.names[t] = debug.squads[t].slice(0, 24);
     }
   }
-  const squad = debug ? null : readJSON(KEY_SQUAD);
-  const prefilled = loadSquadIntoDraft(squad);
-  if (!restoreGame()) showSetup(prefilled);
+  loadSquadIntoDraft(debug ? null : readJSON(KEY_SQUAD));
+  if (!restoreGame()) showSetup();
   el.body.classList.remove('boot');
   if (debug && debug.auto && !state.game) {
     window.setTimeout(() => el.start.click(), 0);

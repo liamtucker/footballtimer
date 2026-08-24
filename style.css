@@ -106,9 +106,7 @@ button {
 }
 
 /* the messages are not labels — they are sentences, and they keep their case */
-.notice,
-.restored,
-.clear {
+.notice {
   font-size: var(--t-body);
   font-weight: 500;
   color: var(--ink-3);
@@ -353,13 +351,6 @@ button {
 
 .foot { flex: none; display: flex; flex-direction: column; gap: 8px; }
 
-.restored {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-.clear { color: var(--ink-3); text-decoration: underline; text-underline-offset: 2px; }
 .notice { color: var(--ink-3); }
 
 .start {
@@ -469,7 +460,7 @@ button {
     pointer-events: none;
   }
   .foot > * { pointer-events: auto; }
-  .restored, .notice { text-shadow: 0 0 6px var(--ground); }
+  .notice { text-shadow: 0 0 6px var(--ground); }
 }
 
 /* ================================================================== game */
