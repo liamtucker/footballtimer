@@ -349,6 +349,8 @@ button {
 
 .notice { color: var(--ink-3); }
 
+/* the same button as the confirm's two, so the ink means the same thing in
+   both places: this is the thing that happens */
 .start {
   height: 56px;
   border-radius: 12px;
@@ -467,7 +469,8 @@ button {
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 8rem;
+  /* 9.5rem is what three 44px targets and the rule beside them need */
+  grid-template-columns: minmax(0, 1fr) 9.5rem;
   grid-template-rows: 1fr 1fr;
   column-gap: 20px;
   padding: max(12px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
@@ -712,6 +715,48 @@ button {
   flex: none;
 }
 .icon-btn svg { width: 24px; height: 24px; display: block; }
+
+/* --------------------------------------------------------- the confirm */
+
+/*
+ * The only thing in the app that stops the screen, and the only question it
+ * ever asks. The clock behind it does not pause for it.
+ */
+
+.confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+           max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  background: rgba(18, 18, 20, .55);
+}
+
+.confirm-card {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--surface);
+  border-radius: 12px;
+  box-shadow: var(--elev-1);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.confirm-text {
+  margin: 0;
+  font-size: var(--t-body);
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.confirm-row { display: flex; gap: 8px; }
+.confirm-row > .start { flex: 1 1 0; }
+
 
 /* ------------------------------------------------------- game, portrait */
 

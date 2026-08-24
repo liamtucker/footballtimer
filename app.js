@@ -58,6 +58,10 @@ const COPY = {
   changeLabel: 'Intervals',
   start: 'Kick off',
   editAria: 'Edit setup',
+  homeAria: 'End the game',
+  endWarning: 'This will end your current game.',
+  yes: 'Yes',
+  no: 'No',
   keeper: 'GOAL',
   sub: 'SUB',
   subs: 'SUBS',
@@ -228,7 +232,12 @@ const el = {
   liveNote: $('live-note'),
   clock: $('clock'),
   notes: $('notes'),
-  edit: $('edit')
+  edit: $('edit'),
+  home: $('home'),
+  confirm: $('confirm'),
+  confirmText: $('confirm-text'),
+  confirmYes: $('confirm-yes'),
+  confirmNo: $('confirm-no')
 };
 
 const teamEls = [0, 1].map((t) => {
@@ -1230,6 +1239,10 @@ function applyStaticCopy() {
   el.start.textContent = COPY.start;
   el.edit.setAttribute('aria-label', COPY.editAria);
   el.livebar.setAttribute('aria-label', COPY.closeAria);
+  el.home.setAttribute('aria-label', COPY.homeAria);
+  el.confirmText.textContent = COPY.endWarning;
+  el.confirmYes.textContent = COPY.yes;
+  el.confirmNo.textContent = COPY.no;
   /* the bar and the spine both hold one number, and it is the same number */
   el.clock.setAttribute('aria-label', COPY.chipLabel);
   el.liveClock.setAttribute('aria-label', COPY.chipLabel);
@@ -1488,6 +1501,9 @@ function paintRest(r) {
     parts.strip.classList.remove('gone-quiet');
     parts.strip.style.display = '';
   });
+  /* the walk leaves its numbers on the layer and clearing the style above
+     takes them with it, so rest is also where they are taken again */
+  applyShrink();
 }
 
 /* ==================================================== the changeover */
@@ -1764,6 +1780,14 @@ function startLoop() {
   if (!intervalId) intervalId = window.setInterval(tick, 250);
 }
 
+/* there is no clock to read on the setup screen with no game behind it */
+function stopLoop() {
+  if (rafId) cancelAnimationFrame(rafId);
+  if (intervalId) window.clearInterval(intervalId);
+  rafId = 0;
+  intervalId = 0;
+}
+
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   resumeAudio();
@@ -1846,7 +1870,6 @@ function beginKickOff() {
   el.edit.hidden = true;
   el.body.classList.remove('call');
   paintRest(r);
-  applyShrink();
   el.notes.textContent = '';
 
   if (debug && !debug.countdown) {
@@ -2039,7 +2062,6 @@ function commitEdit() {
     el.body.classList.remove('call');
     paintRest(after.r);
   }
-  applyShrink();
   setNotes();
   takeWakeLock();
 }
@@ -2111,6 +2133,61 @@ el.livebar.addEventListener('keydown', (event) => {
   commitEdit();
 });
 
+/* =========================================================== going home */
+
+/*
+ * The way back out of a game and into a new one. It is the only control in
+ * the app that undoes something, so it is the only one that asks a question
+ * first: a game is a kick-off time and nothing else remembers it, and the
+ * clock does not stop while the question is on the screen.
+ */
+
+function openConfirm() {
+  el.confirm.hidden = false;
+  el.confirmNo.focus();
+}
+
+function closeConfirm() {
+  el.confirm.hidden = true;
+}
+
+function goHome() {
+  closeConfirm();
+  clearWindowTimers();
+  stopLoop();
+  announceToken += 1;
+  try { speechSynthesis.cancel(); } catch (error) { /* ignore */ }
+
+  /* the game goes first, so the lock's own release handler does not read the
+     let-go as a screen that failed to stay awake */
+  state.game = null;
+  releaseWakeLock();
+  state.shownChange = null;
+  state.windowFor = null;
+  state.pendingEdit = false;
+  state.degradedLock = false;
+  state.clockText = '';
+  dropKey(KEY_GAME);
+
+  draft.mode = 'pre';
+  draft.signature = '';
+  draft.keeper = [null, null];
+  /* the setup screen comes back the way a cold boot leaves it: the squad from
+     last time, ready to be a new game */
+  loadSquadIntoDraft(debug ? null : readJSON(KEY_SQUAD));
+  showSetup();
+}
+
+el.home.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (state.screen === 'countdown') { abortKickOff(); return; }
+  if (!state.game) return;
+  openConfirm();
+});
+
+el.confirmYes.addEventListener('click', goHome);
+el.confirmNo.addEventListener('click', closeConfirm);
+
 /* a tap on the display re-takes the lock and re-tests the voice, no label */
 el.display.addEventListener('click', () => {
   if (state.screen === 'countdown') { abortKickOff(); return; }
@@ -2147,6 +2224,13 @@ function takeWakeLock() {
   }).catch(() => {
     state.degradedLock = true;
   });
+}
+
+function releaseWakeLock() {
+  if (!wakeLock) return;
+  const lock = wakeLock;
+  wakeLock = null;
+  try { lock.release(); } catch (error) { /* ignore */ }
 }
 
 /* ========================================================= persistence */
@@ -2201,7 +2285,6 @@ function restoreGame() {
   state.pendingEdit = Boolean(pendingEpoch(now));
   showDisplay();
   paintRest(r);
-  applyShrink();
   if (r.msToNextChange <= WINDOW_MS) {
     state.windowFor = k + 1;
     openWindow(r, { animate: false, speak: false });
