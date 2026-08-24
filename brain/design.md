@@ -4,433 +4,374 @@ read when: You build or change a screen.
 
 # design
 
-Two screens and one sheet. Static HTML/CSS/vanilla JS. System fonts. No build step.
+Two screens. Static HTML/CSS/vanilla JS, system fonts, no build step. Landscape phone is the
+target (844×390 to 932×430); portrait works properly, because setup is typed in portrait and
+the game is watched in landscape. Every measurement is verified at 844×390 and 390×844.
 
 ## The distance problem, settled first
 
-The brief asks for a one-second glance at 20 metres. That is not possible. Legible cap
-height is about distance ÷ 250 for a high-contrast glance. 20 m needs 80 mm of cap height.
-A landscape iPhone is 67 mm tall in total.
-
-So the display works over four ranges, and each range gets its own channel:
-
-| Range | Channel | Carries |
-|---|---|---|
-| whole pitch | the voice | the incoming names |
-| 6–10 m | the ground lifting to white | a change happened |
-| 2–4 m | one name per team, 128 px | who is going in |
-| under 1 m | the order strip | when am I |
-
-Every size below is derived from that table. Do not shrink the name. If it drops under
-`4rem` the product has failed.
-
----
+Legible cap height is about distance ÷ 250 and a landscape iPhone is 67 mm tall in total, so no
+phone reads at 20 m. Four ranges get four channels, and every size below derives from them: the
+**voice** carries the names to the whole pitch; the **ground lifting to white and the names
+turning green** says a change is happening at 6–10 m; **one name per team at ~99 px** says who
+is going in at 2–5 m; the **order strip** answers "when am I" under 1 m. If the keeper name
+drops under `4rem` the product failed.
 
 ## Tokens
 
 ```
---ground      #F2F2F0   page, wait state
---ground-call #FFFFFF   page, call state and the change lift
---ink         #121214   names            17.9:1 on ground
---ink-call    #0A0A0C   names, call state
---ink-2       #4E4E55   sub names, clock  7.9:1
---ink-3       #6E6E76   labels, strip     4.8:1
---dim         #BFBFC4   strip separators, gone players
+--ground      #F2F2F0   page, rest state
+--ground-call #FFFFFF   page, changeover window
+--surface     #FFFFFF   setup rows, fields, settings
+--ink         #121214   names, primary          16.7:1 on ground
+--ink-2       #4E4E55   secondary numerals       7.4:1
+--ink-3       #6E6E76   every label              4.5:1
+--dim         #BFBFC4   separators, ✕            non-text only
+--hair        #DCDCDA   the two hairlines
+--on          #0F6B2F   coming on / going in     5.9:1 ground, 6.6:1 white
+--off         #A5261A   coming off / coming out  6.5:1 ground, 7.3:1 white
 --curve       cubic-bezier(0.2, 0, 0, 1)
-space         4 · 8 · 12 · 16 · 24 · 32 · 48
-radius        full for pills · 16 for the sheet · 0 everywhere else
-elevation     one: 0 8px 24px rgba(0,0,0,.12), on the sheet only
+space         4 · 8 · 10 · 12 · 16 · 24
+radius        10 rows · 12 fields and settings · 14 kick off · full for the ↑
+elevation     one: 0 8px 24px rgba(0,0,0,.12), on a row while it is dragged
 font          ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif
-weights       400 · 600 · 800
+weights       400 · 500 · 600 · 700 · 800
 ```
 
-**Light ground, not dark.** In daylight the glass mirrors the sky. A reflection of about
-500–2000 nits sits on top of whatever the panel emits. On a dark ground that reflection is
-most of the light leaving the screen and contrast collapses. On a light ground it lands on
-an already bright area and the ratio holds. Dark mode is the wrong call outdoors, and the
-brief says legibility beats battery. There is no theme toggle: a toggle is a decision, and
-the product has one setup moment and no decisions.
-
-**Burn-in.** The ground alternates between `#F2F2F0` and `#FFFFFF` every interval, the
-names change every interval, and the whole `<main>` carries a 4-step drift
-(`0,0` → `2px,1px` → `0,2px` → `-2px,1px`) that advances inside the change animation. No
-region holds a static high-contrast edge for more than one interval.
-
-**Type sizes.**
+**Light ground, not dark.** In daylight the glass mirrors the sky; on a dark ground that
+reflection is most of the light leaving the screen and contrast collapses. No theme toggle — a
+toggle is a decision. **`--on` and `--off` are never alone**, because red and green are one
+colour to a deuteranope: direction carries it (↑ on, ↓ off), the incoming name always holds the
+loud slot with the outgoing name below it, and colour is the third copy. **Burn-in** is handled
+by the ground alternating at every changeover, the names changing every shift, and a 4-step
+drift on `<main>` (`0,0` → `2px,1px` → `0,2px` → `-2px,1px`) advancing inside the changeover
+motion. Nothing holds a static high-contrast edge longer than one shift.
 
 ```
---t-hero    min(8rem, 34vh, calc(150cqi / var(--len)))   the name. see below
---t-clock-l 8rem      clock, final 9 seconds
---t-clock   2.5rem    clock, normal
---t-pill    1.5rem    setup name pills
---t-sub     1.125rem  sub names
---t-strip   1rem      order strip
---t-label   0.6875rem all labels, uppercase, letter-spacing .1em
+--t-hero    min(6.5rem, 28vh, calc((100cqi - 3.5rem) / (var(--len) * 0.66 + 0.6)))
+--t-count   5.5rem      both countdowns
+--t-clock   2.5rem      time to the next change
+--t-name-2  1.75rem     sub name, and the outgoing name
+--t-elapsed 1.125rem    time played
+--t-row     1.0625rem   setup rows, fields, settings
+--t-strip   0.875rem    the order strip
+--t-label   0.6875rem   every label. uppercase, 600, .1em tracking, --ink-3
 ```
 
-`--len` is the character count of the **longest name across both squads**, floored at 5.
-Both teams get the same size — neither team outranks the other. `150` is calibrated for an
-average uppercase advance of 0.66 em at weight 800 with `-0.025em` tracking. Put
-`container-type: inline-size` on the team block and `overflow: clip` on the name as a
-backstop. Setup enforces `maxlength="8"` on names: a name that does not fit is a name
-nobody can read at four metres, and everyone at six-a-side has a short name.
-
-Names are uppercase. Uppercase removes descender space, so it buys about 15% more cap
-height for the same box, and it is where the product's character sits.
-
----
-
-## Display — three variations
-
-Element count taken straight from the spec's own display list: **25**.
-
-### A — One name each  ← BUILD THIS
-
-Two full-width rows, one per team, stacked. One clock spine on the right. **The permanent
-"now" block is deleted.** In its place the single name slot changes meaning for the first
-few seconds after each change (the *call* state), then returns to showing next (the *wait*
-state).
-
-**25 → 9 elements** (7 when both teams have exactly six; 12 with every conditional lit).
-
-Merges, and what each one costs:
-
-| Merge | Cost |
-|---|---|
-| now + next → one slot, split across time by the call hold | learnability |
-| team label + moment label → one header line per row | none |
-| clock + the gutter between the two teams → the spine | none |
-| order strip carries order, the pointer (leftmost = in goal now) and the sub positions (a dot) | discoverability |
-| ground colour + change signal + call-state indicator → one property | none |
-
-Deleted, with the consequence named:
-
-- **The now block, 4 elements per team.** You cannot read the current keeper at hero size
-  outside the call window. Recovered two ways: the call hold, and the leftmost name in the
-  strip. Justified by the spec's own principle 2 — the rotation does not know who is
-  actually in the goal, so a permanent "now" invites a comparison the spec says is
-  meaningless, and reads as wrong every time somebody volunteers.
-- **GOAL / SUB column headers.** Role is carried by size and by an inline label on the sub
-  line, which disappears with it. An empty column under a live header is what makes a team
-  of six look broken; there is no column.
-- **Every container, border, shadow and icon.** The display has none. Consequence: none.
-
-Added, and what each one buys:
-
-- **Overtime marker** (conditional): the game has passed its planned duration. Without it a
-  wrapping rotation reads as a bug.
-- **Status marker** (conditional): wake lock lost, or the voice is unavailable. One tap
-  fixes it. Without it the screen sleeps at minute forty and nobody knows why.
-- **Sub dots in the strip**: the spec asks anyone to check their own next shift; a shift is
-  goal *or* bench. One glyph per sub.
-- **Kick-off hint** (once, during change 0 only): the long-press is invisible, so it gets
-  exactly one signpost, in the one moment nothing else is happening.
-
-### B — The board
-
-The conventional answer done properly. Top bar with the clock. Two team panels side by
-side. Each panel: team label, GOAL and SUB column headers, a NOW row, a NEXT row, an order
-strip. Hairline between the panels.
-
-**25 → 22.** No merge of any consequence. Four name slots plus two header rows share a
-338 px column, so the hero falls to about `3.25rem` — cap height 6.4 mm, legible at 1.6 m.
-It fails the distance table outright, and a team of six shows an empty column under a live
-SUB header. It is a dashboard. It loses.
-
-### C — Two screens in time
-
-Hierarchy spent in time rather than space. For 12 s after each change the whole screen is
-the two incoming names at `min(13rem, 46vh)` — cap height 22 mm, legible at 5.5 m, the only
-variation that reaches the pitch. Then it collapses to a calm state with a clock, both
-teams' next keeper at `2.5rem`, and the strips. Two layouts and a shared-element flight
-between them.
-
-**Call 6 elements / wait 11.** It loses because for 95% of the game there is no loud
-element at all, so the one-second glance from five metres returns nothing for six minutes
-out of every seven. But its core idea is right, and A takes it: A holds the call, and A's
-wait state still has a hero, so the idea costs nothing.
-
-**Recommendation: A.** It is the only variation where the loudest thing on the screen is
-always the answer to the question the product exists to answer, and the only one where the
-type is large enough for the reading distance to be real.
-
----
-
-## Display — variation A, exact
-
-Landscape, 844×390 to 932×430. All values verified at 844×390.
-
-```
-main
-  display: grid
-  grid-template-columns: 1fr 8rem        content | clock spine
-  grid-template-rows: 1fr 1fr            team A | team B
-  column-gap: 24px
-  padding: max(12px, env(safe-area-inset-top))
-           max(24px, env(safe-area-inset-right))
-           max(12px, env(safe-area-inset-bottom))
-           max(24px, env(safe-area-inset-left))
-  transform: translate(var(--drift-x), var(--drift-y))
-```
-
-The safe-area padding is not optional. In landscape the Dynamic Island eats about 59 px
-from one side and the home indicator 21 px from the bottom.
-
-Team block (`container-type: inline-size`, `align-content: center`, `row-gap: 2px`):
-
-```
-header    --t-label, 600, --ink-3, uppercase   "[team] — [moment]"   placeholder copy
-name      --t-hero, 800, --ink, uppercase, nowrap, line-height .94, tracking -.025em
-meta      flex, gap 24px, align-items baseline, margin-top 4px
-  subs      --t-sub, 600, --ink-2, uppercase, nowrap, flex 0 0 auto
-            inline --t-label prefix, --ink-3, margin-right 8px. absent when no subs
-  strip     --t-strip, 400, --ink-3, uppercase, tracking .02em, nowrap
-            overflow hidden, flex 1 1 auto, min-width 0
-            mask-image: linear-gradient(to right, #000 88%, transparent)
-```
-
-The header pairs the team with the moment, so the two facts a glance needs sit on one line
-above the name. Placeholder wording only — the copywriter owns the words.
-
-The strip is the goal order, left to right, **starting at the current keeper**. Position 1
-is in goal now, position 2 is next, position *n* is *n*−1 changes away. Nothing marks the
-pointer, because leftmost *is* the pointer. Separator is a `·` in `--dim` with `.34em`
-either side. A player currently on the bench gets a 3 px `--ink-3` dot centred `.28em`
-below their name. The right mask says the loop continues, which is true.
-
-Clock spine, `place-items: center`, spans both rows:
-
-```
---t-clock, 600, --ink-2, font-variant-numeric: tabular-nums, tracking -.02em
-```
-
-Measured fit at 844×390, wait state, longest name 8 characters: content column 644 px,
-name 96.6 px, team block 149 px, both rows 318 px inside 357 px of usable height.
-Call state: 120.75 px. With a 5-character longest name the `8rem` cap binds at 128 px.
-
-**Call and wait.** Two states of one screen, set by a class on `<body>`:
-
-| | call | wait |
-|---|---|---|
-| ground | `#FFFFFF` | `#F2F2F0` |
-| name colour | `--ink-call` | `--ink` |
-| name size | `--t-hero` | `--t-hero × 0.8` |
-| header reads | the moment is now | the moment is next |
-
-The label is 11 px and cannot be read at four metres. Luminance and scale can be. That is
-why the state is carried by the ground and the size, and the label only confirms it up
-close.
-
-The call runs from each change until `max(6s, speechEnd + 2s)`, capped at 12 s. It must
-outlast the voice, or the screen shows one name while the phone says another.
-
-**Portrait** (not the target, must not break): `grid-template-columns: 1fr`, three rows —
-clock, team A, team B. `--t-hero` becomes `min(4rem, 12vh, calc(150cqi / var(--len)))`.
-Everything else is unchanged.
-
----
-
-## The change moment
-
-One motion in the whole product. `t = 0` is the change. One curve throughout.
-
-```
-t 0        speechSynthesis.speak() fires. clock reads 0:00. nothing moves.
-t 0–120    hold. the stillness is what makes the move read as a consequence.
-t 120      ground        --ground → #FFFFFF over 160ms, and stays (call state begins)
-           drift         --drift advances one step, 600ms, invisible inside the rest
-           clock         instant swap to the full interval. never animate a digit.
-           header        crossfade to the now wording, 150ms
-           name out      translateY(0 → -56px), opacity 1 → 0 (0 at 55%), 600ms
-           subs out      translateY(0 → -24px), opacity 1 → 0, 600ms
-           strip         translateX(0 → calc(-1 * var(--first-w))), 600ms
-                         first name opacity 1 → 0 over the first 55%
-t 300      name in       translateY(40px → 0), opacity 0 → 1, 420ms
-t 360      subs in       translateY(20px → 0), opacity 0 → 1, 360ms
-t 720      settled. rebuild the strip DOM, reset translateX, recompute --first-w
-           with transitions suppressed for one frame.
-t call-end ground → --ground, name → 0.8 scale, header → the next wording,
-           name and subs crossfade to the following shift. 400ms, all together.
-           no travel, no ground lift. this motion must not be mistaken for a change.
-```
-
-600 ms, not the 250 ms a UI transition gets. This motion is not feedback for a touch. It is
-a broadcast to people who are not looking at the screen, and slow motion is what peripheral
-vision catches. `--first-w` is the width of the strip's first name plus its separator,
-measured in JS and written as a custom property.
-
-Names travel up and out; the replacement rises from below. The queue moves upward, the
-strip moves left, and both advance by exactly one. Use `transform` and `opacity` only.
-Never animate `font-size` or anything that triggers layout.
-
-**Final 9 seconds.** At `T−9.0s` the clock goes from `--t-clock` / 600 / `--ink-2` / `MM:SS`
-to `--t-clock-l` / 800 / `--ink` / a bare seconds integer: 150 ms fade out, then 150 ms fade
-in with `scale(0.92 → 1)`. Each following second swaps instantly. No flash, no colour
-change, no sound. The loud element transfers from the name to the number for nine seconds,
-because for nine seconds the useful fact is the time. It starts at 9 and not 10 because 10
-is two digits, two digits at `8rem` will not fit the spine, and widening the spine would
-move both teams.
-
-**Reduced motion** (`prefers-reduced-motion: reduce`): the conveyor becomes a 200 ms
-opacity crossfade in place, the strip rebuilds instantly, the drift jumps with no
-transition, and the final-9 change is an instant swap. **Keep the ground lift**, extended to
-200 ms up and 500 ms down. It is a colour change, not motion, and it is the only signal that
-survives past six metres.
+`--len` is the longest name across both squads, floored at 5; `0.66` is the average uppercase
+advance at weight 800 with `-0.025em` tracking and `0.6` pays for the ↑ and its gap during the
+window. Both teams take the same size — neither outranks the other. `container-type:
+inline-size` on the team row, `overflow: clip` as a backstop, `maxlength="8"` at setup, since a
+longer name is one nobody can read at four metres. Game-screen names are uppercase: it removes
+descender space and buys ~15% more cap height. Setup keeps what was typed.
 
 ---
 
 ## Setup
 
-Portrait first. The phone is in a hand and the keyboard takes 55–65% of a landscape
-viewport. Rotating to landscape and propping the phone up is the mode change.
+One design. **24 elements → 12.**
 
-Naive element count: **16**. After: **7**, plus two deferred controls.
+**Merged.** Add button inside its field (cost: none — it acts on the thing it sits in). Each
+setting is one self-describing control, not a label plus a control (cost: scannability). The
+divider carries its own label (none). Kick off and the running-game chip share a slot (none).
+
+**Deleted.** Both squad counts (count the rows). The page title and the settings heading (two
+name lists and a Kick off button say what the screen is). Every derived number — interval, subs
+per team, shifts each — since sub duration is now set directly. Help text about ordering (the
+divider label and the drag are the explanation). A separate goalkeeper control (it is a tap on a
+name). The old mid-game roster sheet, 6 elements, whose job moved to the edit route.
+
+### The field, which is the whole point
+
+The last version failed because it did not look like an input. This one cannot be mistaken.
 
 ```
-interval readout   --t-clock, 600, --ink. tappable. em-dash when the squads are invalid.
-team A header      --t-label, --ink-3. "[team] · [count]"
-team A field       token field: pills + one input
-team B header
-team B field
-start              48px, filled --ink, white label, full width
-first-keeper pill  the last pill in each list, filled --ink, white label,
-                   with an inline --t-label prefix inside it
+.field   44px landscape / 52px portrait, full column width
+         #FFFFFF, border 2px solid --ink, radius 12, padding 0 4px 0 12px, margin-top 8px
+input    --t-row, 600, no border, no outline. placeholder --ink-3 at 400
+.add     34px circle (40px portrait), Lucide arrow-up, 20px, stroke 2.4
+         empty:  transparent, 1.5px --dim border, --ink-3 glyph
+         armed:  --on fill and border, white glyph, 150ms
 ```
 
-**The readout is the control.** Duration and shifts collapse into the number they produce.
-Tap it and it expands, 250 ms, into two stepper rows — duration (30–150, step 5) and shifts
-each (1–4, step 1) — which write back live. Cost: discoverability. Paid by the defaults
-being right for almost every game, and by a number that visibly moves as you type, which
-invites the tap. The spec has this backwards: it makes the derived value the readout and
-the values nobody can reason about into the controls. Nobody can predict what "2 shifts"
-feels like. Everybody understands "6:12 each".
+It is the only 2px border in the product, and the ↑ arming on the first keystroke is the field
+demonstrating what it does once per name, instead of a sentence of help. It sits **immediately
+below its own list** and the new name lands directly above it — the action and its consequence
+share a position. The list is `flex: 0 1 auto`, so on an empty screen the field is the second
+thing in the column and grows downward; once the list fills the column it scrolls and the field
+is pinned to the bottom. After a commit, scroll the list to the end so the name lands in view.
 
-**Arrival order is taught, not explained.** The last pill in each list is the first keeper,
-so it is the one filled pill, and it carries its own label inside it. Type a name and the
-fill moves to it. That is the rule demonstrated once per keystroke, and it replaces a
-sentence of help text. Cost: learnability.
+Required: `maxlength="8" autocapitalize="words" autocorrect="off" autocomplete="off"
+spellcheck="false" enterkeyhint="next"` — autocorrect mangles names and a mangled name gets
+spoken aloud. Return or ↑ commits and keeps focus. Viewport meta, all of it:
+`width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content`.
 
-**Reorder without dragging.** Order in the list changes exactly one thing: who starts in
-goal. Everything after that is alphabetical. So there is no drag and no handle — **tap any
-pill and it moves to the end of the list**, 250 ms, and becomes the first keeper. With a
-prefilled squad the whole interaction is: remove who is absent, tap whoever turned up last,
-start. Cost: learnability, and you cannot edit a name — remove it and retype. Names are
-eight characters.
+### The list
 
-Pills: full radius, 48 px tall, `--t-pill` at 600, hairline `#D4D4D6`, 12 px edge to label,
-6 px label to ✕, 12 px ✕ to edge. The ✕ is a 20 px Lucide `x` at 1.5 px stroke, in a square
-box. Gap 8 px between pills, 24 px between the two fields.
+Row: 36px landscape / 48px portrait, radius 10, `--surface`, `inset 0 0 0 1px --hair`,
+padding `0 6px 0 12px`, 4px between rows, `--t-row` at 600. A 24px `--dim` ✕ at the right
+removes the name.
 
-Input attributes, all required: `maxlength="8" autocapitalize="words" autocorrect="off"
-autocomplete="off" spellcheck="false" enterkeyhint="next"`. Autocorrect mangles names, and
-a mangled name gets spoken aloud. Return or comma commits a pill and keeps focus.
+- **Drag anywhere on the row** to reorder. It takes elevation 1 and `scale(1.02)`; the others
+  move on a 200ms transform; the gap it left stays open.
+- **Tap a name to make them the starting keeper.** The row fills `--ink` with white text and a
+  `--t-label` prefix at 60% white saying what the fill means. Tapping a name below the divider
+  moves them to the last pitch position first, 250ms — one rule, no dead rows. One filled row
+  per team at most.
+- **No row is filled by default.** The first keeper is drawn at random at kick-off and the
+  countdown is where the draw is revealed. A filled row means a human overrode it.
+- **The divider** sits after position `gameType`: a `--t-label` word, 8px, then a 1px `--dim`
+  rule to the column edge; 6px above, 2px below. Absent when the squad is not larger than
+  `gameType`.
 
-Viewport meta, all of it: `width=device-width, initial-scale=1, viewport-fit=cover,
-interactive-widget=resizes-content`. The last one keeps the sticky Start reachable above
-the keyboard.
+### Settings and Kick off
 
-**Validity.** Blocking: a team with fewer than 2 players — the rotation is meaningless.
-Non-blocking: a team with fewer than 6 — a warning line above Start, overridable. Below the
-blocking threshold Start is a hairline button, not a filled one, and tapping it focuses the
-short field. No dead control, and no disabled primary.
+Three self-describing controls — `--t-row` at 500 on `--surface`, 44px, radius 12, inset
+hairline, an 18px chevron right, a native `<select>` underneath. 4–11 a side (default 6), game
+time (default 2 hours), sub duration (default 10 min). Placeholder wording; the copywriter owns
+it. Kick off: 52px, radius 14, `--ink` fill, white label — **the only filled ink button in the
+product**. With either squad under 2 names it is a hairline button on transparent and tapping
+it focuses the short field. No disabled control, no dead primary.
 
-**Landscape setup**: the two fields sit side by side, readout top centre, Start bottom right
-at 200 px wide. Nothing else changes.
+### Layout
 
-There is no page title. Two lists of names and a number say what the screen is for without
-one.
+**Landscape** — `padding: 12px 24px`, `grid-template-columns: 1fr 1fr 13rem`, `gap: 16px`. Two
+team columns and a settings column. Each team column: label (16px, 4px below), list, field.
+The settings column is the three controls, a `1fr` spacer, then Kick off — bottom-right, in
+the thumb, nowhere near the lists. At 390px tall the list shows 7 rows plus the divider and
+scrolls beyond that. The field never scrolls away.
+
+**Portrait** — one column, `padding: 16px 16px 76px`, `gap: 24px`. Lists are not internally
+scrollable; the page scrolls, which is what a form should do with a keyboard up. Kick off is
+`position: fixed` at the bottom over a 92px `linear-gradient(transparent, --ground)`. No
+shadow.
 
 ---
 
-## The roster sheet
+## Kick-off
 
-The two mid-game actions. **Zero elements on the display.**
+The wait is where this product gets a personality, so it is not a splash screen — **it is the
+game screen, already assembled, with the count where the clock will be**, and you spend ten
+seconds reading the starting state, including the keeper the app just drew.
 
-Trigger: press and hold anywhere for 700 ms with under 12 px of movement. Cost:
-discoverability, paid by the one kick-off hint.
+```
+t 0       crossfade from setup to the game layout, 300ms
+          count reads 10 at --t-count / 800 / --ink / tabular
+          no edit icon; a --t-label line in its place says the screen can be tapped to
+          go back. the only signpost in the product, in the one moment nothing else
+          is happening
+t 1–10s   each second swaps instantly, then scale(1.08 → 1) over 180ms
+          the last five carry a tick: sine 880Hz, 30ms, gain .08
+any tap   abort, straight back to setup, nothing kept
+t 10s     whistle: sawtooths at 2350Hz and 2570Hz, tremolo 18Hz, 700ms,
+          40ms attack, 250ms release
+          ground to #FFFFFF and back over 500ms
+          the count is replaced by the clock and the elapsed readout
+          speechSynthesis speaks both teams' keeper and sub
+```
 
-A sheet rises from the bottom over 300 ms, covering the lower 75%, on a
-`rgba(0,0,0,.4)` scrim, `--ground`, 16 px top corners, elevation 1 — the only shadow in the
-product. Inside: the same pill fields as setup, both teams, and the same input.
+---
 
-- Tap a present name → gone. The pill becomes hairline, `--dim`, struck through.
-- Tap a gone name → back. That is the undo, so there is no confirmation dialog.
-- Type a name and press Return → a late arrival. The spec's rule (covers the next shift,
-  inserted behind the pointer) is engine behaviour and needs no interface.
+## The game screen — three variations
 
-No title, no Save, no close button. Changes apply on the tap. Dismiss by tapping the scrim,
-swiping down, or 10 s of no interaction. If a change fires while the sheet is open it closes
-itself over 300 ms so the change is seen, and the voice speaks either way.
+Naive count from the brief: **26**. All three at landscape 844×390.
 
-**6 elements**: scrim, sheet, two headers, two fields.
+### A — Two rows, one sentence each ← **BUILD THIS**
+
+Each team is one row, reading as Liam's own sentence, stacked: the team, the sub, the keeper
+in the loud slot, one line of order underneath. **26 → 15.**
+
+| Merge | Cost |
+|---|---|
+| team name + sub name → one quiet top line, tag left, sub right | none |
+| the strip is order, who is playing, and who has gone home (struck) | discoverability |
+| the final-ten-seconds clock and the changeover are one state, not two | none |
+| the keeper slot holds the current keeper at rest, the incoming keeper in the window | learnability |
+| ground colour is the change signal and the burn-in mitigation | none |
+
+Deleted: every container, border, icon and shadow except two hairlines and the edit icon.
+
+Added, and what each buys. **The elapsed readout** — game time was kept only so the screen can
+show time played, and it doubles as the overtime state, so it costs no second element. **The
+edit icon** — his own answer to prescriptive labels. **The pending-edit line**, conditional —
+without it an edit reads as ignored for up to ten minutes. **The degraded line**, conditional —
+wake lock or voice lost, one tap fixes it; without it the screen sleeps at minute forty and
+nobody knows why. Kept against the reduction, deliberately: **the GOAL and SUB labels**. The
+pure version lets size carry role; eleven pixels of grey is cheap insurance against exactly the
+failure that just happened, and it costs the hero nothing measurable.
+
+### B — The board
+
+Clock bar on top, two panels side by side, GOAL / SUB / ON columns with the squad under them.
+**26 → 23**, no merge of consequence. Four name slots and two header rows share a 380px column,
+so the keeper falls to about `3rem` — cap height 5.9 mm, legible at 1.5 m. It fails the
+distance table, and a team with no sub shows an empty column under a live header, which is what
+makes a screen look broken. It is a dashboard, the thing he said he did not want. It loses.
+
+### C — The pitch
+
+A rectangle, a halfway line, a goal mouth at each end with the keeper's name inside it, the
+sub's name on the touchline outside. **26 → 11** and no labels at all, because position is the
+label. The changeover becomes literal — the sub's name walks in from the touchline as the
+keeper's name walks out of the goal.
+
+It loses on geometry: the goals are 844px apart, so reading both teams is a scan, not a glance;
+the goal mouth is a narrow box at the frame's edge, so the name in it is small, the opposite of
+what the distance table demands; and who is playing becomes a fiction, because the pitch looks
+full whether it is or not. A takes the one thing it gets right — **direction is spatial**: on is
+up and green, off is down and red, and the outgoing name sits physically below the incoming one.
+
+**Recommendation: A**, the only variation where the loudest thing on screen is always the answer
+to the question the product exists to answer.
+
+---
+
+## A, exact
+
+```
+main   grid; grid-template-columns: 1fr 8.5rem; grid-template-rows: 1fr 1fr
+       column-gap: 24px
+       padding: max(12px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+                max(12px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left))
+       transform: translate(var(--drift-x), var(--drift-y))
+```
+
+Safe-area padding is not optional: in landscape the Dynamic Island takes ~59px from one side and
+the home indicator 21px from the bottom. Measured team row at 844×390: **636 × 183px**, keeper
+at 98.6px for an 8-character name and 104px (the `6.5rem` cap) for anything shorter. The row is
+`container-type: inline-size`, `align-content: center`, `padding: 8px 0`, four auto rows; the
+second gets `border-top: 1px solid --hair`.
+
+```
+line 1   flex, baseline, height 22px, margin-bottom 2px
+         team tag   --t-label, left
+         sub group  right: --t-label + name at --t-name-2 / 700 / --ink / uppercase
+                    the whole group is absent when the team has no sub
+line 2   flex, align-items center, gap 12px
+         GOAL       --t-label
+         keeper     --t-hero, 800, line-height .94, tracking -.025em, uppercase, nowrap
+line 3   height 30px, margin-top 10px
+         rest: the order strip. window: the outgoing name
+```
+
+Line 3 is a fixed 30px in both states, so nothing moves between them.
+
+**The strip** is the goal order left to right, starting with the current keeper — leftmost *is*
+the pointer, so nothing marks it. Separator `·` in `--dim` with `.34em` either side; a player
+gone home is `--dim` and struck through; `mask-image: linear-gradient(to right, #000 88%,
+transparent)` says the loop continues, which is true. It is the only answer to "who is playing"
+that is one line rather than a list.
+
+**Spine**, spanning both rows, `border-left: 1px solid --hair`, centred, `gap: 6px`: time to
+the next change at `--t-clock` / 600 / `--ink` / tabular; time played at `--t-elapsed` / 500 /
+`--ink-3` / tabular; a 24px Lucide `pencil` in `--ink-3` in a 44px target pinned bottom-right.
+Conditional lines sit at `--t-label` above the icon.
+
+**Portrait.** One column: the spine becomes a top bar (clock, elapsed, edit pushed right,
+`border-bottom` not `border-left`), then the two rows, `align-content: space-around`. The sub
+group wraps onto its own line under the tag. `--t-hero` becomes `min(6rem, 22vh,
+calc((100cqi - 3.5rem) / (var(--len) * 0.66 + 0.6)))` — 77px for short names, 51px for the
+longest. Line 3 drops to 26px, names to `1.5rem`.
+
+---
+
+## The changeover
+
+**The window is the last ten seconds of the shift, not the first ten of the next.** A warning
+beats a report — players need to be walking before the swap — and it keeps the rest state
+honest, because the screen never names a keeper who is not currently in the goal.
+
+**The arrows describe the player, not the slot.** In GOAL, ↑ green goes into goal and ↓ red
+comes out. In SUB, ↑ green comes onto the pitch and ↓ red goes off it — so the *new* sub name
+is the red one. The label above each slot carries the domain.
+
+```
+t 0      = T−10s. sine 660Hz then 880Hz, 120ms each, 200ms apart, 20ms attack
+         speechSynthesis speaks the change
+         ground → #FFFFFF, 200ms. drift advances one step, 600ms
+         clock swaps instantly to 10 at --t-count / 800 / --ink
+t 0–140  hold. the stillness is what makes the move read as a consequence
+t 140    keeper out:  --ink → --off, translateY(0 → +38px), scale to --t-name-2, 500ms,
+                      landing on line 3 in place of the strip with a leading ↓
+         keeper in:   enters the hero slot, translateY(28px → 0), opacity 0 → 1, 460ms,
+                      colour --on, leading ↑ at .42em, vertical-align .16em
+         strip:       opacity 1 → 0 over 180ms, then display none
+t 200    sub slot the same at --t-name-2: the new sub turns --off with a ↓, the old sub
+         joins it in --on with a ↑, 400ms
+t 640    settled. colours, arrows and the count hold for the rest of the window
+t 1–9s   the count swaps instantly each second. no scale, no sound — the ticks belong to
+         kick-off, and a beep a second for ten seconds on a touchline is noise
+t 10s    = T. one peep: sine 1200Hz, 90ms
+         ground → --ground, 300ms; green name → --ink and the ↑ fades, 250ms
+         the outgoing name fades out, the strip rebuilds and fades in, 250ms
+         no travel on the way back. this must never be mistaken for a change
+```
+
+600ms, not the 250ms a UI transition gets: this is not feedback for a touch, it is a broadcast
+to people who are not looking, and slow movement is what peripheral vision catches. `transform`
+and `opacity` only — never animate `font-size`. **Reduced motion**: no travel, every step
+becomes a 200ms opacity crossfade in place, the strip rebuilds instantly, the drift jumps, and
+the ground lift and the colours stay — they are not motion, and they are the only signal that
+survives past six metres.
+
+---
+
+## The edit route
+
+Build this last. It touches nothing above it.
+
+The pencil returns to the setup screen, unchanged, **with the game still running**. The proof is
+in the corner the game started from: where Kick off was there is now a 52px chip, 2px `--ink`
+inset, a `--t-label` line and the live countdown at `1.5rem` tabular, ticking. The chip is also
+the way back — one slot, two meanings, always the true one.
+
+**The clock never resets, and an edit never lands mid-shift.** Any change — a name added or
+removed, a reorder, a new sub duration, a new game type — takes effect at the **next change**,
+so nobody is pulled out of goal early and no shift is cut short. Store one rebase record beside
+the setup and the kick-off timestamp: the elapsed time of the next change boundary and the
+keeper index in force there. The rotation stays a pure function of `(setup, rebase, elapsed)`,
+so a dead phone still restarts and carries on.
+
+- **Nothing changed** → nothing happens. No dialog, no save, no confirmation. Tap the chip.
+- **Something changed** → back on the game screen, one `--t-label` line under the clock says
+  the change lands at the next swap. It clears itself at the change.
+- **A change fires while setup is open** → the screen is not yanked away from someone typing.
+  The voice carries it, which is the primary channel anyway, and the countdown resets.
+
+Gone home and turned up late live here too — both are a row added or removed, and neither needs
+a surface of its own.
 
 ---
 
 ## States
 
-Every one of these is a design, not a note.
+Specified in place above: empty and one-name setup (the field), a squad smaller than `gameType`
+(the divider), the keeper override (the list), no sub and uneven teams (line 1), at rest and the
+changeover window (the motion table), past game time (the elapsed readout). What is left:
 
-**Setup**
-
-- *First run.* Both fields empty, placeholders visible, readout is an em-dash, Start is a
-  hairline button.
-- *Prefilled.* Pills present, the last one in each list filled, readout live. Nothing
-  announces that the squad was remembered — the names being there says it.
-- *Too small.* A team under 2: readout em-dash, Start hairline, tapping it focuses that
-  field.
-- *Under six.* Warning line above Start, `--t-label`, `--ink-2`. Start stays filled.
-- *Settings open.* Two stepper rows below the readout, 250 ms expand, collapse on tap
-  outside.
-
-**Display**
-
-- *Kick-off.* Change 0 runs the full change moment and the call hold, and speaks the first
-  names. No special case in the code and the start gets a moment. The kick-off hint takes
-  the strip's line for that hold only, then never appears again.
-- *Normal minute.* Wait state. Ground `#F2F2F0`, name at 0.8, clock ticking. The ticking
-  clock is the only proof the app is alive, which is why the clock is never hidden.
-- *Final 9 seconds.* As above. Names do not move.
-- *The change.* As above.
-- *Exactly six.* No sub line at all. The team block is shorter and re-centres. Nothing is
-  empty, because nothing was ever reserved.
-- *Uneven teams.* One row has a sub line, the other does not. Both rows are `1fr` and both
-  names are centred in their own row, so the two names stay level. The size is shared, so
-  neither team looks larger than the other.
-- *Overtime.* Past the duration, the rotation wraps and nothing structural changes. A
-  `--t-label` marker in `--ink-3` appears under the clock with the minutes past. Without it
-  a wrapping rotation reads as a fault.
-- *Restored.* Read the setup and the kick-off timestamp, compute from `Date.now()`, go
-  straight to the display. No dialog. Suppress the voice for changes that were missed while
-  the phone was dead. If `elapsed > duration + 60 min`, discard the game and open setup with
-  the squad prefilled.
-- *Degraded.* Wake Lock is lost on backgrounding and often cannot be re-taken without a
-  gesture. The voice needs a user gesture to unlock on iOS and can be silenced by the ringer
-  switch. Both surface as one `--t-label` marker under the clock, and any single tap clears
-  it by re-taking the lock and re-testing the voice. Unlock the voice on the Start tap in
-  setup, where a gesture already exists.
-- *Portrait.* As above. Not the target, does not break.
+- *Setting changing* — the native wheel; the divider moves live when `gameType` changes.
+- *A full squad in landscape* — 7 rows and the divider are visible, the rest scrolls, and the
+  field never scrolls away.
+- *Restored* — read the setup, the kick-off timestamp and the rebase, compute from `Date.now()`,
+  straight to the game screen at rest. No dialog, and no voice for changes missed while the
+  phone was dead. Past `gameTime + 60min`, discard and open setup with the squad prefilled.
+- *Degraded* — wake lock or voice lost: one `--t-label` line under the clock, and any tap
+  re-takes the lock and re-tests the voice. Unlock the voice on the Kick off tap, where a
+  gesture already exists.
+- *Alive* — the ticking clock is the only proof the app is running, so it is never hidden.
 
 ---
 
-## What I think is wrong in the spec
+## What I think is wrong
 
-1. **The 20-metre reading distance is not achievable on a phone** and no design gets there.
-   The four-channel table at the top is the honest answer. Say it out loud before the field
-   test, or the field test will report the wrong failure.
-2. **A permanent "now" display contradicts principle 2.** The rotation deliberately does not
-   track who is standing in the goal. Every time somebody volunteers, a permanent "now"
-   block is visibly wrong, and the one thing this product cannot afford to be is visibly
-   wrong. Show it only in the seconds after the voice says it, when it is true by
-   construction.
-3. **There is no length cap on names.** An eleven-character name drops the hero to 49 px and
-   takes the whole product below its reading distance. Eight characters, enforced in setup.
-4. **Duration and shifts are the wrong controls.** Nobody can predict what "2 shifts each"
-   feels like on a pitch. The interval is the only number in the system a person can reason
-   about, and the spec puts it in the readout and the unintelligible values in the inputs.
-5. **The voice is not reliable enough to be the primary channel.** It needs a gesture to
-   unlock on iOS and the ringer switch can kill it. The screen must carry the change on its
-   own, which is what the ground lift is for.
-6. **The punctuality incentive is backwards.** The last to arrive goes in goal first, so
-   they get their goal shift over with while everyone else still has theirs coming. That
-   rewards lateness. Not a design call — but it is the kind of thing the least vocal player
-   will notice, and this product exists for them.
+1. **Ten seconds of countdown at every change will annoy people by minute forty.** The voice
+   plus a five-second window is probably enough. Ship ten, watch one game, cut it.
+2. **Game time earns almost nothing.** One small readout and one `+` prefix. If nobody looks at
+   it, delete the setting and count up from zero.
+3. **The random first keeper removes the only punctuality incentive** the old spec had. Fine —
+   it was backwards anyway — but nothing in the product now rewards turning up on time.
+4. **"No sub to goal, no goal to sub" can deadlock** on a squad of exactly `gameType + 1`, where
+   some shifts have no legal move left. The engine needs a stated tiebreak, and the design
+   cannot hide it: whatever it picks, the screen says it out loud.
+5. **Two lists means two chances to type the same person twice.** Nothing here catches it, and a
+   duplicate gets spoken aloud on the wrong team.
