@@ -554,12 +554,17 @@ button {
   min-width: 0;
   height: calc(var(--t-hero) * 0.94);
 }
+/*
+ * --fit is measured in app.js and multiplies the step the name is set in. It
+ * is 1 for every name that fits its column, so the scale still sets the size
+ * and only a name with nowhere to go is ever smaller than its step.
+ */
 .hero .layer {
   position: absolute;
   left: 0;
   top: 0;
   width: 100%;
-  font-size: var(--t-hero);
+  font-size: calc(var(--t-hero) * var(--fit, 1));
   font-weight: 700;
   line-height: .94;
   letter-spacing: -.02em;
@@ -584,7 +589,7 @@ button {
 .subname:empty { min-height: 0; }
 
 .nm {
-  font-size: var(--t-lead);
+  font-size: calc(var(--t-lead) * var(--fit, 1));
   font-weight: 700;
   letter-spacing: -.01em;
   line-height: .94;

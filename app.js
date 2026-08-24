@@ -1306,12 +1306,7 @@ function applyDrift() {
   document.documentElement.style.setProperty('--drift-y', `${y}px`);
 }
 
-/*
- * --shrink is --t-name-2 over the live hero size and --fall is the travel that
- * puts the shrunk name on line 3. Both are measured, because the hero size
- * moves with the longest name and the two orientations space the lines apart
- * differently. transform and opacity only — never animate font-size.
- */
+/* one step of the scale, in pixels, whatever unit it is written in */
 function scalePx(name) {
   const root = getComputedStyle(document.documentElement);
   const raw = String(root.getPropertyValue(name) || '').trim();
@@ -1319,21 +1314,50 @@ function scalePx(name) {
   return raw.endsWith('rem') ? n * (parseFloat(root.fontSize) || 16) : n;
 }
 
+/*
+ * A name wider than its column is scaled down rather than wrapped or cut off.
+ * --fit is the width it has over the width it wants, and it multiplies the
+ * step the name is set in. Every name that fits is left at 1, so the scale
+ * still sets the size and the shrink is only ever the last resort.
+ */
+function fitLine(node) {
+  node.style.setProperty('--fit', '1');
+  const room = node.getBoundingClientRect().width;
+  if (room <= 0) return;
+  /* max-content is the width the line wants. it is put back in the same tick,
+     so nothing is ever painted at it. */
+  node.style.width = 'max-content';
+  const need = node.getBoundingClientRect().width;
+  node.style.width = '';
+  if (need > room) node.style.setProperty('--fit', String(room / need));
+}
+
+/*
+ * --shrink is lead over the size the name is actually painted at, and --fall
+ * is the travel that puts the shrunk name on line three. Both are per layer,
+ * because two names in the same slot can be fitted differently, and both are
+ * measured, because the two orientations space the lines apart differently.
+ * transform and opacity only — never animate font-size.
+ */
 function applyShrink() {
-  /* only measure while every layer is at rest and untransformed */
-  if (teamEls.some((parts) => parts.hero.querySelector('.walk-out, .walk-in'))) return;
-  const hero = scalePx('--t-hero');
   const lead = scalePx('--t-lead');
-  const shrink = hero > 0 ? Math.min(1, lead / hero) : 0.45;
   for (const parts of teamEls) {
-    const layer = parts.hero.querySelector('.layer');
-    parts.root.style.setProperty('--shrink', String(shrink));
-    const box = layer.getBoundingClientRect();
     const line3 = parts.line3.getBoundingClientRect();
-    if (box.height > 0 && line3.height > 0) {
-      const fall = line3.top - (box.top + box.height * (1 - shrink));
-      parts.root.style.setProperty('--fall', `${Math.round(fall)}px`);
+    for (const layer of layers(parts)) {
+      /* a layer mid-walk is scaled, so its box is not a box to measure from */
+      if (getComputedStyle(layer).transform !== 'none') continue;
+      fitLine(layer);
+      const size = parseFloat(getComputedStyle(layer).fontSize) || 0;
+      const shrink = size > 0 ? Math.min(1, lead / size) : 0.45;
+      layer.style.setProperty('--shrink', String(shrink));
+      const box = layer.getBoundingClientRect();
+      if (box.height > 0 && line3.height > 0) {
+        const fall = line3.top - (box.top + box.height * (1 - shrink));
+        layer.style.setProperty('--fall', `${Math.round(fall)}px`);
+      }
     }
+    fitLine(parts.subname);
+    fitLine(parts.l3sub);
   }
 }
 
@@ -1361,6 +1385,7 @@ function setHero(node, name, arrow) {
     node.appendChild(glyph);
   }
   node.appendChild(document.createTextNode(name || ''));
+  fitLine(node);
 }
 
 function nameNode(name, arrow, tone) {
@@ -1381,6 +1406,7 @@ function fillNames(node, players, arrowOf, toneOf) {
   for (const player of players) {
     node.appendChild(nameNode(player.name, arrowOf(player), toneOf(player)));
   }
+  fitLine(node);
 }
 
 /* the eyebrow agrees with the count and never changes inside a window */
@@ -1493,21 +1519,26 @@ function openWindow(r, options) {
   if (state.screen !== 'display') return;
 
   advanceDrift();
-  applyShrink();
 
-  /* stage both layers: the keeper now, and the keeper about to go in */
+  /* stage both layers: the keeper now, and the keeper about to go in. the
+     class and the style are cleared first, because setting the name is what
+     measures the fit and clearing the style would throw it away. */
   r.teams.forEach((team, t) => {
     const parts = teamEls[t];
     const out = restingLayer(parts);
     const into = spareLayer(parts);
-    setHero(out, team.keeper ? team.keeper.name : '', '\u2193');
     out.className = 'layer on';
     out.style.cssText = '';
-    setHero(into, team.nextKeeper ? team.nextKeeper.name : '', '\u2191');
+    setHero(out, team.keeper ? team.keeper.name : '', '\u2193');
     into.className = 'layer walk-in';
     into.style.cssText = '';
+    setHero(into, team.nextKeeper ? team.nextKeeper.name : '', '\u2191');
     parts.hero.dataset.out = out === layers(parts)[0] ? '0' : '1';
   });
+
+  /* the outgoing name is the one that travels, and the arrow it has just been
+     given is part of the width the fall is measured from */
+  applyShrink();
 
   const heroPair = (parts) => {
     const all = layers(parts);
