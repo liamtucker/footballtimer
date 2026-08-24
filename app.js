@@ -239,7 +239,6 @@ const teamEls = [0, 1].map((t) => {
     pill: root.querySelector('.pill'),
     lab: root.querySelector('.lab'),
     labSub: root.querySelector('.lab-sub'),
-    subSlot: root.querySelector('.slot-sub'),
     hero: root.querySelector('.hero'),
     subname: root.querySelector('.subname'),
     line3: root.querySelector('.l3-goal'),
@@ -1387,7 +1386,6 @@ function fillNames(node, players, arrowOf, toneOf) {
 /* the eyebrow agrees with the count and never changes inside a window */
 function subEyebrow(parts, count) {
   parts.labSub.textContent = count === 0 ? COPY.subsNone : (count > 1 ? COPY.subs : COPY.sub);
-  parts.subSlot.classList.toggle('none', count === 0);
 }
 
 function buildStrip(track, team, gone) {
