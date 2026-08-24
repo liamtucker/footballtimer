@@ -40,10 +40,24 @@ touched.
 
 ## State
 
-**Done.** `rotation.js`, the engine. `test.js` covers it, 60 assertions.
+**Done.** The whole thing. `rotation.js` and its 60 assertions, the setup
+screen, the display, the announcement, the wake lock and restore, the roster
+sheet, the service worker, the icons and the manifest. Design variation A,
+built to `brain/design.md`; every string from `brain/copy.md`.
 
-**Next.** Setup screen, then display, then announcement, then wake lock and
-restore, then the two roster taps. The engine already holds the late arrival and
-the gone home rewrites, so step 6 is a screen only.
+**Debug hook.** `?t=` enables it and nothing else does. `?t=0` starts the game
+clock at zero; `?t=330` at 330 seconds; `?t=5:30` the same as `m:ss`; add
+`&rate=60` to run the clock 60x, or `&rate=0` to freeze it. With `?t=` present
+nothing is written to `localStorage`. It exposes `window.rota` with
+`setElapsed(ms)`, `getElapsed()`, `rate(n)`, `rotation`, `state` and `tick`.
+
+**Deviations, all reported.** `display.change`, `display.order.label`,
+`display.subs.none`, `action.add`, `action.remove`, `add.confirm`,
+`add.result`, `remove.result` and `remove.undo` are unused: in each case the
+designer deleted the element the string would have sat in. Three strings the
+copywriter never wrote were needed and are invented — the kick-off hint, the
+degraded marker and the separator between two sub names.
+
+**Next.** The field test. Two games. `plan.md` step 7 says what to watch.
 
 **Blocked.** Nothing.

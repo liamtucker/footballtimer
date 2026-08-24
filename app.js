@@ -330,6 +330,27 @@ function prefersReducedMotion() {
 
 /* ------------------------------------------------------- setup wiring */
 
+const pendingNames = ['', ''];
+
+function flushPendingNames() {
+  let changed = false;
+  for (let t = 0; t < 2; t += 1) {
+    const parked = pendingNames[t];
+    pendingNames[t] = '';
+    const typed = el.inputs[t].value.trim();
+    el.inputs[t].value = '';
+    for (const raw of [parked, typed]) {
+      const name = String(raw || '').trim().slice(0, NAME_MAX);
+      if (!name) continue;
+      state.draft.arrivals[t].push(name);
+      state.prefilled = false;
+      changed = true;
+    }
+  }
+  if (changed) renderSetup();
+  return changed;
+}
+
 for (let t = 0; t < 2; t += 1) {
   const input = el.inputs[t];
   input.addEventListener('keydown', (event) => {
@@ -348,11 +369,15 @@ for (let t = 0; t < 2; t += 1) {
       input.value = tail;
     }
   });
+  /* A half-typed name must survive the blur that a tap on a pill or on Kick
+     off causes. Park it and flush it after the click has been dispatched,
+     or the re-render swallows the tap and the name never lands. */
   input.addEventListener('blur', () => {
-    if (input.value.trim()) {
-      addName(t, input.value);
-      input.value = '';
-    }
+    const value = input.value.trim();
+    if (!value) return;
+    input.value = '';
+    pendingNames[t] = value;
+    window.setTimeout(flushPendingNames, 0);
   });
   el.pills[t].addEventListener('click', (event) => {
     const pill = event.target.closest('.pill');
@@ -437,13 +462,7 @@ el.clear.addEventListener('click', () => {
 });
 
 el.start.addEventListener('click', () => {
-  for (let t = 0; t < 2; t += 1) {
-    const input = el.inputs[t];
-    if (input.value.trim()) {
-      addName(t, input.value);
-      input.value = '';
-    }
-  }
+  flushPendingNames();
   const sizes = state.draft.arrivals.map((names) => names.length);
   const shortest = sizes[0] <= sizes[1] ? 0 : 1;
   if (sizes.some((n) => n < 2)) {
@@ -669,7 +688,11 @@ function runChange(r, mode) {
   state.callUntil = now + 6000;
   el.body.classList.add('call');
 
-  if (animate) {
+  if (animate && prefersReducedMotion()) {
+    /* the conveyor becomes a crossfade in place and the strip rebuilds at once */
+    paint(r, 'now', 'change');
+    rebuildStrips(r);
+  } else if (animate) {
     slideStrips();
     paint(r, 'now', 'change');
     window.setTimeout(() => {
@@ -867,9 +890,16 @@ function unlockVoice() {
     const utterance = new SpeechSynthesisUtterance(' ');
     utterance.volume = 0;
     utterance.rate = 1;
+    let started = false;
+    utterance.onstart = () => { started = true; voiceReady = true; state.degradedVoice = false; };
+    utterance.onerror = () => { state.degradedVoice = true; };
     speechSynthesis.speak(utterance);
-    voiceReady = true;
     state.degradedVoice = false;
+    /* the test is not the call, it is what comes back from it */
+    window.setTimeout(() => {
+      if (started || voiceReady) return;
+      if (!speechSynthesis.speaking && !speechSynthesis.pending) state.degradedVoice = true;
+    }, 1500);
   } catch (error) {
     state.degradedVoice = true;
   }
