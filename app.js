@@ -470,21 +470,496 @@ function showSetup(prefilled) {
   renderSetup();
 }
 
-/* replaced in step 3 by the full display */
-function startDisplay() {
+
+/* -------------------------------------------------------------- display */
+
+const DRIFT = [[0, 0], [2, 1], [0, 2], [-2, 1]];
+
+const teamEls = [0, 1].map((t) => {
+  const root = el.display.querySelector(`.team[data-team="${t}"]`);
+  return {
+    root,
+    header: root.querySelector('.team-header'),
+    name: root.querySelector('.team-name'),
+    subs: root.querySelector('.subs'),
+    strip: root.querySelector('.strip'),
+    track: root.querySelector('.strip-track'),
+    hint: root.querySelector('.kickoff-hint')
+  };
+});
+
+function layerPair(host) {
+  const nodes = host.querySelectorAll(':scope > .layer');
+  const active = host.dataset.active === '1' ? 1 : 0;
+  host.dataset.active = String(1 - active);
+  return { out: nodes[active], in: nodes[1 - active] };
+}
+
+function fillHeader(node, teamName, moment) {
+  node.textContent = `${teamName} — ${moment}`;
+}
+
+function fillName(node, text, scale) {
+  node.textContent = '';
+  const glyph = document.createElement('span');
+  glyph.className = 'glyph';
+  glyph.style.setProperty('--sc', String(scale));
+  glyph.textContent = text || '';
+  node.appendChild(glyph);
+}
+
+function fillSubs(node, names) {
+  node.textContent = '';
+  if (!names || names.length === 0) return;
+  const prefix = document.createElement('span');
+  prefix.className = 'prefix';
+  prefix.textContent = names.length > 1 ? COPY.subsLabel : COPY.subLabel;
+  node.appendChild(prefix);
+  names.forEach((player, i) => {
+    if (i > 0) {
+      const sep = document.createElement('span');
+      sep.className = 's-sep';
+      sep.textContent = '·';
+      node.appendChild(sep);
+    }
+    node.appendChild(document.createTextNode(player.name));
+  });
+}
+
+function buildStrip(track, teamState) {
+  track.textContent = '';
+  const n = teamState.order.length;
+  if (n === 0) return;
+  const bench = new Set(teamState.subIndexes);
+  for (let i = 0; i < n; i += 1) {
+    const index = (teamState.keeperIndex + i) % n;
+    if (i > 0) {
+      const sep = document.createElement('span');
+      sep.className = 's-sep';
+      sep.textContent = '·';
+      track.appendChild(sep);
+    }
+    const item = document.createElement('span');
+    item.className = bench.has(index) ? 's-item bench' : 's-item';
+    item.textContent = teamState.order[index].name;
+    track.appendChild(item);
+  }
+}
+
+function measureFirstWidth(track) {
+  const items = track.querySelectorAll('.s-item');
+  if (items.length < 2) return 0;
+  return items[1].getBoundingClientRect().left - items[0].getBoundingClientRect().left;
+}
+
+function writeFirstWidth(track) {
+  track.style.setProperty('--first-w', `${measureFirstWidth(track)}px`);
+}
+
+function applyNameLength() {
+  let longest = 5;
+  for (const team of state.setup.teams) {
+    for (const player of team.players) longest = Math.max(longest, player.name.length);
+  }
+  document.documentElement.style.setProperty('--len', String(longest));
+}
+
+function advanceDrift() {
+  state.driftStep = (state.driftStep + 1) % DRIFT.length;
+  const [x, y] = DRIFT[state.driftStep];
+  document.documentElement.style.setProperty('--drift-x', `${x}px`);
+  document.documentElement.style.setProperty('--drift-y', `${y}px`);
+}
+
+/* Put a host into a new content state. `how` is 'change', 'fade' or 'now'. */
+function swap(host, fill, how, options = {}) {
+  const pair = layerPair(host);
+  fill(pair.in);
+  pair.out.className = 'layer';
+  pair.in.className = 'layer';
+  if (how === 'now') {
+    pair.in.classList.add('on');
+    return;
+  }
+  if (how === 'change') {
+    pair.out.classList.add('anim-out');
+    pair.in.classList.add('anim-in');
+    window.setTimeout(() => {
+      if (pair.in.classList.contains('anim-in')) {
+        pair.in.className = 'layer on';
+        pair.out.className = 'layer';
+      }
+    }, 780);
+    return;
+  }
+  // fade
+  const ms = options.ms ?? 400;
+  const delay = options.delay ?? 0;
+  pair.out.style.setProperty('--fade-ms', `${ms}ms`);
+  pair.out.style.setProperty('--fade-delay', `${delay}ms`);
+  pair.in.style.setProperty('--fade-ms', `${ms}ms`);
+  pair.in.style.setProperty('--fade-delay', `${delay}ms`);
+  pair.out.classList.add('on', 'fading');
+  pair.in.classList.add('fading');
+  void pair.in.offsetWidth;
+  pair.out.classList.remove('on');
+  pair.in.classList.add('on');
+}
+
+/* The shift the screen is showing: 'now' during the call, 'next' while waiting. */
+function paint(r, moment, how, options) {
+  r.teams.forEach((team, t) => {
+    const parts = teamEls[t];
+    const isNow = moment === 'now';
+    const keeper = isNow ? team.keeper : team.nextKeeper;
+    const subs = isNow ? team.subs : team.nextSubs;
+    const label = isNow ? COPY.keeperLabel : COPY.nextLabel;
+    const scale = isNow ? 1 : 0.8;
+
+    swap(parts.header, (node) => fillHeader(node, team.name, label), how === 'change' ? 'fade' : how,
+      how === 'change' ? { ms: 150, delay: 120 } : options);
+    swap(parts.name, (node) => fillName(node, keeper ? keeper.name : '', scale), how, options);
+
+    parts.subs.hidden = subs.length === 0;
+    if (subs.length > 0) swap(parts.subs, (node) => fillSubs(node, subs), how, options);
+    else swap(parts.subs, (node) => fillSubs(node, []), 'now');
+  });
+}
+
+function rebuildStrips(r) {
+  r.teams.forEach((team, t) => {
+    const parts = teamEls[t];
+    parts.track.classList.remove('sliding');
+    parts.track.style.transform = '';
+    buildStrip(parts.track, team);
+    writeFirstWidth(parts.track);
+  });
+}
+
+function slideStrips() {
+  teamEls.forEach((parts) => {
+    writeFirstWidth(parts.track);
+    void parts.track.offsetWidth;
+    parts.track.classList.add('sliding');
+  });
+}
+
+/* ------------------------------------------------------------ the change */
+
+function runChange(r, mode) {
+  /* motion runs on real time; only the rota runs on the game clock */
+  const now = Date.now();
+  const animate = mode === 'kickoff' || mode === 'step';
+
+  if (mode === 'restore') {
+    state.inCall = false;
+    el.body.classList.remove('call');
+    paint(r, 'next', 'now');
+    rebuildStrips(r);
+    for (const parts of teamEls) if (parts.hint) parts.hint.hidden = true;
+    return;
+  }
+
+  advanceDrift();
+  if (mode !== 'kickoff') state.holdClockUntil = now + 120;
+  state.inCall = true;
+  state.callStart = now;
+  state.callUntil = now + 6000;
+  el.body.classList.add('call');
+
+  if (animate) {
+    slideStrips();
+    paint(r, 'now', 'change');
+    window.setTimeout(() => {
+      if (state.screen !== 'display') return;
+      rebuildStrips(rotation(state.setup, elapsedMs()));
+    }, 720);
+  } else {
+    paint(r, 'now', 'now');
+    rebuildStrips(r);
+  }
+
+  if (mode === 'kickoff' && !state.hintShown && teamEls[0].hint) {
+    state.hintShown = true;
+    teamEls[0].hint.hidden = false;
+    teamEls[0].strip.hidden = true;
+  }
+
+  announce(r, mode === 'kickoff' ? COPY.eventKickOff : COPY.eventChange);
+}
+
+function endCall() {
+  state.inCall = false;
+  el.body.classList.remove('call');
+  for (const parts of teamEls) {
+    if (parts.hint) parts.hint.hidden = true;
+    parts.strip.hidden = false;
+  }
+
+  const r = rotation(state.setup, elapsedMs());
+  paint(r, 'next', 'fade', { ms: 400, delay: 0 });
+  rebuildStrips(r);
+}
+
+/* ------------------------------------------------------------- the clock */
+
+function formatCountdown(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function applyClock(text, big) {
+  el.clock.textContent = text;
+  el.clock.classList.toggle('big', big);
+  state.clockText = text;
+}
+
+function startClockSwap(text) {
+  if (prefersReducedMotion()) {
+    applyClock(text, true);
+    return;
+  }
+  state.clockSwapping = true;
+  el.clock.classList.add('swapping', 'swap-hidden');
+  window.setTimeout(() => {
+    applyClock(text, true);
+    el.clock.classList.remove('swapping', 'swap-hidden');
+    el.clock.classList.add('swap-enter');
+    void el.clock.offsetWidth;
+    el.clock.classList.add('swapping');
+    el.clock.classList.remove('swap-enter');
+    window.setTimeout(() => {
+      el.clock.classList.remove('swapping');
+      state.clockSwapping = false;
+    }, 160);
+  }, 150);
+}
+
+function updateClock(r) {
+  let text;
+  let big;
+  if (Date.now() < state.holdClockUntil) {
+    text = '0';
+    big = true;
+  } else if (r.msToNextChange <= 9000) {
+    text = String(Math.max(0, Math.ceil(r.msToNextChange / 1000)));
+    big = true;
+  } else {
+    text = formatCountdown(r.msToNextChange);
+    big = false;
+  }
+
+  if (state.clockSwapping) return;
+
+  if (big !== state.bigClock) {
+    state.bigClock = big;
+    if (big) startClockSwap(text);
+    else applyClock(text, false);
+    return;
+  }
+  if (text !== state.clockText) applyClock(text, big);
+}
+
+function updateMarks(r) {
+  const lapNumber = r.totalChanges > 0 ? Math.floor(r.changeIndex / r.totalChanges) + 1 : 1;
+  const showLap = lapNumber >= 2;
+  el.lap.hidden = !showLap;
+  if (showLap) el.lap.textContent = `${COPY.lap} ${lapNumber}`;
+  el.status.hidden = !(state.degradedLock || state.degradedVoice);
+}
+
+/* --------------------------------------------------------------- the loop */
+
+let rafId = 0;
+let intervalId = 0;
+
+function tick() {
+  if (state.screen !== 'display' || !state.setup) return;
+  const now = nowMs();
+  const elapsed = Math.max(0, now - state.kickoff);
+  const r = rotation(state.setup, elapsed);
+
+  if (r.changeIndex !== state.lastChangeIndex) {
+    const previous = state.lastChangeIndex;
+    state.lastChangeIndex = r.changeIndex;
+    let mode;
+    if (state.pendingRestore) mode = 'restore';
+    else if (previous === null) mode = 'kickoff';
+    else if (r.changeIndex - previous === 1) mode = 'step';
+    else mode = 'jump';
+    state.pendingRestore = false;
+    runChange(r, mode);
+  }
+
+  updateClock(r);
+  updateMarks(r);
+  if (state.inCall && Date.now() >= state.callUntil) endCall();
+}
+
+function loop() {
+  tick();
+  rafId = requestAnimationFrame(loop);
+}
+
+function startLoop() {
+  if (!rafId) rafId = requestAnimationFrame(loop);
+  if (!intervalId) intervalId = window.setInterval(tick, 250);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  tick();
+  takeWakeLock();
+});
+
+/* ------------------------------------------------------------ the voice */
+
+let chosenVoice = null;
+let voiceReady = false;
+
+function pickVoice() {
+  if (!('speechSynthesis' in window)) return;
+  let voices = [];
+  try {
+    voices = speechSynthesis.getVoices() || [];
+  } catch (error) {
+    voices = [];
+  }
+  if (voices.length === 0) return;
+  const english = voices.filter((voice) => /^en/i.test(voice.lang || ''));
+  const pool = english.length > 0 ? english : voices;
+  const rank = (voice) => {
+    const lang = String(voice.lang || '');
+    const region = /^en-GB/i.test(lang) ? 0 : /^en/i.test(lang) ? 1 : 2;
+    return region * 10 + (voice.localService ? 0 : 1);
+  };
+  chosenVoice = pool
+    .slice()
+    .sort((a, b) => rank(a) - rank(b) || String(a.name).localeCompare(String(b.name)))[0] || null;
+}
+
+if ('speechSynthesis' in window) {
+  pickVoice();
+  speechSynthesis.addEventListener('voiceschanged', pickVoice);
+}
+
+/* iOS needs a gesture before it will speak. The Kick off tap is that gesture. */
+function unlockVoice() {
+  if (!('speechSynthesis' in window)) {
+    state.degradedVoice = true;
+    return;
+  }
+  try {
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(' ');
+    utterance.volume = 0;
+    utterance.rate = 1;
+    speechSynthesis.speak(utterance);
+    voiceReady = true;
+    state.degradedVoice = false;
+  } catch (error) {
+    state.degradedVoice = true;
+  }
+}
+
+function extendCall(untilMs) {
+  const cap = (state.callStart || 0) + 12000;
+  state.callUntil = Math.min(cap, Math.max(state.callUntil, untilMs));
+}
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) {
+    state.degradedVoice = true;
+    return;
+  }
+  try {
+    /* iOS drops the queue when the page is backgrounded and leaves the engine
+       stuck. cancel() before every speak() is the only reliable reset. */
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    if (chosenVoice) {
+      utterance.voice = chosenVoice;
+      utterance.lang = chosenVoice.lang;
+    } else {
+      utterance.lang = 'en-GB';
+    }
+    let started = false;
+    utterance.onstart = () => {
+      started = true;
+      voiceReady = true;
+      state.degradedVoice = false;
+    };
+      utterance.onend = () => extendCall(Date.now() + 2000);
+    utterance.onerror = () => { state.degradedVoice = true; };
+    speechSynthesis.speak(utterance);
+    window.setTimeout(() => {
+      if (!started && !speechSynthesis.speaking && !speechSynthesis.pending) state.degradedVoice = true;
+    }, 1500);
+  } catch (error) {
+    state.degradedVoice = true;
+  }
+}
+
+/* ------------------------------------------------------------ announce */
+
+function joinNames(players) {
+  const names = players.map((p) => p.name);
+  if (names.length === 0) return '';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+function announcementFor(r, event) {
+  const parts = [`${event}.`];
+  for (const team of r.teams) {
+    if (!team.keeper) continue;
+    parts.push(`${team.name}.`);
+    parts.push(`${team.keeper.name} in goal.`);
+    if (team.subs.length > 0) parts.push(`${joinNames(team.subs)} off.`);
+  }
+  return parts.join(' ');
+}
+
+function announce(r, event) {
+  speak(announcementFor(r, event));
+}
+
+/* --------------------------------------------------------------- start */
+
+function startDisplay(options = {}) {
   state.screen = 'display';
+  state.pendingRestore = Boolean(options.restored);
+  state.lastChangeIndex = null;
+  state.inCall = false;
+  state.bigClock = false;
+  state.clockText = '';
+  state.holdClockUntil = 0;
   el.setup.hidden = true;
   el.display.hidden = false;
-  el.body.classList.add('playing');
+  el.body.classList.remove('call');
+  applyNameLength();
+  const [x, y] = DRIFT[state.driftStep];
+  document.documentElement.style.setProperty('--drift-x', `${x}px`);
+  document.documentElement.style.setProperty('--drift-y', `${y}px`);
+  takeWakeLock();
+  startLoop();
+  tick();
 }
 
 function kickOff() {
   saveSquad();
+  unlockVoice();
   state.base = lockClock(draftSetup());
   state.ops = [];
   state.setup = state.base;
-  state.kickoff = nowMs();
-  startDisplay();
+  state.kickoff = nowMs() - (debug ? debug.offsetMs : 0);
+  saveGame();
+  startDisplay({ restored: false });
 }
 
 /* ---------------------------------------------------------------- boot */
@@ -499,10 +974,94 @@ function loadSquadIntoDraft(squad) {
   return true;
 }
 
+function replay(base, ops) {
+  let setup = base;
+  for (const op of ops) {
+    if (op.type === 'add') setup = addLateArrival(setup, op.team, op.name, op.elapsed);
+    else if (op.type === 'remove') setup = removePlayer(setup, op.team, op.playerId, op.elapsed);
+  }
+  return setup;
+}
+
+function saveGame() {
+  if (debug) return;
+  writeJSON(KEY_GAME, { base: state.base, ops: state.ops, kickoff: state.kickoff });
+}
+
+function restoreGame() {
+  const game = readJSON(KEY_GAME);
+  if (!game || !game.base || !Number.isFinite(game.kickoff)) return false;
+  const setup = replay(game.base, Array.isArray(game.ops) ? game.ops : []);
+  const elapsed = Date.now() - game.kickoff;
+  const limit = (Number(setup.durationMin) || DEFAULT_DURATION_MIN) * MS_PER_MINUTE + 60 * MS_PER_MINUTE;
+  if (elapsed < 0 || elapsed > limit) {
+    dropKey(KEY_GAME);
+    return false;
+  }
+  state.base = game.base;
+  state.ops = Array.isArray(game.ops) ? game.ops : [];
+  state.setup = setup;
+  state.kickoff = game.kickoff;
+  if (debug) state.kickoff = nowMs() - debug.offsetMs;
+  startDisplay({ restored: true });
+  return true;
+}
+
+/* --------------------------------------------------------- staying alive */
+
+let wakeLock = null;
+
+function takeWakeLock() {
+  if (state.screen !== 'display') return;
+  if (!('wakeLock' in navigator)) {
+    state.degradedLock = true;
+    return;
+  }
+  if (wakeLock) return;
+  navigator.wakeLock.request('screen').then((lock) => {
+    wakeLock = lock;
+    state.degradedLock = false;
+    lock.addEventListener('release', () => {
+      wakeLock = null;
+      if (state.screen === 'display') state.degradedLock = true;
+    });
+  }).catch(() => {
+    state.degradedLock = true;
+  });
+}
+
+/* A single tap on the display re-takes the lock and re-tests the voice. */
+function clearDegraded() {
+  takeWakeLock();
+  unlockVoice();
+}
+
+/* ---------------------------------------------------------- debug hook */
+
+if (debug) {
+  window.rota = {
+    state,
+    rotation,
+    getElapsed: () => elapsedMs(),
+    setElapsed(ms) {
+      state.kickoff = nowMs() - Math.max(0, Number(ms) || 0);
+      tick();
+      return elapsedMs();
+    },
+    rate(n) {
+      debug.origin = nowMs();
+      debug.realOrigin = Date.now();
+      debug.rate = Math.max(0, Number(n) || 0);
+      return debug.rate;
+    },
+    tick
+  };
+}
+
 function boot() {
   const squad = readJSON(KEY_SQUAD);
   const prefilled = loadSquadIntoDraft(squad);
-  showSetup(prefilled);
+  if (!restoreGame()) showSetup(prefilled);
   el.body.classList.remove('boot');
 }
 
