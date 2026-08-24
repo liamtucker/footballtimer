@@ -41,7 +41,7 @@ touched.
 
 ## State
 
-**Done.** v3 is built. The engine is untouched and still passes 71 assertions.
+**Done.** v4 is built. The engine is untouched and still passes 71 assertions.
 The refinement pass answered Liam's field notes against `brain/design.md`
 (variation A) and `brain/copy.md`; a later pass answered a nine-item punch
 list from Liam, which is where this list disagrees with those two documents:
@@ -51,13 +51,31 @@ list from Liam, which is where this list disagrees with those two documents:
   top three one rung. Every `font-size` in `style.css` is one of those five
   tokens. The container query, the vw clamp and the `--len` machinery are
   gone. Two weights, 700 and 500. Tracking and line height are set by step.
-- **The game screen.** Team heading, role eyebrow, name — three registers
-  descending. `bibs` and `non-bibs` are headings and not tags: the word, then
-  a rule to the edge of the section, the same shape the `SUBS` divider has.
-  One grid per team, four rows — heading, the two eyebrows, the two names,
-  line three — so `GOAL` sits level with `SUB` and the names sit level under
-  them. The columns are two fixed fractions, `2.25fr 1fr`, which is hero over
-  lead, so the sub column starts at the same edge whatever is in goal.
+- **The space scale is the law on the game screen.** Five steps, ratio 1.5 —
+  `--s-tie` 4, `--s-pack` 6, `--s-part` 10, `--s-edge` 16, `--s-gutter` 24 —
+  each with a stated job. Every margin, padding and gap on the game screen is
+  one of them. Ten literals are left on setup, the live bar and the confirm
+  card; they are listed in `brain/design.md` under What I think is wrong.
+- **Everything is uppercase**, both screens, done with `text-transform` in the
+  stylesheet. The stored name stays exactly as typed and the voice still speaks
+  a normal name, so nothing in the engine or in `COPY` changed.
+- **The game screen.** A team row is a flex column with space between: the
+  title, the two eyebrows and the two names are one group at the top, and the
+  order strip is pinned to the bottom. The row uses its whole height and the
+  void in the middle is the runway the outgoing keeper walks down. Gaps run
+  4 inside a pair, 10 around the group, 10/16 around the seam, and the rest is
+  whatever height is left. The columns are two fixed fractions, `2.25fr 1fr`,
+  which is hero over lead, so the sub column starts at the same edge whatever
+  is in goal.
+- **The team title is not a pill and not a heading with a rule.** It is the
+  same size as the `GOAL` eyebrow beside it, 500 against its 700, tracked
+  `.28em` against its `.1em`, in `--ink-3`. Quieter and structurally different
+  rather than another shape with a word in it — it cannot be read as a name
+  and it cannot compete with the keeper. Setup keeps the heading-and-rule
+  shape, because on setup nothing competes with it.
+- **One hairline in the game section**, the seam between the two teams. It has
+  to exist: the strip is further from its own name than the two teams are from
+  each other, so space alone would attach the strip to the wrong team.
 - **A name too long for its column shrinks.** `--fit` is the width the line
   has over the width it wants and it multiplies the step, measured in
   `fitLine`. Every name that fits is left at 1.
@@ -81,7 +99,10 @@ list from Liam, which is where this list disagrees with those two documents:
   and the only one that asks: `This will end your current game.`, Yes and No,
   on the same button as `Kick off`. The clock does not pause for the question.
 - **Portrait** is the same two-column layout as landscape on the game screen,
-  and its own stacked layout on setup.
+  and its own stacked layout on setup. Its game rows are content height, not
+  `1fr`: a third of 844px would put 200px between a name and its own strip.
+  The pin becomes one `--s-gutter` and `align-content: space-evenly` spreads
+  the surplus around the three blocks.
 - **The time-played readout is deleted.** The spine holds one number.
 - `COPY` in `app.js` is the only place a string is written. Nothing dangles.
 
@@ -107,13 +128,19 @@ change annoys people by minute forty, and whether one chime is enough.
 - **The live bar has no `Next change` label.** `design.md` gives the bar the
   clock alone with a conditional eyebrow only when an edit is pending. The
   string survives as the accessible name of the countdown.
-- **`brain/design.md` and `brain/copy.md` are behind the screens.** They still
-  describe the two pills, the muted dot, the `x` in the live bar and the
-  portrait split, all of which Liam's punch list replaced. The code is the
-  current answer; the documents have not been rewritten to match.
-- **Landscape at 390px tall shows six rows but clips the divider.** The
-  design's own numbers need 290px of list and the screen has 274. The divider
-  is visible at the fold, which at least says the list scrolls.
+- **`brain/copy.md` is behind the screens.** It still names `Bibs` and
+  `No bibs` where the code has `bibs` and `non-bibs`, and it still describes
+  the muted dot and the `x` in the live bar. `brain/design.md` is current for
+  the type scale, the space scale, the game screen, the team title and the
+  casing rule; the rest of it still describes the muted dot and the portrait
+  split. The code is the current answer.
+- **Mid-game the landscape setup still scrolls to reach the divider.** The
+  live bar takes 68px, which is more than a row and a divider, and nothing
+  shorter is available — it carries the countdown at `count`, 40px of type.
+  Before kick-off the divider and the first sub now fit with no scroll.
+- **`brain/design.md` is 392 lines against a 200-line cap.** Variations B and
+  C describe alternatives to a design built and revised twice. They are the
+  first thing to cut.
 
 ## Debug hook
 
