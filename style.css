@@ -428,19 +428,24 @@ button {
 /* ======================================================== setup, portrait */
 
 @media (orientation: portrait) {
-  html, body { overflow: auto; }
+  /* the page scrolls, not the body box, so the lists never have to */
+  html, body { height: auto; min-height: 100%; overflow: visible; }
 
   #setup {
     position: static;
     min-height: 100%;
     display: flex;
     flex-direction: column;
-    gap: 24px;
-    padding: 16px 16px 76px;
+    gap: 28px;
+    padding: 16px 16px 96px;
     padding-left: max(16px, env(safe-area-inset-left));
     padding-right: max(16px, env(safe-area-inset-right));
     overflow: visible;
   }
+
+  /* the settings come first: the game type sets where the divider falls, and
+     you pick it before you type a name */
+  .settings-col { order: -1; }
 
   .col { min-height: auto; }
   .list { overflow: visible; flex: none; }
@@ -458,8 +463,9 @@ button {
     right: 0;
     bottom: 0;
     z-index: 20;
-    padding: 24px max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-bottom));
-    background: linear-gradient(transparent, var(--ground) 34%);
+    padding: 40px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom))
+             max(16px, env(safe-area-inset-left));
+    background: linear-gradient(transparent, var(--ground) 60%);
     pointer-events: none;
   }
   .foot > * { pointer-events: auto; }
