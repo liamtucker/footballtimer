@@ -34,13 +34,11 @@ import {
   nearestLegalStartKeeper,
   legalStartKeepers,
   gameTypeOf,
-  subCountFor,
   MIN_GAME_TYPE,
   MAX_GAME_TYPE,
   DEFAULT_GAME_TYPE,
   DEFAULT_SUB_MINUTES,
-  DEFAULT_GAME_MINUTES,
-  DEFAULT_TEAM_NAMES
+  DEFAULT_GAME_MINUTES
 } from './rotation.js';
 
 const MS_PER_MINUTE = 60000;
@@ -219,12 +217,11 @@ const el = {
   lists: [$('list-0'), $('list-1')],
   inputs: [$('input-0'), $('input-1')],
   adds: [$('add-0'), $('add-1')],
-  typeValue: $('type-value'),
-  typeSelect: $('type-select'),
-  gameValue: $('game-value'),
-  gameSelect: $('game-select'),
-  subValue: $('sub-value'),
-  subSelect: $('sub-select'),
+  values: {
+    type: $('type-value'),
+    time: $('time-value'),
+    sub: $('sub-value')
+  },
   restored: $('restored'),
   clear: $('clear'),
   notice: $('notice'),
@@ -774,9 +771,11 @@ function duplicateIn(names) {
   return false;
 }
 
+/* a numeral, then the unit spelled the way it is said out loud. whole hours
+   drop the minutes — `120 min` makes a person do maths. */
 function durationWords(minutes) {
   const m = Math.max(0, Math.floor(minutes));
-  if (m < 60) return `${m} min`;
+  if (m < 60) return `${m} minutes`;
   const hours = Math.floor(m / 60);
   const rest = m % 60;
   const word = hours === 1 ? 'hour' : 'hours';
@@ -790,12 +789,7 @@ function renderSetup() {
     armAdd(t);
   }
 
-  el.typeValue.textContent = `${draft.gameType} a side`;
-  el.typeSelect.value = String(draft.gameType);
-  el.gameValue.textContent = durationWords(draft.gameMinutes);
-  el.gameSelect.value = String(draft.gameMinutes);
-  el.subValue.textContent = `${draft.subMinutes} min`;
-  el.subSelect.value = String(draft.subMinutes);
+  renderPickers();
 
   const sizes = draft.names.map((names) => names.length);
   const valid = sizes.every((n) => n >= 2);
@@ -1169,41 +1163,102 @@ for (let t = 0; t < 2; t += 1) {
   list.addEventListener('contextmenu', (event) => event.preventDefault());
 }
 
-/* ------------------------------------------------------------ settings */
+/* ------------------------------------------------------------ pickers */
 
-function fillSelect(select, values, label) {
-  select.textContent = '';
-  for (const value of values) {
-    const option = document.createElement('option');
-    option.value = String(value);
-    option.textContent = label(value);
-    select.appendChild(option);
+/*
+ * One component, three instances. [-] value [+], 44px targets, and a press
+ * and hold that repeats after 400ms at 8 a second. A bound makes the glyph
+ * --dim and inert rather than disabled — there is no dead control here.
+ */
+
+const PICKERS = {
+  type: {
+    min: MIN_GAME_TYPE,
+    max: MAX_GAME_TYPE,
+    step: 1,
+    get: () => draft.gameType,
+    put(value) {
+      draft.gameType = value;
+      renderSetup();
+      /* the divider moves, so the marker may no longer sit on a legal index */
+      for (let t = 0; t < 2; t += 1) reseatKeeper(t);
+      renderSetup();
+    },
+    text: (n) => `${n} a side`
+  },
+  /* `Time` drives nothing in the engine. It is one entry in this table, one
+     card in index.html and one field in the draft — cut those three and
+     nothing else in the app changes. */
+  time: {
+    min: 30,
+    max: 180,
+    step: 15,
+    get: () => draft.gameMinutes,
+    put(value) { draft.gameMinutes = value; renderSetup(); },
+    text: durationWords
+  },
+  sub: {
+    min: 3,
+    max: 20,
+    step: 1,
+    get: () => draft.subMinutes,
+    put(value) { draft.subMinutes = value; renderSetup(); },
+    text: (n) => `${n} minutes`
+  }
+};
+
+const stepButtons = [...document.querySelectorAll('.step')];
+
+function renderPickers() {
+  for (const [key, picker] of Object.entries(PICKERS)) {
+    const value = picker.get();
+    el.values[key].textContent = picker.text(value);
+    for (const button of stepButtons) {
+      if (button.dataset.pick !== key) continue;
+      const next = value + Number(button.dataset.dir) * picker.step;
+      button.classList.toggle('bound', next < picker.min || next > picker.max);
+    }
   }
 }
 
-const TYPE_VALUES = [];
-for (let n = MIN_GAME_TYPE; n <= MAX_GAME_TYPE; n += 1) TYPE_VALUES.push(n);
-const GAME_VALUES = [45, 60, 75, 90, 105, 120, 150, 180];
-const SUB_VALUES = [3, 4, 5, 6, 7, 8, 10, 12, 15, 20];
+let holdWait = 0;
+let holdRepeat = 0;
 
-fillSelect(el.typeSelect, TYPE_VALUES, (n) => `${n} a side`);
-fillSelect(el.gameSelect, GAME_VALUES, durationWords);
-fillSelect(el.subSelect, SUB_VALUES, (n) => `${n} min`);
+function stopHold() {
+  window.clearTimeout(holdWait);
+  window.clearInterval(holdRepeat);
+  holdWait = 0;
+  holdRepeat = 0;
+}
 
-el.typeSelect.addEventListener('change', () => {
-  draft.gameType = Number(el.typeSelect.value) || DEFAULT_GAME_TYPE;
-  renderSetup();
-  for (let t = 0; t < 2; t += 1) reseatKeeper(t);
-  renderSetup();
-});
-el.gameSelect.addEventListener('change', () => {
-  draft.gameMinutes = Number(el.gameSelect.value) || DEFAULT_GAME_MINUTES;
-  renderSetup();
-});
-el.subSelect.addEventListener('change', () => {
-  draft.subMinutes = Number(el.subSelect.value) || DEFAULT_SUB_MINUTES;
-  renderSetup();
-});
+function bump(key, dir) {
+  const picker = PICKERS[key];
+  const next = picker.get() + dir * picker.step;
+  if (next < picker.min || next > picker.max) return false;
+  picker.put(next);
+  return true;
+}
+
+for (const button of stepButtons) {
+  const key = button.dataset.pick;
+  const dir = Number(button.dataset.dir);
+  button.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    stopHold();
+    if (!bump(key, dir)) return;
+    try { button.setPointerCapture(event.pointerId); } catch (error) { /* ignore */ }
+    holdWait = window.setTimeout(() => {
+      holdRepeat = window.setInterval(() => {
+        if (!bump(key, dir)) stopHold();
+      }, 125);
+    }, 400);
+  });
+  button.addEventListener('pointerup', stopHold);
+  button.addEventListener('pointercancel', stopHold);
+  button.addEventListener('contextmenu', (event) => event.preventDefault());
+}
+
+window.addEventListener('blur', stopHold);
 
 el.clear.addEventListener('click', () => {
   draft.names = [[], []];
@@ -1832,8 +1887,8 @@ function openEdit() {
   const pending = pendingEpoch(elapsed);
 
   draft.gameType = gameTypeOf(pending ? pending.setup : epoch.setup);
-  draft.subMinutes = Math.round((pending ? pending.setup : epoch.setup).subMinutes);
-  draft.gameMinutes = Math.round((pending ? pending.setup : epoch.setup).gameMinutes);
+  draft.subMinutes = onGrid('sub', Math.round((pending ? pending.setup : epoch.setup).subMinutes));
+  draft.gameMinutes = onGrid('time', Math.round((pending ? pending.setup : epoch.setup).gameMinutes));
   draft.mode = 'edit';
   draft.baseChange = k;
   draft.names = [[], []];
@@ -2023,14 +2078,22 @@ function saveGame() {
   writeJSON(KEY_GAME, state.game);
 }
 
+function onGrid(key, value) {
+  const picker = PICKERS[key];
+  const steps = Math.round((value - picker.min) / picker.step);
+  const snapped = picker.min + steps * picker.step;
+  return Math.min(picker.max, Math.max(picker.min, snapped));
+}
+
 function loadSquadIntoDraft(squad) {
   if (!squad || !Array.isArray(squad.names)) return false;
   const names = [0, 1].map((t) => (Array.isArray(squad.names[t]) ? squad.names[t].slice() : []));
   if (names[0].length === 0 && names[1].length === 0) return false;
   draft.names = names;
-  if (Number.isFinite(squad.gameType)) draft.gameType = squad.gameType;
-  if (Number.isFinite(squad.gameMinutes)) draft.gameMinutes = squad.gameMinutes;
-  if (Number.isFinite(squad.subMinutes)) draft.subMinutes = squad.subMinutes;
+  /* a squad stored under an older range has to land on the picker's grid */
+  if (Number.isFinite(squad.gameType)) draft.gameType = onGrid('type', squad.gameType);
+  if (Number.isFinite(squad.gameMinutes)) draft.gameMinutes = onGrid('time', squad.gameMinutes);
+  if (Number.isFinite(squad.subMinutes)) draft.subMinutes = onGrid('sub', squad.subMinutes);
   return true;
 }
 

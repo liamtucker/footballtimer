@@ -57,34 +57,50 @@
   <div class="col settings-col">
 
     <div class="settings">
-      <label class="setting" id="set-type">
-        <span class="setting-value" id="type-value">6 a side</span>
-        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="m9 18 6-6-6-6"/>
-        </svg>
-        <select id="type-select" aria-label="A side"></select>
-      </label>
+      <div class="picker" role="group" aria-label="Game">
+        <span class="eyebrow picker-label">Game</span>
+        <div class="picker-row">
+          <button class="step" type="button" data-pick="type" data-dir="-1" aria-label="Fewer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+          </button>
+          <span class="picker-value" id="type-value">6 a side</span>
+          <button class="step" type="button" data-pick="type" data-dir="1" aria-label="More">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+          </button>
+        </div>
+      </div>
 
-      <label class="setting" id="set-game">
-        <span class="setting-label eyebrow">Game time</span>
-        <span class="setting-value" id="game-value">2 hours</span>
-        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="m9 18 6-6-6-6"/>
-        </svg>
-        <select id="game-select" aria-label="Game time"></select>
-      </label>
+      <div class="picker" role="group" aria-label="Time">
+        <span class="eyebrow picker-label">Time</span>
+        <div class="picker-row">
+          <button class="step" type="button" data-pick="time" data-dir="-1" aria-label="Fewer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+          </button>
+          <span class="picker-value" id="time-value">2 hours</span>
+          <button class="step" type="button" data-pick="time" data-dir="1" aria-label="More">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+          </button>
+        </div>
+      </div>
 
-      <label class="setting" id="set-sub">
-        <span class="setting-label eyebrow">Change every</span>
-        <span class="setting-value" id="sub-value">10 min</span>
-        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="m9 18 6-6-6-6"/>
-        </svg>
-        <select id="sub-select" aria-label="Change every"></select>
-      </label>
+      <div class="picker" role="group" aria-label="Intervals">
+        <span class="eyebrow picker-label">Intervals</span>
+        <div class="picker-row">
+          <button class="step" type="button" data-pick="sub" data-dir="-1" aria-label="Fewer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
+          </button>
+          <span class="picker-value" id="sub-value">10 minutes</span>
+          <button class="step" type="button" data-pick="sub" data-dir="1" aria-label="More">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="col-spacer"></div>
