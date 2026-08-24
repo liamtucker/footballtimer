@@ -1141,14 +1141,28 @@ function applyNameLength(setup) {
   document.documentElement.style.setProperty('--len', String(longest));
 }
 
-/* --shrink is --t-name-2 over the live hero size. transform, never font-size. */
+/*
+ * --shrink is --t-name-2 over the live hero size and --fall is the travel that
+ * puts the shrunk name on line 3. Both are measured, because the hero size
+ * moves with the longest name and the two orientations space the lines apart
+ * differently. transform and opacity only — never animate font-size.
+ */
 function applyShrink() {
+  /* only measure while every layer is at rest and untransformed */
+  if (teamEls.some((parts) => parts.hero.querySelector('.walk-out, .walk-in'))) return;
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
   const name2 = (isPortrait() ? 1.5 : 1.75) * rem;
   for (const parts of teamEls) {
     const layer = parts.hero.querySelector('.layer');
     const hero = parseFloat(getComputedStyle(layer).fontSize) || name2;
-    parts.root.style.setProperty('--shrink', String(Math.min(1, name2 / hero)));
+    const shrink = Math.min(1, name2 / hero);
+    parts.root.style.setProperty('--shrink', String(shrink));
+    const box = layer.getBoundingClientRect();
+    const line3 = parts.line3.getBoundingClientRect();
+    if (box.height > 0 && line3.height > 0) {
+      const fall = line3.top - (box.top + box.height * (1 - shrink));
+      parts.root.style.setProperty('--fall', `${Math.round(fall)}px`);
+    }
   }
 }
 
