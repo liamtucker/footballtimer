@@ -40,24 +40,26 @@ touched.
 
 ## State
 
-**Done.** The whole thing. `rotation.js` and its 60 assertions, the setup
-screen, the display, the announcement, the wake lock and restore, the roster
-sheet, the service worker, the icons and the manifest. Design variation A,
-built to `brain/design.md`; every string from `brain/copy.md`.
+**Done.** v1 is built and live at https://liamtucker.github.io/footballtimer/
+Rotation engine with 60 passing assertions, setup screen, display, spoken
+announcement, wake lock, restore after a dead phone, offline shell, and the two
+roster taps. The repo is public, which is what GitHub Pages needs on this plan.
 
-**Debug hook.** `?t=` enables it and nothing else does. `?t=0` starts the game
-clock at zero; `?t=330` at 330 seconds; `?t=5:30` the same as `m:ss`; add
-`&rate=60` to run the clock 60x, or `&rate=0` to freeze it. With `?t=` present
-nothing is written to `localStorage`. It exposes `window.rota` with
-`setElapsed(ms)`, `getElapsed()`, `rate(n)`, `rotation`, `state` and `tick`.
-
-**Deviations, all reported.** `display.change`, `display.order.label`,
-`display.subs.none`, `action.add`, `action.remove`, `add.confirm`,
-`add.result`, `remove.result` and `remove.undo` are unused: in each case the
-designer deleted the element the string would have sat in. Three strings the
-copywriter never wrote were needed and are invented — the kick-off hint, the
-degraded marker and the separator between two sub names.
-
-**Next.** The field test. Two games. `plan.md` step 7 says what to watch.
+**Next.** The field test in `plan.md` step 7. Two games. Watch whether the sub
+reads it out, whether 90 minutes is the right duration, and what anyone argues
+about.
 
 **Blocked.** Nothing.
+
+**Open, for Liam.** The spec puts the last person to arrive in goal first. That
+gets their shift over with while everyone else still has theirs coming, so it
+may reward lateness. One line in `rotation.js` if it needs to invert.
+
+## Debug hook
+
+Only active with `?t=` in the URL. Without it `window.rota` does not exist and
+nothing is written to `localStorage`.
+
+- `?t=330` or `?t=5:30` — start the clock at that elapsed time
+- `&rate=60` — run 60x real time. `&rate=0` freezes it
+- `window.rota.setElapsed(ms)`, `.rate(n)`, `.rotation`, `.state`, `.tick`
