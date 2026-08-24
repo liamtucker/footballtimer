@@ -88,18 +88,15 @@ button {
 
 [hidden] { display: none !important; }
 
-.lab,
-.col-label,
-.setting-label,
+/*
+ * Three registers, and they cannot be confused.
+ * A name is uppercase, 700, hero or lead. A label is uppercase, tracked,
+ * eyebrow, --ink-3, and sits directly above what it names. A team is sentence
+ * case, eyebrow, in a pill. See .pill under the game screen.
+ */
+.eyebrow,
 .divider-label,
-.keeper-tag,
-.notice,
-.restored,
-.clear,
-.chip-label,
-.notes,
-.subgroup .plab,
-.subgroup .none {
+.keeper-tag {
   font-size: var(--t-eyebrow);
   font-weight: 700;
   letter-spacing: .1em;
@@ -108,11 +105,14 @@ button {
   line-height: 1.2;
 }
 
-/* a team is capitalised and small — never shouted */
-.col-label,
-.tag {
-  text-transform: none;
-  letter-spacing: .02em;
+/* the messages are not labels — they are sentences, and they keep their case */
+.notice,
+.restored,
+.clear {
+  font-size: var(--t-body);
+  font-weight: 500;
+  color: var(--ink-3);
+  line-height: 1.2;
 }
 
 /* ===================================================================== setup */
@@ -137,10 +137,11 @@ button {
   min-width: 0;
 }
 
-.col-label {
-  height: 16px;
-  margin-bottom: 4px;
+/* the same pill as the game screen, so the team reads the same on both */
+.team-col > .pill {
   flex: none;
+  align-self: flex-start;
+  margin-bottom: 10px;
 }
 
 /* ------------------------------------------------------------------ list */
@@ -183,9 +184,6 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
 }
 
 .keeper-tag {
@@ -437,9 +435,9 @@ button {
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-columns: 1fr 8.5rem;
+  grid-template-columns: minmax(0, 1fr) 8rem;
   grid-template-rows: 1fr 1fr;
-  column-gap: 24px;
+  column-gap: 20px;
   padding: max(12px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
            max(12px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
   transform: translate(var(--drift-x), var(--drift-y));
@@ -447,76 +445,68 @@ button {
   overflow: hidden;
 }
 
+/*
+ * One grid per team, three registers descending: the pill, the eyebrow, the
+ * name. Two role columns over one shared line three, so the two columns line
+ * up by construction rather than by luck.
+ */
 .team {
   grid-column: 1;
   display: grid;
-  grid-auto-rows: auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
+  column-gap: 20px;
   align-content: center;
-  padding: 8px 0;
+  padding: 6px 0;
   min-width: 0;
   overflow: clip;
 }
-.team[data-team="1"] { border-top: 1px solid var(--hair); }
+.team[data-team="0"] { grid-row: 1; }
+.team[data-team="1"] { grid-row: 2; border-top: 1px solid var(--hair); }
 
-/* ------------------------------------------------------------- line one */
+/* --------------------------------------------------------------- the pill */
 
-.line1 {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  height: 22px;
-  margin-bottom: 2px;
-}
-.tag { flex: none; }
-/* the 22px slot is sized to the cap of the sub name, so the taller box spills
-   into the empty descender space below. the strut fixes the shared baseline. */
-.tag::before {
-  content: '';
-  display: inline-block;
-  width: 0;
-  height: 22px;
-  vertical-align: baseline;
-}
-
-.subgroup {
-  flex: 0 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 6px;
-  white-space: nowrap;
-}
-.subgroup .plab { flex: none; }
-.subgroup .nm {
-  font-size: var(--t-lead);
+/* the only sentence case on the screen and the only text in a container:
+   Bibs filled, No bibs a hairline. the pill is the bib. */
+.pill {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: start;
+  font-size: var(--t-eyebrow);
   font-weight: 700;
-  letter-spacing: -.01em;
-  color: var(--ink);
-  text-transform: uppercase;
-  line-height: .94;
+  letter-spacing: .1em;
+  line-height: 1.2;
+  border-radius: 999px;
+  padding: 6px 11px;
+  margin-bottom: 10px;
+  background: var(--ink);
+  color: #FFFFFF;
 }
-.subgroup .pair { display: flex; align-items: baseline; gap: 6px; }
-.subgroup .pair + .pair { margin-left: 12px; }
-.subgroup .on .nm { color: var(--on); }
-.subgroup .off .nm { color: var(--off); }
-.subgroup .arrow { font-size: var(--arrow); vertical-align: .16em; }
-.subgroup .nm .arrow { font-size: var(--arrow); }
+.team[data-team="1"] .pill,
+.team-col[data-team="1"] .pill {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
 
-/* ------------------------------------------------------------- line two */
+/* -------------------------------------------------------------- the slots */
 
-.line2 {
+.slot {
+  grid-row: 2;
+  align-self: end;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-start;
   min-width: 0;
 }
-.line2 .lab { flex: none; }
+.slot-goal { grid-column: 1; }
+.slot-sub { grid-column: 2; }
+.slot .eyebrow { margin-bottom: 3px; }
+.slot-sub.none .eyebrow { margin-bottom: 0; }
 
 .hero {
   position: relative;
-  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
   height: calc(var(--t-hero) * 0.94);
 }
@@ -537,38 +527,68 @@ button {
   pointer-events: none;
 }
 .hero .layer.on { opacity: 1; }
-.hero .layer .arrow {
+
+.subname {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  white-space: nowrap;
+  min-height: calc(var(--t-lead) * 0.94);
+}
+.subname:empty { min-height: 0; }
+
+.nm {
+  font-size: var(--t-lead);
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: .94;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.nm.on { color: var(--on); }
+.nm.off { color: var(--off); }
+
+.arrow {
   font-size: var(--arrow);
   vertical-align: .16em;
   letter-spacing: 0;
   margin-right: .1em;
 }
 
-/* ----------------------------------------------------------- line three */
+/* ---------------------------------------------------------- line three */
 
-.line3 {
-  height: 30px;
-  margin-top: 10px;
-  position: relative;
+/*
+ * At rest the strip spans it. In the window each column holds the name that
+ * is leaving that slot — the keeper arrives here under his own transform.
+ */
+.l3, .strip {
+  grid-row: 3;
+  height: 32px;
+  margin-top: 8px;
+}
+.l3-goal { grid-column: 1; min-width: 0; }
+.l3-sub { grid-column: 2; }
+.l3 {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  white-space: nowrap;
   overflow: hidden;
 }
 
 .strip {
-  position: absolute;
-  left: 0;
-  top: 0;
-  right: 0;
+  grid-column: 1 / -1;
   display: block;
   font-size: var(--t-body);
   font-weight: 500;
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0;
-  line-height: 30px;
+  line-height: 32px;
   white-space: nowrap;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent);
-  mask-image: linear-gradient(to right, #000 88%, transparent);
+  -webkit-mask-image: linear-gradient(to right, #000 86%, transparent);
+  mask-image: linear-gradient(to right, #000 86%, transparent);
   transition: opacity 250ms var(--curve);
 }
 .strip .sep { color: var(--dim); margin: 0 .34em; }
@@ -580,12 +600,10 @@ button {
   grid-column: 2;
   grid-row: 1 / 3;
   border-left: 1px solid var(--hair);
+  padding-left: 16px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  position: relative;
+  align-items: flex-end;
   min-width: 0;
 }
 
@@ -596,6 +614,7 @@ button {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
+  margin: auto 0;
 }
 .clock.pop { animation: pop 180ms var(--curve); }
 @keyframes pop {
@@ -604,9 +623,6 @@ button {
 }
 
 .spine-foot {
-  position: absolute;
-  right: 0;
-  bottom: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -616,60 +632,78 @@ button {
 .notes { text-align: right; max-width: 100%; }
 .notes:empty { display: none; }
 
-.edit {
+.spine-icons {
+  display: flex;
+  align-items: center;
+  margin-right: -10px;
+  margin-bottom: -10px;
+}
+
+.icon-btn {
   width: 44px;
   height: 44px;
   display: grid;
   place-items: center;
   color: var(--ink-3);
-  margin-right: -10px;
-  margin-bottom: -10px;
+  flex: none;
 }
-.edit svg { width: 24px; height: 24px; display: block; }
+.icon-btn svg { width: 24px; height: 24px; display: block; }
+
+/* muted is not a quieter icon but a louder one */
+.icon-btn .muted-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--off);
+  color: #FFFFFF;
+  display: grid;
+  place-items: center;
+}
+.icon-btn .muted-dot svg { width: 20px; height: 20px; }
 
 /* ------------------------------------------------------- game, portrait */
 
 @media (orientation: portrait) {
   #display {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 1fr auto 1fr;
     padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
              max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-    row-gap: 0;
-    align-content: stretch;
   }
 
+  /* the role columns stack; portrait has height to spend and no width */
   .team {
     grid-column: 1;
-    align-content: space-around;
-    --fall: 32px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto auto;
   }
+  .team[data-team="0"] { grid-row: 1; }
+  .team[data-team="1"] { grid-row: 3; border-top: 0; }
 
+  .pill { grid-column: 1; grid-row: 1; }
+  .slot-goal { grid-column: 1; grid-row: 2; }
+  .l3-goal, .strip { grid-column: 1; grid-row: 3; height: 26px; margin-top: 20px; }
+  .strip { line-height: 26px; }
+  .slot-sub { grid-column: 1; grid-row: 4; margin-top: 22px; }
+  .l3-sub { grid-column: 1; grid-row: 5; height: 26px; margin-top: 8px; }
+
+  /* both teams change on the same clock, so the clock is the seam */
   .spine {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
     border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--hair);
     border-bottom: 1px solid var(--hair);
+    padding: 10px 0;
+    margin: 20px 0;
     flex-direction: row;
-    align-items: baseline;
-    justify-content: flex-start;
-    gap: 12px;
-    padding-bottom: 10px;
-    margin-bottom: 6px;
+    align-items: center;
   }
-  .spine-foot {
-    position: static;
-    margin-left: auto;
-    flex-direction: row;
-    align-items: baseline;
-    gap: 10px;
-  }
-  .edit { margin: 0 -10px -10px 0; align-self: center; }
-
-  .line1 { flex-wrap: wrap; height: auto; min-height: 22px; }
-  .subgroup { flex-basis: 100%; justify-content: flex-start; }
-  .line3 { height: 26px; }
-  .strip { line-height: 26px; }
+  .clock { margin: 0 auto 0 0; }
+  .spine-foot { flex-direction: row; align-items: center; gap: 10px; }
+  .notes { max-width: 40vw; }
+  .spine-icons { margin: 0 -10px 0 0; }
 }
 
 /* ========================================================== the movement */
@@ -717,21 +751,18 @@ button {
 
 .strip.gone-quiet { opacity: 0; }
 
-.subgroup.swapping .pair {
-  opacity: 0;
-  transform: translateY(6px);
-}
-.subgroup.swapping.go .pair {
+.swapping { opacity: 0; transform: translateY(6px); }
+.swapping.go {
   opacity: 1;
   transform: translateY(0);
   transition: opacity 400ms var(--curve), transform 400ms var(--curve);
 }
-.subgroup.fading { opacity: 0; transition: opacity 250ms var(--curve); }
+.fading { opacity: 0; transition: opacity 250ms var(--curve); }
 
 /* A window entered late is shown arrived, with no transition to get there. */
 .team.instant .hero .layer,
-.team.instant .subgroup,
-.team.instant .subgroup .pair,
+.team.instant .subname,
+.team.instant .l3,
 .team.instant .strip,
 .team.instant .hero .layer .arrow { transition: none !important; }
 
@@ -750,8 +781,8 @@ button {
   .hero .layer.walk-in { transform: none; }
   .hero .layer.walk-in.go { transform: none; transition: opacity 200ms linear; }
 
-  .subgroup.swapping .pair { transform: none; }
-  .subgroup.swapping.go .pair { transform: none; transition: opacity 200ms linear; }
+  .swapping { transform: none; }
+  .swapping.go { transform: none; transition: opacity 200ms linear; }
 
   .row.settling, .row.shifting, .row.landing { transition: none; }
   .strip { transition: none; }

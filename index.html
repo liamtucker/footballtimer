@@ -21,7 +21,7 @@
 <section id="setup" hidden>
 
   <div class="col team-col" data-team="0">
-    <div class="col-label" id="label-0">Bibs</div>
+    <span class="pill" id="label-0">Bibs</span>
     <div class="list" id="list-0"></div>
     <div class="field">
       <input class="name-input" id="input-0" data-team="0" type="text"
@@ -38,7 +38,7 @@
   </div>
 
   <div class="col team-col" data-team="1">
-    <div class="col-label" id="label-1">No bibs</div>
+    <span class="pill" id="label-1">No bibs</span>
     <div class="list" id="list-1"></div>
     <div class="field">
       <input class="name-input" id="input-1" data-team="1" type="text"
@@ -67,7 +67,7 @@
       </label>
 
       <label class="setting" id="set-game">
-        <span class="setting-label">Game time</span>
+        <span class="setting-label eyebrow">Game time</span>
         <span class="setting-value" id="game-value">2 hours</span>
         <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -77,7 +77,7 @@
       </label>
 
       <label class="setting" id="set-sub">
-        <span class="setting-label">Change every</span>
+        <span class="setting-label eyebrow">Change every</span>
         <span class="setting-value" id="sub-value">10 min</span>
         <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -97,7 +97,7 @@
       <div class="notice" id="notice" hidden></div>
       <button class="start" id="start" type="button">Kick off</button>
       <button class="chip" id="chip" type="button" hidden>
-        <span class="chip-label">Next change</span>
+        <span class="chip-label eyebrow">Next change</span>
         <span class="chip-count" id="chip-count">0:00</span>
       </button>
     </div>
@@ -110,44 +110,49 @@
 <main id="display" hidden>
 
   <section class="team" data-team="0">
-    <div class="line1">
-      <span class="tag"></span>
-      <span class="subgroup"></span>
-    </div>
-    <div class="line2">
-      <span class="lab">in goal</span>
+    <span class="pill"></span>
+    <div class="slot slot-goal">
+      <span class="eyebrow lab"></span>
       <span class="hero"><span class="layer"></span><span class="layer"></span></span>
     </div>
-    <div class="line3">
-      <span class="strip"><span class="strip-track"></span></span>
+    <div class="slot slot-sub">
+      <span class="eyebrow lab-sub"></span>
+      <span class="subname"></span>
     </div>
+    <div class="l3 l3-goal"></div>
+    <div class="l3 l3-sub"></div>
+    <span class="strip"><span class="strip-track"></span></span>
   </section>
 
   <section class="team" data-team="1">
-    <div class="line1">
-      <span class="tag"></span>
-      <span class="subgroup"></span>
-    </div>
-    <div class="line2">
-      <span class="lab">in goal</span>
+    <span class="pill"></span>
+    <div class="slot slot-goal">
+      <span class="eyebrow lab"></span>
       <span class="hero"><span class="layer"></span><span class="layer"></span></span>
     </div>
-    <div class="line3">
-      <span class="strip"><span class="strip-track"></span></span>
+    <div class="slot slot-sub">
+      <span class="eyebrow lab-sub"></span>
+      <span class="subname"></span>
     </div>
+    <div class="l3 l3-goal"></div>
+    <div class="l3 l3-sub"></div>
+    <span class="strip"><span class="strip-track"></span></span>
   </section>
 
   <div class="spine">
     <div class="clock" id="clock">0:00</div>
     <div class="spine-foot">
-      <div class="notes" id="notes"></div>
-      <button class="edit" id="edit" type="button" aria-label="Edit setup">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
-          <path d="m15 5 4 4"/>
-        </svg>
-      </button>
+      <div class="notes eyebrow" id="notes"></div>
+      <div class="spine-icons">
+        <button class="icon-btn mute" id="mute" type="button"></button>
+        <button class="icon-btn" id="edit" type="button" aria-label="Edit setup">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
+            <path d="m15 5 4 4"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
 

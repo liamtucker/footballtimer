@@ -53,27 +53,28 @@ const COPY = {
   teamA: 'Bibs',
   teamB: 'No bibs',
   addPlaceholder: 'Add a name',
-  divider: 'Subs',
-  keeperTag: 'Starts in goal',
-  gameTimeLabel: 'Game time',
-  changeLabel: 'Change every',
+  divider: 'SUBS',
+  keeperTag: 'GOAL',
+  gameTypeLabel: 'Game',
+  gameTimeLabel: 'Time',
+  changeLabel: 'Intervals',
   start: 'Kick off',
   clear: 'Clear all',
   restored: 'Delete anyone missing.',
   editAria: 'Edit setup',
-  keeper: 'in goal',
-  sub: 'sub',
-  subs: 'subs',
-  subsNone: 'no subs',
-  off: 'off',
-  on: 'on',
+  keeper: 'GOAL',
+  sub: 'SUB',
+  subs: 'SUBS',
+  subsNone: 'NO SUBS',
   errorTooSmall: 'Two names minimum.',
   warnDuplicate: 'Same name twice. Add an initial.',
-  /* not in copy.md — the two conditional lines and the chip need words */
   pending: 'Edits land at the next change',
   noVoice: 'No voice',
   noLock: 'Screen may sleep',
-  chipLabel: 'Next change'
+  chipLabel: 'Next change',
+  muteOn: 'Mute voice',
+  muteOff: 'Unmute voice',
+  closeAria: 'Close setup'
 };
 
 const TEAM_NAMES = [COPY.teamA, COPY.teamB];
@@ -238,11 +239,14 @@ const teamEls = [0, 1].map((t) => {
   const root = el.display.querySelector(`.team[data-team="${t}"]`);
   return {
     root,
-    tag: root.querySelector('.tag'),
-    subgroup: root.querySelector('.subgroup'),
+    pill: root.querySelector('.pill'),
     lab: root.querySelector('.lab'),
+    labSub: root.querySelector('.lab-sub'),
+    subSlot: root.querySelector('.slot-sub'),
     hero: root.querySelector('.hero'),
-    line3: root.querySelector('.line3'),
+    subname: root.querySelector('.subname'),
+    line3: root.querySelector('.l3-goal'),
+    l3sub: root.querySelector('.l3-sub'),
     strip: root.querySelector('.strip'),
     track: root.querySelector('.strip-track')
   };
@@ -647,15 +651,16 @@ function buildRow(teamIndex, index, name, isKeeper) {
 
   const label = document.createElement('span');
   label.className = 'row-name';
+  label.textContent = name;
+  row.appendChild(label);
+
+  /* the marker is right aligned, so every name keeps the same left edge */
   if (isKeeper) {
     const tag = document.createElement('span');
     tag.className = 'keeper-tag';
     tag.textContent = COPY.keeperTag;
-    label.appendChild(tag);
+    row.appendChild(tag);
   }
-  const text = document.createElement('span');
-  text.textContent = name;
-  label.appendChild(text);
 
   const remove = document.createElement('button');
   remove.type = 'button';
@@ -663,7 +668,6 @@ function buildRow(teamIndex, index, name, isKeeper) {
   remove.innerHTML = xIcon();
   remove.setAttribute('aria-label', 'remove');
 
-  row.appendChild(label);
   row.appendChild(remove);
   return row;
 }
@@ -1219,55 +1223,30 @@ function setHero(node, name, arrow) {
   node.appendChild(document.createTextNode(name || ''));
 }
 
-function pairNode(label, name, arrow, cls) {
-  const wrap = document.createElement('span');
-  wrap.className = `pair ${cls}`;
-  const lab = document.createElement('span');
-  lab.className = 'plab';
-  lab.textContent = label;
+function nameNode(name, arrow, tone) {
   const nm = document.createElement('span');
-  nm.className = 'nm';
+  nm.className = tone ? `nm ${tone}` : 'nm';
   if (arrow) {
     const glyph = document.createElement('span');
     glyph.className = 'arrow';
     glyph.textContent = arrow;
     nm.appendChild(glyph);
-    nm.appendChild(document.createTextNode(' '));
   }
   nm.appendChild(document.createTextNode(name));
-  wrap.appendChild(lab);
-  wrap.appendChild(nm);
-  return wrap;
+  return nm;
 }
 
-function fillSubsRest(node, team) {
+function fillNames(node, players, arrowOf, toneOf) {
   node.textContent = '';
-  node.hidden = false;
-  if (team.subs.length === 0) {
-    const none = document.createElement('span');
-    none.className = 'none';
-    none.textContent = COPY.subsNone;
-    node.appendChild(none);
-    return;
+  for (const player of players) {
+    node.appendChild(nameNode(player.name, arrowOf(player), toneOf(player)));
   }
-  node.appendChild(pairNode(
-    team.subs.length > 1 ? COPY.subs : COPY.sub,
-    team.subs.map((p) => p.name).join('  '),
-    '',
-    'rest'
-  ));
 }
 
-function fillSubsWindow(node, team) {
-  node.textContent = '';
-  /* a team with no subs shows `in goal CHRIS` alone */
-  if (team.subs.length === 0 || team.goingOff.length === 0) {
-    node.hidden = true;
-    return;
-  }
-  node.hidden = false;
-  node.appendChild(pairNode(COPY.off, team.goingOff.map((p) => p.name).join('  '), '↓', 'off'));
-  node.appendChild(pairNode(COPY.on, team.comingOn.map((p) => p.name).join('  '), '↑', 'on'));
+/* the eyebrow agrees with the count and never changes inside a window */
+function subEyebrow(parts, count) {
+  parts.labSub.textContent = count === 0 ? COPY.subsNone : (count > 1 ? COPY.subs : COPY.sub);
+  parts.subSlot.classList.toggle('none', count === 0);
 }
 
 function buildStrip(track, team, gone) {
@@ -1302,17 +1281,29 @@ function buildStrip(track, team, gone) {
 
 function paintTeam(t, team, mode) {
   const parts = teamEls[t];
-  parts.tag.textContent = team.name;
+  parts.pill.textContent = team.name;
   parts.lab.textContent = COPY.keeper;
   const gone = (state.game && state.game.gone[t]) || [];
+  buildStrip(parts.track, team, gone);
 
   if (mode === 'window') {
-    fillSubsWindow(parts.subgroup, team);
-    buildStrip(parts.track, team, gone);
+    /* the name line holds whoever occupies the slot after the change, line
+       three whoever is leaving it. the arrow describes the player. */
+    subEyebrow(parts, team.nextSubs.length);
+    const off = new Set(team.goingOff.map((p) => p.id));
+    fillNames(
+      parts.subname,
+      team.nextSubs,
+      (p) => (off.has(p.id) ? '\u2193' : ''),
+      (p) => (off.has(p.id) ? 'off' : '')
+    );
+    fillNames(parts.l3sub, team.comingOn, () => '\u2191', () => 'on');
     return;
   }
-  fillSubsRest(parts.subgroup, team);
-  buildStrip(parts.track, team, gone);
+
+  subEyebrow(parts, team.subs.length);
+  fillNames(parts.subname, team.subs, () => '', () => '');
+  parts.l3sub.textContent = '';
 }
 
 /* Everything at rest, with no motion of any kind. */
@@ -1327,7 +1318,8 @@ function paintRest(r) {
     live.className = 'layer on';
     live.style.cssText = '';
     setHero(live, team.keeper ? team.keeper.name : '', '');
-    parts.subgroup.classList.remove('swapping', 'go', 'fading');
+    parts.subname.classList.remove('swapping', 'go', 'fading');
+    parts.l3sub.classList.remove('swapping', 'go', 'fading');
     parts.strip.classList.remove('gone-quiet');
     parts.strip.style.display = '';
   });
@@ -1393,7 +1385,8 @@ function openWindow(r, options) {
       out.classList.add('walk-out', 'landed');
       into.classList.add('go');
       paintTeam(t, team, 'window');
-      parts.subgroup.classList.add('swapping', 'go');
+      parts.subname.classList.add('swapping', 'go');
+      parts.l3sub.classList.add('swapping', 'go');
       parts.strip.classList.add('gone-quiet');
       parts.strip.style.display = 'none';
       void parts.root.offsetWidth;
@@ -1415,14 +1408,16 @@ function openWindow(r, options) {
     });
   });
 
-  /* t 200  the sub slot, at --t-name-2 */
+  /* t 200  the sub slot, at lead */
   later(200, () => {
     r.teams.forEach((team, t) => {
       const parts = teamEls[t];
       paintTeam(t, team, 'window');
-      parts.subgroup.classList.add('swapping');
-      void parts.subgroup.offsetWidth;
-      parts.subgroup.classList.add('go');
+      parts.subname.classList.add('swapping');
+      parts.l3sub.classList.add('swapping');
+      void parts.subname.offsetWidth;
+      parts.subname.classList.add('go');
+      parts.l3sub.classList.add('go');
     });
   });
 }
@@ -1465,10 +1460,14 @@ function closeWindow(r) {
       live.className = 'layer on';
     }
 
-    parts.subgroup.classList.add('fading');
+    parts.subname.classList.add('fading');
+    parts.l3sub.classList.add('fading');
     window.setTimeout(() => {
-      fillSubsRest(parts.subgroup, team);
-      parts.subgroup.classList.remove('swapping', 'go', 'fading');
+      subEyebrow(parts, team.subs.length);
+      fillNames(parts.subname, team.subs, () => '', () => '');
+      parts.l3sub.textContent = '';
+      parts.subname.classList.remove('swapping', 'go', 'fading');
+      parts.l3sub.classList.remove('swapping', 'go', 'fading');
     }, 250);
 
     buildStrip(parts.track, team, (state.game && state.game.gone[t]) || []);
