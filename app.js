@@ -1075,3 +1075,13 @@ function boot() {
 }
 
 boot();
+
+/* ------------------------------------------------------------- offline */
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {
+      /* no service worker is still a working page, just not an offline one */
+    });
+  });
+}
