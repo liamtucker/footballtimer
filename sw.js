@@ -1,6 +1,6 @@
 /* sw.js — offline first. No signal at the pitch is the normal case. */
 
-const CACHE = 'rota-v8';
+const CACHE = 'rota-v9';
 
 const FILES = [
   './',
@@ -8,6 +8,7 @@ const FILES = [
   'style.css',
   'app.js',
   'rotation.js',
+  'sound.js',
   'test.js',
   'manifest.webmanifest',
   'icon-180.png',

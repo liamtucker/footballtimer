@@ -47,10 +47,14 @@ import {
   DEFAULT_GAME_MINUTES
 } from './rotation.js';
 
+import { buildAlarm, buildChime, buildTick, ALARM_MS } from './sound.js';
+
 const MS_PER_MINUTE = 60000;
 const NAME_MAX = 10;
 const WINDOW_MS = 10000;
 const COUNTDOWN_S = 10;
+/* the silence between the alarm ending and the first chime */
+const VOICE_GAP_MS = 150;
 
 /* Every string, lifted from brain/copy.md. */
 const COPY = {
@@ -280,19 +284,19 @@ const teamEls = [0, 1].map((t) => {
 /* ================================================================ sound */
 
 /*
- * Two sounds, two meanings, never swapped. A whistle says the change is now.
- * A chime says names follow. Both are synthesised — no files, no network.
- * The context is created inside the Kick off gesture so iOS unlocks it.
+ * Two sounds, two meanings, never swapped. The alarm says the moment is now —
+ * kick-off, and every changeover. The chime says names follow. Both are
+ * synthesised in sound.js — no files, no network — and the context is created
+ * inside a gesture so iOS unlocks it.
  */
 
 let ac = null;
-let noise = null;
 let gestured = false;
 
 /*
  * The context is created inside a gesture and never before. A game restored
- * after a reload has had no gesture yet, so it makes no sound and says so on
- * the degraded line — and the first touch anywhere brings it back.
+ * after a reload has had no gesture yet, so it makes no sound — and the first
+ * touch anywhere brings it back.
  */
 function audio() {
   if (ac) return ac;
@@ -320,157 +324,85 @@ function resumeAudio() {
   }
 }
 
-function noiseBuffer(ctx) {
-  if (noise) return noise;
-  const frames = Math.floor(ctx.sampleRate * 1.2);
-  noise = ctx.createBuffer(1, frames, ctx.sampleRate);
-  const data = noise.getChannelData(0);
-  for (let i = 0; i < frames; i += 1) data[i] = Math.random() * 2 - 1;
-  return noise;
-}
-
 /*
- * A referee whistle. The body is band-passed noise around 3.4kHz — that is the
- * air, and it is what stops it sounding like a beep. Two detuned sawtooths at
- * 2350 and 2570 sit under it for the pitch, and an 18Hz tremolo on the whole
- * thing is the pea rattling.
+ * The alarm. The same sound at kick-off and at every changeover, two and a
+ * half seconds of two-tone klaxon. It replaced a whistle that nobody on a
+ * touchline could hear: that whistle measured 0.075 RMS against a 0.344 peak,
+ * and this measures 0.469 against 0.936 — six and a quarter times the RMS for
+ * the same headroom, and it does not clip. sound.js has the reasoning.
+ *
+ * Returns its length in milliseconds, so the caller can put the voice after it
+ * rather than under it.
  */
-function whistle(ms) {
+function alarm() {
   const ctx = audio();
-  if (!ctx) return;
+  if (!ctx) return ALARM_MS;
   resumeAudio();
-  const dur = Math.max(0.12, (ms || 700) / 1000);
-  const attack = Math.min(0.04, dur * 0.16);
-  const release = Math.min(0.25, dur * 0.42);
-  const t = ctx.currentTime + 0.01;
-
-  const out = ctx.createGain();
-  out.gain.setValueAtTime(0.0001, t);
-  out.gain.linearRampToValueAtTime(0.9, t + attack);
-  out.gain.setValueAtTime(0.9, t + Math.max(attack, dur - release));
-  out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  out.connect(ctx.destination);
-
-  const trem = ctx.createGain();
-  trem.gain.setValueAtTime(0.74, t);
-  trem.connect(out);
-  const lfo = ctx.createOscillator();
-  lfo.type = 'sine';
-  lfo.frequency.setValueAtTime(18, t);
-  const lfoGain = ctx.createGain();
-  lfoGain.gain.setValueAtTime(0.26, t);
-  lfo.connect(lfoGain).connect(trem.gain);
-  lfo.start(t);
-  lfo.stop(t + dur);
-
-  const air = ctx.createBufferSource();
-  air.buffer = noiseBuffer(ctx);
-  air.loop = true;
-  const bp1 = ctx.createBiquadFilter();
-  bp1.type = 'bandpass';
-  bp1.frequency.setValueAtTime(3400, t);
-  bp1.Q.setValueAtTime(7, t);
-  const bp2 = ctx.createBiquadFilter();
-  bp2.type = 'bandpass';
-  bp2.frequency.setValueAtTime(3400, t);
-  bp2.Q.setValueAtTime(7, t);
-  /* the band breathes with the pea, so the air is part of the rattle */
-  const airWobble = ctx.createOscillator();
-  airWobble.type = 'sine';
-  airWobble.frequency.setValueAtTime(18, t);
-  const airWobbleGain = ctx.createGain();
-  airWobbleGain.gain.setValueAtTime(190, t);
-  airWobble.connect(airWobbleGain);
-  airWobbleGain.connect(bp1.frequency);
-  airWobbleGain.connect(bp2.frequency);
-  airWobble.start(t);
-  airWobble.stop(t + dur);
-  const airGain = ctx.createGain();
-  airGain.gain.setValueAtTime(1.1, t);
-  air.connect(bp1).connect(bp2).connect(airGain).connect(trem);
-  air.start(t);
-  air.stop(t + dur);
-
-  for (const [freq, gain] of [[2350, 0.15], [2570, 0.114]]) {
-    const osc = ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(freq * 0.94, t);
-    osc.frequency.linearRampToValueAtTime(freq, t + attack);
-    const warble = ctx.createOscillator();
-    warble.type = 'sine';
-    warble.frequency.setValueAtTime(18, t);
-    const warbleGain = ctx.createGain();
-    warbleGain.gain.setValueAtTime(freq * 0.014, t);
-    warble.connect(warbleGain).connect(osc.frequency);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(7200, t);
-    const og = ctx.createGain();
-    og.gain.setValueAtTime(gain, t);
-    osc.connect(lp).connect(og).connect(trem);
-    osc.start(t);
-    osc.stop(t + dur);
-    warble.start(t);
-    warble.stop(t + dur);
-  }
+  buildAlarm(ctx, ctx.currentTime + 0.01, ctx.destination);
+  return ALARM_MS;
 }
 
-function tone(ctx, freq, at, dur, level) {
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, at);
-  g.gain.linearRampToValueAtTime(level, at + 0.02);
-  g.gain.setValueAtTime(level, at + Math.max(0.03, dur - 0.05));
-  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-  g.connect(ctx.destination);
-  /* the partials are what carry it through a cheap bluetooth speaker */
-  for (const [mult, type, gain] of [[1, 'sine', 1], [2, 'triangle', 0.34], [3, 'sine', 0.13]]) {
-    const osc = ctx.createOscillator();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq * mult, at);
-    const og = ctx.createGain();
-    og.gain.setValueAtTime(gain, at);
-    osc.connect(og).connect(g);
-    osc.start(at);
-    osc.stop(at + dur + 0.03);
-  }
-}
+/* 660 then 880. The same tone every time, before each team. */
+const CHIME_MS = 330;
 
-/* 660 then 880, 120ms each, 200ms apart. The same tone every time. */
 function chime() {
   const ctx = audio();
-  if (!ctx) return 0;
+  if (!ctx) return CHIME_MS;
   resumeAudio();
-  const t = ctx.currentTime + 0.01;
-  tone(ctx, 660, t, 0.12, 0.5);
-  tone(ctx, 880, t + 0.2, 0.12, 0.5);
-  return 330;
+  return buildChime(ctx, ctx.currentTime + 0.01, ctx.destination);
 }
 
 function tick880() {
   const ctx = audio();
   if (!ctx) return;
   resumeAudio();
-  const t = ctx.currentTime + 0.005;
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.linearRampToValueAtTime(0.08, t + 0.005);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
-  g.connect(ctx.destination);
-  const osc = ctx.createOscillator();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(880, t);
-  osc.connect(g);
-  osc.start(t);
-  osc.stop(t + 0.04);
+  buildTick(ctx, ctx.currentTime + 0.005, ctx.destination);
 }
 
 /* ================================================================ voice */
 
-let chosenVoice = null;
-let voiceReady = false;
+/*
+ * THE VOICE WORKS. IT IS STILL WORTH MAKING IT HARDER TO BREAK
+ *
+ * It has been heard on Liam's phone, so nothing here is a repair. Two things
+ * were still risks and both are gone:
+ *
+ * 1. The unlock spoke a whitespace-only utterance at `volume = 0`. Both
+ *    engines have form for wedging on an empty or silent utterance, after
+ *    which `speaking` stays true for ever and every later `speak()` queues
+ *    behind it and is never heard. The unlock now speaks real text at a real
+ *    volume, and cancels itself if it has not finished in a second and a half.
+ *
+ * 2. `speechSynthesis.cancel()` ran before every single `speak()`. A cancel is
+ *    only needed when something is actually in the queue, and the sequence now
+ *    moves on at an estimate as well as on `end` — so an unconditional cancel
+ *    could cut a line that was still being spoken. It runs once per
+ *    announcement, and only when there is a queue to take out.
+ *
+ * WHAT `speaking` IS WORTH
+ *
+ * Nothing. Measured in Chrome 151: an utterance can sit with
+ * `speechSynthesis.speaking === true` for ever, with `onstart`, `onend` and
+ * `onerror` all silent. So the old watchdog — mark the voice broken when
+ * `!speaking && !pending` — could not fire on the one failure that matters,
+ * and the only honest test of a working voice is whether `start` fired.
+ *
+ * The sequence no longer depends on `end` either. Every line has a spoken
+ * estimate beside it and moves on at whichever arrives first, so a dead engine
+ * costs the announcement its timing and never its second team.
+ */
 
+const VOICE_START_MS = 1500;   /* start has to fire inside this or it is lost */
+
+let announceToken = 0;
+let chosenVoice = null;
+
+/*
+ * en-GB and local first. This is proven on the phone, so it stays: an engine
+ * left to pick for itself can land on a US voice halfway through a season.
+ */
 function pickVoice() {
-  if (!('speechSynthesis' in window)) return;
+  if (!haveVoice()) return;
   let voices = [];
   try {
     voices = speechSynthesis.getVoices() || [];
@@ -490,35 +422,72 @@ function pickVoice() {
     .sort((a, b) => rank(a) - rank(b) || String(a.name).localeCompare(String(b.name)))[0] || null;
 }
 
+/** Roughly how long a line takes to say, at rate 0.95 with its full stops. */
+function sayMs(text) {
+  const words = String(text).trim().split(/\s+/).filter(Boolean).length;
+  return Math.min(5200, 800 + words * 360);
+}
+
+function haveVoice() {
+  return 'speechSynthesis' in window;
+}
+
+function voiceCount() {
+  if (!haveVoice()) return 0;
+  try {
+    return (speechSynthesis.getVoices() || []).length;
+  } catch (error) {
+    return 0;
+  }
+}
+
+/* Only ever called when there is something in the queue to take out. */
+function clearVoice() {
+  if (!haveVoice()) return;
+  try {
+    if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+  } catch (error) { /* ignore */ }
+}
+
+function utteranceFor(text) {
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.95;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+  if (chosenVoice) {
+    utterance.voice = chosenVoice;
+    utterance.lang = chosenVoice.lang;
+  } else {
+    utterance.lang = 'en-GB';
+  }
+  return utterance;
+}
+
 if ('speechSynthesis' in window) {
   pickVoice();
   speechSynthesis.addEventListener('voiceschanged', pickVoice);
 }
 
-/* iOS needs a gesture before it will speak. The Kick off tap is that gesture. */
+/*
+ * iOS will not speak later in the session unless it has spoken once inside a
+ * user gesture. This is that once. The text is real and the volume is not
+ * zero, because an empty utterance and a silent one are the two shapes known
+ * to leave the queue stuck.
+ */
 function unlockVoice() {
-  if (!('speechSynthesis' in window)) {
+  if (!haveVoice()) {
     state.degradedVoice = true;
     return;
   }
   try {
-    speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(' ');
-    utterance.volume = 0;
-    let started = false;
-    utterance.onstart = () => {
-      started = true;
-      voiceReady = true;
-      state.degradedVoice = false;
-    };
-    utterance.onerror = () => { state.degradedVoice = true; };
+    /* a paused engine is the commonest wedge and resume() costs nothing */
+    speechSynthesis.resume();
+    const utterance = utteranceFor('rota');
+    utterance.volume = 0.02;
+    utterance.onstart = () => { state.degradedVoice = false; };
     speechSynthesis.speak(utterance);
-    state.degradedVoice = false;
-    /* the probe unlocks, it does not diagnose. a silent volume-0 utterance is
-       reported inconsistently across engines, and a false `no voice` line on a
-       working phone is worse than no line at all. a real speak() that fails is
-       what marks the voice lost. */
-    void started;
+    /* and if it does stick, it must not still be there when the names are */
+    window.setTimeout(clearVoice, VOICE_START_MS);
   } catch (error) {
     state.degradedVoice = true;
   }
@@ -530,35 +499,23 @@ function speak(text, onEnd) {
     if (onEnd) window.setTimeout(onEnd, 800);
     return;
   }
-  if (!('speechSynthesis' in window)) {
-    state.degradedVoice = true;
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
     if (onEnd) onEnd();
+  };
+  if (!haveVoice()) {
+    state.degradedVoice = true;
+    finish();
     return;
   }
   try {
-    /* iOS drops the queue when the page is backgrounded and leaves the engine
-       stuck. cancel() before every speak() is the only reliable reset — but
-       Chrome processes the cancel asynchronously and takes out an utterance
-       queued in the same tick with it, so the speak has to wait a beat. */
-    speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-    if (chosenVoice) {
-      utterance.voice = chosenVoice;
-      utterance.lang = chosenVoice.lang;
-    } else {
-      utterance.lang = 'en-GB';
-    }
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      if (onEnd) onEnd();
-    };
+    if (speechSynthesis.paused) speechSynthesis.resume();
+    const utterance = utteranceFor(text);
+    let started = false;
     utterance.onstart = () => {
-      voiceReady = true;
+      started = true;
       state.degradedVoice = false;
     };
     utterance.onend = finish;
@@ -568,25 +525,18 @@ function speak(text, onEnd) {
       if (reason !== 'canceled' && reason !== 'interrupted') state.degradedVoice = true;
       finish();
     };
+    speechSynthesis.speak(utterance);
+    /* whether `start` fired is the only honest test. it does not end the line:
+       a voice that is late is not a voice that is lost. */
     window.setTimeout(() => {
-      if (done) return;
-      speechSynthesis.speak(utterance);
-    }, 45);
-    /* a voice that never starts must not swallow the second team */
-    window.setTimeout(() => {
-      if (done) return;
-      if (!speechSynthesis.speaking && !speechSynthesis.pending) {
-        state.degradedVoice = true;
-        finish();
-      }
-    }, 1700);
-    /* nor may one that never ends. iOS leaves the engine stuck often enough
-       that `end` cannot be the only way out, and the whole announcement has
-       to fit inside the ten seconds. the cap is well past a real reading. */
-    window.setTimeout(finish, Math.min(4200, 1200 + text.length * 100));
+      if (!started && !done) state.degradedVoice = true;
+    }, VOICE_START_MS);
+    /* and the line moves on at the estimate whatever the engine does, so one
+       stuck utterance never swallows the team after it */
+    window.setTimeout(finish, sayMs(text));
   } catch (error) {
     state.degradedVoice = true;
-    if (onEnd) onEnd();
+    finish();
   }
 }
 
@@ -596,39 +546,52 @@ function joinNames(names) {
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
-/* [chime] bibs. Chris in goal. Mo off.  —  the chime sounds before each team */
+/*
+ * ONE TEMPLATE, THE STATE AND NOT THE TRANSITION
+ *
+ *   [chime] Bibs. Goal, Umar. Sub, Kevin.
+ *
+ * The same words the screen shows — `GOAL` over a name and `SUB` or `SUBS`
+ * over the rest — so the two never disagree. It says who is in goal and who is
+ * sitting down, never who is leaving, because a state is true for the next ten
+ * minutes and a transition is true for a second.
+ *
+ * A team with no subs drops the clause. `No subs` is never said out loud: it
+ * is information nobody can act on.
+ *
+ * Full stops, not commas, between the three facts. The synthesiser honours a
+ * full stop with a real pause and runs a comma straight through, and a name
+ * run into the next name is the one thing that cannot happen here. The team
+ * comes first so nobody parses a name that is not theirs.
+ *
+ * The name is spoken exactly as it was typed. The screen's uppercase is a
+ * `text-transform` and never reaches the engine.
+ */
+function lineFor(teamIndex, keeper, subs) {
+  if (!keeper) return null;
+  const bits = [`${TEAM_NAMES[teamIndex]}.`, `Goal, ${keeper.name}.`];
+  const names = subs.map((player) => player.name);
+  if (names.length > 0) {
+    bits.push(`${names.length > 1 ? COPY.subs : COPY.sub}, ${joinNames(names)}.`);
+  }
+  return bits.join(' ');
+}
+
+/* the change is ten seconds away, so the state it describes is the next one */
 function linesForChange(r) {
-  const lines = [];
-  for (const team of r.teams) {
-    if (!team.nextKeeper) continue;
-    const bits = [`${team.name}.`, `${team.nextKeeper.name} in goal.`];
-    const off = team.goingOff.map((p) => p.name);
-    if (off.length > 0) bits.push(`${joinNames(off)} off.`);
-    lines.push(bits.join(' '));
-  }
-  return lines;
+  return r.teams.map((team, t) => lineFor(t, team.nextKeeper, team.nextSubs)).filter(Boolean);
 }
 
-/* [chime] bibs. Chris in goal. Sub, Dave. — nobody comes off at kick-off */
+/* at kick-off the state it describes is this one */
 function linesForKickOff(r) {
-  const lines = [];
-  for (const team of r.teams) {
-    if (!team.keeper) continue;
-    const bits = [`${team.name}.`, `${team.keeper.name} in goal.`];
-    const subs = team.subs.map((p) => p.name);
-    if (subs.length > 0) {
-      bits.push(`${subs.length > 1 ? 'Subs' : 'Sub'}, ${joinNames(subs)}.`);
-    }
-    lines.push(bits.join(' '));
-  }
-  return lines;
+  return r.teams.map((team, t) => lineFor(t, team.keeper, team.subs)).filter(Boolean);
 }
-
-let announceToken = 0;
 
 function announce(lines) {
   announceToken += 1;
   const token = announceToken;
+  /* the one cancel per announcement, and only if there is a queue to take out */
+  clearVoice();
   let i = 0;
   const next = () => {
     if (token !== announceToken || i >= lines.length) return;
@@ -1606,7 +1569,13 @@ function openWindow(r, options) {
   const late = !options.animate;
   clearWindowTimers();
 
-  if (options.speak) announce(linesForChange(r));
+  /* the loud sound first, then the names. a klaxon under a spoken name buries
+     it, and the thing that makes anyone look up has to come before the thing
+     they are meant to hear. */
+  if (options.speak) {
+    const wait = alarm();
+    later(wait + VOICE_GAP_MS, () => announce(linesForChange(r)));
+  }
 
   el.body.classList.add('call');
   el.body.style.setProperty('--ground-ms', '200ms');
@@ -2012,7 +1981,7 @@ function finishKickOff() {
   showDisplay();
   saveGame();
 
-  whistle(700);
+  const wait = alarm();
   el.body.style.setProperty('--ground-ms', '500ms');
   el.body.classList.add('call');
   window.setTimeout(() => {
@@ -2022,7 +1991,8 @@ function finishKickOff() {
   }, 220);
 
   const r = rotation(setup, Math.max(0, elapsedMs()));
-  window.setTimeout(() => announce(linesForKickOff(r)), 760);
+  /* the same order as a changeover: the alarm finishes, then the names */
+  window.setTimeout(() => announce(linesForKickOff(r)), wait + VOICE_GAP_MS);
 
   startLoop();
   tick();

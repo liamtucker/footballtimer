@@ -449,6 +449,10 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+/* the three cards, the readout and Clear all are one group, so that portrait
+   can move them as one and leave Kick off behind at the bottom of the page */
+.settings-group { display: flex; flex-direction: column; flex: none; }
+
 .col-spacer { flex: 1 1 auto; min-height: 0; }
 
 .foot { flex: none; display: flex; flex-direction: column; gap: var(--s-pack); }
@@ -555,15 +559,25 @@ button {
     display: flex;
     flex-direction: column;
     gap: 28px;
-    padding: var(--s-edge) var(--s-edge) 96px;
+    padding: var(--s-edge) var(--s-edge)
+             max(var(--s-edge), env(safe-area-inset-bottom));
     padding-left: max(var(--s-edge), env(safe-area-inset-left));
     padding-right: max(var(--s-edge), env(safe-area-inset-right));
     overflow: visible;
   }
 
-  /* the settings come first: the game type sets where the divider falls, and
-     you pick it before you type a name */
-  .settings-col { order: -1; }
+  /*
+   * Nothing on this screen is pinned over the content. Adding names IS the
+   * screen, and a button fixed to the bottom of the viewport sat on top of the
+   * field the names are typed into. So the settings column stops being a
+   * column: its two halves become items of the page, the settings go to the
+   * top — the game type sets where the divider falls, and you pick it before
+   * you type a name — and Kick off goes to the very bottom, under both lists,
+   * where it is scrolled to and never scrolled past.
+   */
+  .settings-col { display: contents; }
+  .settings-group { order: -1; }
+  .foot { order: 99; }
 
   .col { min-height: auto; }
   .list { overflow: visible; flex: none; }
@@ -575,20 +589,6 @@ button {
   .livebar { height: calc(64px + env(safe-area-inset-top)); }
   #setup.live { padding-top: calc(80px + env(safe-area-inset-top)); }
 
-  .foot {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 20;
-    padding: 40px max(var(--s-edge), env(safe-area-inset-right))
-             max(var(--s-edge), env(safe-area-inset-bottom))
-             max(var(--s-edge), env(safe-area-inset-left));
-    background: linear-gradient(transparent, var(--ground) 60%);
-    pointer-events: none;
-  }
-  .foot > * { pointer-events: auto; }
-  .notice { text-shadow: 0 0 6px var(--ground); }
 }
 
 /* ================================================================== game */
