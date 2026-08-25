@@ -17,18 +17,14 @@ import {
   addLateArrival,
   removePlayer,
   rotationsOf,
-  intervalModeOf,
   squadSizeOf,
   derivedIntervalMs,
-  manualIntervalMs,
-  resolveIntervalMs,
   isIntervalFrozen,
   rotationsPerPlayer,
   MS_PER_MINUTE,
   MIN_GAME_TYPE,
   MAX_GAME_TYPE,
   DEFAULT_GAME_TYPE,
-  DEFAULT_SUB_MINUTES,
   DEFAULT_GAME_MINUTES,
   DEFAULT_ROTATIONS,
   MIN_ROTATIONS,
@@ -87,10 +83,8 @@ function squad(size) {
 function setupOf(sizeA, sizeB, options = {}) {
   return createSetup({
     gameType: options.gameType ?? 6,
-    subMinutes: options.subMinutes ?? 10,
     gameMinutes: options.gameMinutes ?? 120,
     rotations: options.rotations ?? DEFAULT_ROTATIONS,
-    intervalMode: options.intervalMode ?? 'rotations',
     intervalMs: options.intervalMs,
     teams: [
       { name: 'Bibs', players: options.playersA ?? squad(sizeA) },
@@ -187,11 +181,11 @@ test('the list order is kept exactly — nothing is sorted', () => {
   same(setup.teams[0].players.map((player) => player.name), names);
 });
 
-test('the defaults are 6 a side, 10 minutes, 120 minutes', () => {
+test('the defaults are 6 a side, 2 hours, twice each', () => {
   const setup = createSetup({ teams: [{ players: squad(6) }] });
   eq(setup.gameType, DEFAULT_GAME_TYPE);
-  eq(setup.subMinutes, DEFAULT_SUB_MINUTES);
   eq(setup.gameMinutes, DEFAULT_GAME_MINUTES);
+  eq(setup.rotations, DEFAULT_ROTATIONS);
 });
 
 test('gameType clamps to 4 .. 11', () => {
@@ -274,40 +268,37 @@ test('uneven teams: the larger squad gets its rotations and the smaller gets mor
   ok(Math.max(...small) > 2, 'and some of the six get a third');
 });
 
-test('manual mode gives exactly subMinutes', () => {
-  for (let minutes = 1; minutes <= 20; minutes += 1) {
-    const setup = setupOf(8, 6, { intervalMode: 'manual', subMinutes: minutes });
-    eq(computeIntervalMs(setup), minutes * MS_PER_MINUTE, `${minutes} minutes`);
-    eq(rotation(setup, 0).intervalMs, minutes * MS_PER_MINUTE);
-  }
-  eq(manualIntervalMs(setupOf(8, 6, { subMinutes: 0 })), MS_PER_MINUTE, 'never zero');
-  eq(manualIntervalMs(setupOf(8, 6, { subMinutes: 7.9 })), 7 * MS_PER_MINUTE, 'whole minutes');
+test('there is no manual override — an old setup is read and ignored', () => {
+  /* a squad saved by the build that had the swap may carry both of these */
+  const old = setupOf(7, 6, { gameMinutes: 120, rotations: 2 });
+  const carried = { ...old, intervalMode: 'manual', subMinutes: 4 };
+  eq(computeIntervalMs(carried), 510000, 'it behaves as rotations');
+  eq(rotation(carried, 0).intervalMs, 510000, 'and nothing throws');
+  eq(rotation(carried, 0).intervalMode, undefined, 'the mode is gone from the result');
+  eq(createSetup({ intervalMode: 'manual', subMinutes: 4, teams: [] }).intervalMode, undefined,
+    'and createSetup never writes it back');
+  eq(createSetup({ subMinutes: 4, teams: [] }).subMinutes, undefined);
 });
 
-test('manual mode ignores the squad, the game time and the rotations', () => {
-  const ten = 10 * MS_PER_MINUTE;
-  for (let size = 1; size <= 16; size += 1) {
-    eq(computeIntervalMs(setupOf(size, 6, { intervalMode: 'manual' })), ten, `squad of ${size}`);
-  }
-  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
-    eq(computeIntervalMs(setupOf(11, 11, { gameType: g, intervalMode: 'manual' })), ten, `${g} a side`);
-  }
-  for (let r = MIN_ROTATIONS; r <= MAX_ROTATIONS; r += 1) {
-    eq(computeIntervalMs(setupOf(8, 7, { intervalMode: 'manual', rotations: r })), ten, `${r} rotations`);
-  }
-  eq(computeIntervalMs(setupOf(8, 7, { intervalMode: 'manual', gameMinutes: 45 })), ten);
+test('a game already running keeps the interval it froze, whatever wrote it', () => {
+  /* the one path that matters: a phone restored mid-game under the new build */
+  const running = { ...setupOf(7, 6, { gameMinutes: 120, rotations: 2, intervalMs: 600000 }),
+    intervalMode: 'manual', subMinutes: 10 };
+  eq(computeIntervalMs(running), 600000, 'the pace does not change under the person holding it');
+  ok(isIntervalFrozen(running));
+  eq(rotationsPerPlayer(running), 1.7, 'and the readout says what it is really worth');
 });
 
-test('rotations mode ignores subMinutes', () => {
-  const a = setupOf(7, 6, { gameMinutes: 120, rotations: 2, subMinutes: 3 });
-  const b = setupOf(7, 6, { gameMinutes: 120, rotations: 2, subMinutes: 20 });
+test('the interval is the same whatever an old subMinutes said', () => {
+  const a = { ...setupOf(7, 6, { gameMinutes: 120, rotations: 2 }), subMinutes: 3 };
+  const b = { ...setupOf(7, 6, { gameMinutes: 120, rotations: 2 }), subMinutes: 20 };
   eq(computeIntervalMs(a), 510000);
   eq(computeIntervalMs(b), 510000);
 });
 
-test('gameMinutes still changes nothing but gameMs, once the interval is fixed', () => {
-  const short = setupOf(8, 7, { gameMinutes: 45, intervalMode: 'manual' });
-  const long = setupOf(8, 7, { gameMinutes: 120, intervalMode: 'manual' });
+test('gameMinutes still changes nothing but gameMs, once the interval is frozen', () => {
+  const short = setupOf(8, 7, { gameMinutes: 45, intervalMs: 600000 });
+  const long = setupOf(8, 7, { gameMinutes: 120, intervalMs: 600000 });
   for (const ms of [0, 600000, 5400000, 12345678]) {
     same(rotation(short, ms).teams, rotation(long, ms).teams, `elapsed ${ms}`);
     eq(rotation(short, ms).intervalMs, rotation(long, ms).intervalMs);
@@ -325,23 +316,15 @@ test('rotations is a whole number, clamped to 1 .. 5', () => {
   eq(setupOf(8, 6, { rotations: 9 }).rotations, MAX_ROTATIONS, 'createSetup clamps it too');
 });
 
-test('the mode is rotations unless the exact word says otherwise', () => {
-  eq(intervalModeOf({}), 'rotations');
-  eq(intervalModeOf({ intervalMode: 'manual' }), 'manual');
-  eq(intervalModeOf({ intervalMode: 'Manual' }), 'rotations');
-  eq(intervalModeOf({ intervalMode: null }), 'rotations');
-  eq(setupOf(8, 6).intervalMode, 'rotations', 'and it is written into the setup');
-});
-
 /* ------------------------------------------------------ the reverse readout */
 
 console.log('\nthe reverse readout');
 
-test('the reverse readout says what a manual interval is really worth', () => {
-  const manual = setupOf(7, 6, { gameMinutes: 120, intervalMode: 'manual', subMinutes: 10 });
-  eq(rotationsPerPlayer(manual), 1.7, 'ten minutes is 1.7 rotations each, not 2');
-  eq(rotationsPerPlayer(setupOf(7, 6, { gameMinutes: 120, intervalMode: 'manual', subMinutes: 8 })), 2.1);
-  eq(rotationsPerPlayer(setupOf(6, 6, { gameMinutes: 90, intervalMode: 'manual', subMinutes: 5 })), 3);
+test('the reverse readout says what a frozen interval is really worth', () => {
+  eq(rotationsPerPlayer(setupOf(7, 6, { gameMinutes: 120, intervalMs: 600000 })), 1.7,
+    'ten minutes over seven players is 1.7 rotations each, not 2');
+  eq(rotationsPerPlayer(setupOf(7, 6, { gameMinutes: 120, intervalMs: 480000 })), 2.1);
+  eq(rotationsPerPlayer(setupOf(6, 6, { gameMinutes: 90, intervalMs: 300000 })), 3);
 });
 
 test('the reverse readout agrees with the derivation it came from', () => {
@@ -360,7 +343,7 @@ test('the reverse readout agrees with the derivation it came from', () => {
 });
 
 test('the reverse readout is one decimal place, and null with nobody to rotate', () => {
-  const value = rotationsPerPlayer(setupOf(7, 6, { gameMinutes: 120, intervalMode: 'manual', subMinutes: 10 }));
+  const value = rotationsPerPlayer(setupOf(7, 6, { gameMinutes: 120, intervalMs: 600000 }));
   eq(Math.round(value * 10) / 10, value, 'more than one decimal place');
   eq(rotationsPerPlayer(createSetup({})), null, 'no squads');
   eq(rotationsPerPlayer(createSetup({ teams: [{ name: 'Bibs', players: [] }] })), null, 'empty squads');
@@ -382,8 +365,6 @@ test('kickOff resolves the interval and writes it onto the setup', () => {
   eq(setup.intervalMs, 510000);
   eq(rotation(setup, 0).intervalMs, 510000);
   eq(rotation(setup, 0).frozen, true);
-  eq(kickOff(setupOf(7, 6, { gameMinutes: 120, intervalMode: 'manual', subMinutes: 10 }), dice(53)).intervalMs,
-    10 * MS_PER_MINUTE, 'manual freezes too');
 });
 
 test('a late arrival changes N and the interval does not move', () => {
@@ -393,7 +374,7 @@ test('a late arrival changes N and the interval does not move', () => {
   eq(grown.teams[0].players.length, 8, 'N really did move');
   eq(squadSizeOf(grown), 8);
   eq(computeIntervalMs(grown), 510000, 'the countdown must never jump');
-  eq(resolveIntervalMs(grown), 450000, 'and the live derivation really would have jumped');
+  eq(derivedIntervalMs(grown), 450000, 'and the live derivation really would have jumped');
 });
 
 test('the countdown does not move when a late arrival lands mid-shift', () => {
@@ -1109,7 +1090,6 @@ test('an empty setup does not throw', () => {
   eq(state.teams.length, 0);
   /* no squad is N = 1: two hours, one imaginary player, twice each */
   eq(state.intervalMs, 60 * MS_PER_MINUTE);
-  eq(rotation(createSetup({ intervalMode: 'manual' }), 0).intervalMs, DEFAULT_SUB_MINUTES * MS_PER_MINUTE);
 });
 
 test('a team of one turns over on its own', () => {
@@ -1132,7 +1112,7 @@ test('a game type of two falls back to the whole line-up and still answers', () 
 });
 
 test('eleven a side with a bench of five holds every rule for three laps', () => {
-  const setup = kickOff(setupOf(16, 16, { gameType: 11, intervalMode: 'manual', subMinutes: 4 }), dice(42));
+  const setup = kickOff(setupOf(16, 16, { gameType: 11, intervalMs: 4 * MS_PER_MINUTE }), dice(42));
   eq(rotation(setup, 0).teams[0].subCount, 5);
   eq(computeIntervalMs(setup), 4 * MS_PER_MINUTE);
   checkRules(setup, 0, 48, 'eleven a side');

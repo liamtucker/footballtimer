@@ -308,23 +308,21 @@ is not larger than it.
 
 **The pickers.** One component, three slots, no native `<select>`. Press and hold repeats after
 400ms at 8 a second. Ranges: game type 4–11 by 1; game time 30 min–3 h by 15; rotations 1–5 by
-1; interval 3–20 min by 1. Two 44px targets and a number is the most a cold thumb can be asked
+1. Two 44px targets and a number is the most a cold thumb can be asked
 for, it needs no overlay and no dismiss, and it is identical in both orientations. **Kick off**
 is the only filled ink surface in the product except the live bar. Under two names it is a
 hairline button on transparent, and tapping it focuses the short field. No disabled control, no
 dead primary.
 
-**The third slot and the readout are one pair.** Four pickers exist for three slots. The third
-holds `Rotations` `2 each` and the readout under it says `CHANGE EVERY 8:30`; tap the readout
-and they swap — the card becomes `Interval` `10 minutes` and the readout becomes
-`1.7 ROTATIONS EACH`. One slot, two meanings, always the true one, which is the same merge the
-live bar already makes between the way back and the countdown.
+**Three settings and one readout.** `Game`, `Time` and `Rotations` are the three cards, and the
+readout under them says `CHANGE EVERY 8:30`. **The interval is never a setting.** There is no
+fourth picker, no swap and nothing to tap: it is derived from the three above it, always, and it
+freezes at kick-off.
 
-The readout **is a control**, so it takes a control's affordance and not a sentence telling you
-to tap it: a 44px row, a 20px swap glyph in the same weight as every other glyph on the screen,
-and the glyph going to `--ink` on press. It is **not** a fourth setting, so it has no card and
-no fill — it sits under a 1px `--dim` rule, the same rule the `SUBS` divider draws, which here
-means the same thing: what is under this line is not another one of the things above it.
+The readout is **not** a control and **not** a fourth setting, so it has no card, no fill and no
+glyph — it sits under a 1px `--dim` rule, the same rule the `SUBS` divider draws, which here
+means the same thing: what is under this line is not another one of the things above it. It
+keeps its 44px height, because that is the height the settings column is packed against.
 
 The line is one register, not a label beside a value, because it is a sentence. Weight and
 colour carry the number out of the words — 500 at `.28em` in `--ink-3` against 700 at `.1em` in

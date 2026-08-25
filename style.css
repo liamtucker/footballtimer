@@ -406,9 +406,8 @@ button {
 
 /*
  * The derived number. It sits under the rule the three pickers stand on, so it
- * reads as their result and not as a fourth setting — but it swaps the pair
- * over when you tap it, so it is a control, and it takes a control's glyph and
- * a control's 44px target rather than a sentence telling you to tap it.
+ * reads as their result and not as a fourth setting. There is nothing to tap:
+ * the interval cannot be set by hand, it is only ever produced.
  *
  * One register for the whole line, because it is a sentence and not a label
  * beside a value. Weight and colour carry the number out of the words.
@@ -429,11 +428,9 @@ button {
   align-items: center;
   justify-content: center;
   gap: var(--s-pack);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
 }
 
-/* in manual mode the number leads and the words follow: `1.7 ROTATIONS EACH` */
+/* mid-game the number leads and the words follow: `1.8 ROTATIONS EACH` */
 .readout.flip .readout-label { order: 2; }
 
 .readout-label,
@@ -451,17 +448,6 @@ button {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-
-.readout-swap {
-  order: 3;
-  flex: none;
-  width: 20px;
-  height: 20px;
-  display: block;
-  color: var(--ink-3);
-}
-
-.readout:active .readout-swap { color: var(--ink); }
 
 .col-spacer { flex: 1 1 auto; min-height: 0; }
 

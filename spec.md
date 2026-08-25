@@ -57,11 +57,13 @@ Three settings:
   "everyone twice" by choosing a number of minutes — that is arithmetic, and the
   app should do it.
 
-Under the three settings sits the number they produce: `CHANGE EVERY 8:30`.
-Tapping it swaps the pair. The third setting becomes **Interval** — minutes, set
-by hand, 3 to 20 — and the readout becomes what that interval is actually worth:
-`1.7 ROTATIONS EACH`. One slot, two meanings, always the true one. The mode is
-remembered with the squad.
+Under the three settings sits the number they produce: `CHANGE EVERY 8:30`. It
+is a readout and not a fourth setting. **The interval cannot be set by hand.**
+There is no override, no swap and no minutes picker — reaching "everyone twice"
+by choosing a number of minutes is arithmetic, and the app does arithmetic.
+
+A squad saved by an older build may carry an `intervalMode` and a `subMinutes`.
+Both are read and ignored.
 
 Then two teams, `Bibs` and `No bibs`, each an ordered list of names. A name is
 typed into an input and moves up into the list. A row is dragged to reorder it.
@@ -77,7 +79,7 @@ skip, and skipping is the thing that gets negotiated.
 
 Let `N` = the **larger** of the two squads, `G` = game type, `C` = subs.
 
-- **Interval**, in the default mode:
+- **Interval**:
 
   ```
   raw        = game time in ms / (N * rotations)
@@ -89,11 +91,9 @@ Let `N` = the **larger** of the two squads, `G` = game type, `C` = subs.
   rounds so the last rotation always finishes inside the game time. The
   60-second clamp binds at no setting a person would choose.
 
-- **Interval**, with the manual override: the number of minutes, exactly.
-
 - **Rotations, read backwards** = `game time / (N * interval)`, to one decimal
-  place. That is what the manual mode shows, and it is what a frozen interval is
-  worth after a squad has grown.
+  place. It is what a frozen interval is worth after a squad has changed size,
+  and it is what the readout shows once the game is running.
 
 - **Subs per team** = `N − G`, floor 0. Not a setting. A squad smaller than the
   game type simply plays short, which is not an error.

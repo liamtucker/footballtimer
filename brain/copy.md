@@ -68,8 +68,6 @@ for.
 | `setup.gameTime.value` | `2 hours` | 7 |
 | `setup.rotations.label` | `Rotations` | 9 |
 | `setup.rotations.value` | `{n} each` | 6 at 2 |
-| `setup.change.label` | `Interval` | 8 |
-| `setup.change.value` | `10 minutes` | 10 |
 | `setup.readout.every` | `Change every` | 12 |
 | `setup.readout.each` | `rotations each` | 14 |
 | `setup.readout.none` | `—` | 1 |
@@ -78,8 +76,8 @@ for.
 | `setup.restored` | `Delete anyone missing.` | 22 |
 | `setup.edit.aria` | `Edit setup` | 10 |
 
-Each card carries its visible label: `aria-label="Game"`, `"Time"`,
-`"Rotations"` or `"Interval"`.
+Each card carries its visible label: `aria-label="Game"`, `"Time"` or
+`"Rotations"`.
 
 **The three settings, one rule.** *A numeral, then the unit spelled the way it is
 said out loud.* Nothing clipped, no symbols. "six a side", "two hours", "twice
@@ -93,28 +91,26 @@ voice never disagree about a number.
 - `Rotations` `1 each` through `5 each`. `2 each` reads as "everyone goes in goal
   twice", which is the whole idea. Rejected: `2 turns`, which needs a second word
   to say a turn at what; `x2`, which is a symbol.
-- `Interval` `3 minutes` through `20 minutes`. **Singular now.** It labels one
-  duration you set by hand, where `Intervals` labelled the plural fact of them.
 
 Every value fits ten characters, the same ceiling as a name. If the column cannot
 hold ten, shorten all three together. One clipped row is what broke this before.
 
 **The readout.** One sentence under the three cards, saying the number they
-produce, and tapping it swaps the third card for its opposite.
+produce. **There is nothing to tap.** The interval cannot be set by hand, so the
+readout is never a control and the third card is always `Rotations`.
 
-- Working it out: `CHANGE EVERY 8:30`.
-- Set by hand: `1.7 ROTATIONS EACH`.
+- Before kick-off: `CHANGE EVERY 8:30`.
+- Mid-game, on the edit screen: `1.8 ROTATIONS EACH`.
 
 The words move to the other side of the number because both readings put the
-number where the sentence puts it — you change *every* 8:30, and you get *1.7*
+number where the sentence puts it — you change *every* 8:30, and you get *1.8*
 rotations each. `8:30` is a clock, not a spoken unit, and it is the one place
 the numeral rule gives way: everybody reads a countdown, and the countdown on the
 game screen says `8:30` too. The number always
 carries its decimal — `2.0`, never `2` — so the readout is a measurement and not
 a count, and `ROTATIONS EACH` stays plural at every value without lying.
 
-Neither line carries an instruction. `Tap to change` was rejected twice, and the
-design answers it instead — the row is a control, so it wears a control's glyph.
+Neither line carries an instruction, and neither is a control.
 
 An em-dash when neither squad has two names. Nothing is guessed and nothing says
 `0:00`, which would be a number and therefore a lie.
@@ -326,6 +322,9 @@ Deleted strings. Remove them from `COPY` in `app.js`. Do not leave them unused.
   sentence is gone.
 - `Starts in goal`, `in goal`, `Game time`, `Change every`, `sub`, `subs`,
   `no subs`, `off`, `on`. All replaced above.
+- `Interval`, `{n} minutes`, `Set the interval by hand` and `Work the interval
+  out from the rotations`. The manual override is gone: the interval is always
+  derived and never editable.
 
 **For Liam.** `Time` set the game length so the screen could say how long had
 been played. The readout is gone, so `Time` now drives nothing and shows nowhere

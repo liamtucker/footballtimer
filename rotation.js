@@ -15,7 +15,7 @@
  * description of the live order, because a late arrival lands in a slot that no
  * rule about names could predict.
  *
- * THE INTERVAL IS DERIVED FROM ROTATIONS, WITH A MANUAL OVERRIDE
+ * THE INTERVAL IS DERIVED FROM ROTATIONS. THERE IS NO OVERRIDE
  *
  * Nobody can work out an interval that shares the game out evenly. That is
  * arithmetic, so the app does it. `rotations` is how many times each player
@@ -37,15 +37,23 @@
  * each: the eight get exactly twice and the seven get a little more. The other
  * way round the eight come up short, and short is the failure.
  *
- * `intervalMode: 'manual'` throws all of that away. `intervalMs` is then
- * `subMinutes` in milliseconds, exactly as the old model had it, and
- * `rotationsPerPlayer()` reads the sum backwards to say what the manual number
- * actually buys — 1.7 rotations each, not 2. One slot on the screen, two
- * meanings, and always the true one.
+ * There is no way to set the interval by hand. Reaching "everyone twice" by
+ * choosing a number of minutes is arithmetic, and arithmetic on a touchline
+ * gets done wrong. The three settings are Game, Time and Rotations, and the
+ * interval is what they produce.
  *
- * `gameMinutes` is no longer reference only. It sets the interval in the
- * default mode. Nothing still happens when it elapses: the rotation carries on
- * for as long as the app is open.
+ * A setup stored by an older build may carry `intervalMode: 'manual'` and a
+ * `subMinutes`. Both are read and ignored: an old setup behaves as
+ * `rotations` and nothing throws. A game already running keeps its frozen
+ * `intervalMs`, so a phone restored mid-game does not change pace under the
+ * person holding it.
+ *
+ * `rotationsPerPlayer()` reads the same sum backwards, to say what a frozen
+ * interval is worth once the squad it was worked out for has changed size.
+ *
+ * `gameMinutes` is no longer reference only. It sets the interval. Nothing
+ * still happens when it elapses: the rotation carries on for as long as the
+ * app is open.
  *
  * THE INTERVAL FREEZES AT KICK-OFF
  *
@@ -186,14 +194,12 @@ export const MS_PER_MINUTE = 60000;
 export const MIN_GAME_TYPE = 4;
 export const MAX_GAME_TYPE = 11;
 export const DEFAULT_GAME_TYPE = 6;
-export const DEFAULT_SUB_MINUTES = 10;
 export const DEFAULT_GAME_MINUTES = 120;
 export const DEFAULT_TEAM_NAMES = ['Bibs', 'No bibs'];
 
 export const MIN_ROTATIONS = 1;
 export const MAX_ROTATIONS = 5;
 export const DEFAULT_ROTATIONS = 2;
-export const DEFAULT_INTERVAL_MODE = 'rotations';
 
 /* the derived interval lands on a 15-second grid so the number reads cleanly */
 export const INTERVAL_GRAIN_MS = 15000;
@@ -226,12 +232,7 @@ export function gameTypeOf(setup) {
   return Math.max(1, Math.floor(num(setup && setup.gameType, DEFAULT_GAME_TYPE)));
 }
 
-/** The interval, in whole minutes. */
-export function subMinutesOf(setup) {
-  return Math.max(1, Math.floor(num(setup && setup.subMinutes, DEFAULT_SUB_MINUTES)));
-}
-
-/** The whole game, in whole minutes. In the default mode this sets the interval. */
+/** The whole game, in whole minutes. This is one half of the interval sum. */
 export function gameMinutesOf(setup) {
   return Math.max(0, Math.floor(num(setup && setup.gameMinutes, DEFAULT_GAME_MINUTES)));
 }
@@ -239,11 +240,6 @@ export function gameMinutesOf(setup) {
 /** How many times each player goes in goal across the game time. */
 export function rotationsOf(setup) {
   return clamp(Math.floor(num(setup && setup.rotations, DEFAULT_ROTATIONS)), MIN_ROTATIONS, MAX_ROTATIONS);
-}
-
-/** `'rotations'` derives the interval. `'manual'` uses `subMinutes` instead. */
-export function intervalModeOf(setup) {
-  return (setup && setup.intervalMode) === 'manual' ? 'manual' : DEFAULT_INTERVAL_MODE;
 }
 
 /**
@@ -272,8 +268,6 @@ export function subCountFor(squadSize, gameType) {
  *   gameType: 6,
  *   gameMinutes: 120,
  *   rotations: 2,
- *   intervalMode: 'rotations',
- *   subMinutes: 10,
  *   teams: [{ name: 'Bibs', players: ['Zoe', 'Alex', 'Sam'] }, { ... }]
  * })
  *
@@ -289,10 +283,8 @@ export function subCountFor(squadSize, gameType) {
  */
 export function createSetup(input = {}) {
   const gameType = clamp(Math.floor(num(input.gameType, DEFAULT_GAME_TYPE)), MIN_GAME_TYPE, MAX_GAME_TYPE);
-  const subMinutes = Math.max(1, Math.floor(num(input.subMinutes, DEFAULT_SUB_MINUTES)));
   const gameMinutes = Math.max(0, Math.floor(num(input.gameMinutes, DEFAULT_GAME_MINUTES)));
   const rotations = rotationsOf(input);
-  const intervalMode = intervalModeOf(input);
   const frozen = frozenIntervalOf(input);
   const teamsIn = Array.isArray(input.teams) ? input.teams : [];
 
@@ -309,7 +301,7 @@ export function createSetup(input = {}) {
     };
   });
 
-  const setup = { gameType, subMinutes, gameMinutes, rotations, intervalMode, teams };
+  const setup = { gameType, gameMinutes, rotations, teams };
   if (frozen !== null) setup.intervalMs = frozen;
   return setup;
 }
@@ -332,16 +324,6 @@ export function derivedIntervalMs(setup) {
   return Math.max(MIN_INTERVAL_MS, Math.floor(raw / INTERVAL_GRAIN_MS) * INTERVAL_GRAIN_MS);
 }
 
-/** The interval `subMinutes` asks for. Whole minutes, exactly as set. */
-export function manualIntervalMs(setup) {
-  return subMinutesOf(setup) * MS_PER_MINUTE;
-}
-
-/** What the two settings work out to, before any freeze is considered. */
-export function resolveIntervalMs(setup) {
-  return intervalModeOf(setup) === 'manual' ? manualIntervalMs(setup) : derivedIntervalMs(setup);
-}
-
 /**
  * The interval the clock actually runs on.
  *
@@ -350,7 +332,7 @@ export function resolveIntervalMs(setup) {
  * screen can show the number moving as names are typed.
  */
 export function computeIntervalMs(setup) {
-  return frozenIntervalOf(setup) ?? resolveIntervalMs(setup);
+  return frozenIntervalOf(setup) ?? derivedIntervalMs(setup);
 }
 
 /** True once the interval is written down and a roster change cannot move it. */
@@ -361,9 +343,9 @@ export function isIntervalFrozen(setup) {
 /**
  * The sum read backwards: how many rotations the live interval actually buys.
  *
- * One decimal place. This is what a manual interval is worth — `10 minutes` is
- * 1.7 rotations each, not 2 — and it is what a frozen interval is worth after
- * a squad has grown. Null when there is nobody to rotate.
+ * One decimal place. This is what a frozen interval is worth after a squad has
+ * changed size — an eighth player turns up and the 8:30 that meant twice each
+ * is worth 1.8. Null when there is nobody to rotate.
  */
 export function rotationsPerPlayer(setup) {
   const n = squadSizeOf(setup);
@@ -575,7 +557,7 @@ function teamStateAt(team, changeIndex, g) {
  *
  * rotation(setup, elapsedMs) -> {
  *   intervalMs, changeIndex, msToNextChange, elapsedMs, gameMs, gameType,
- *   rotations, intervalMode, frozen,
+ *   rotations, frozen,
  *   teams: [{ name, order, subCount,
  *             keeper, keeperIndex, subs, subIndexes, onPitch, onPitchIndexes,
  *             nextKeeper, nextKeeperIndex, nextSubs, nextSubIndexes,
@@ -603,7 +585,6 @@ export function rotation(setup, elapsedMs) {
     gameMs: gameMinutesOf(setup) * MS_PER_MINUTE,
     gameType,
     rotations: rotationsOf(setup),
-    intervalMode: intervalModeOf(setup),
     frozen: isIntervalFrozen(setup),
     teams: ((setup && setup.teams) ?? []).map((team) => teamStateAt(team, changeIndex, gameType))
   };

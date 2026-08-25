@@ -35,7 +35,6 @@ import {
   legalStartKeepers,
   gameTypeOf,
   rotationsOf,
-  intervalModeOf,
   squadSizeOf,
   computeIntervalMs,
   rotationsPerPlayer,
@@ -45,7 +44,6 @@ import {
   MAX_ROTATIONS,
   DEFAULT_GAME_TYPE,
   DEFAULT_ROTATIONS,
-  DEFAULT_SUB_MINUTES,
   DEFAULT_GAME_MINUTES
 } from './rotation.js';
 
@@ -64,13 +62,12 @@ const COPY = {
   gameTypeLabel: 'Game',
   gameTimeLabel: 'Time',
   rotationsLabel: 'Rotations',
-  changeLabel: 'Interval',
-  /* the readout is one sentence in two halves, and the halves swap over */
+  /* the readout is one sentence. before kick-off it says the interval the
+     three settings produce; mid-game it says what that frozen interval is
+     worth to the squad as it now stands. */
   readoutEvery: 'Change every',
   readoutEach: 'rotations each',
   readoutNone: '—',
-  readoutToManual: 'Set the interval by hand',
-  readoutToRotations: 'Work the interval out from the rotations',
   start: 'Kick off',
   clear: 'Clear all',
   editAria: 'Edit setup',
@@ -137,8 +134,7 @@ function dropKey(key) {
  *   &b=Sam,Tom,Alex           team B squad
  *   &g=7                      game type
  *   &game=120                 the game time
- *   &rot=2                    rotations each. &mode=manual uses &sub instead
- *   &sub=10                   the manual interval, in minutes
+ *   &rot=2                    rotations each
  *   &ka=2 &kb=3               force the starting keeper index per team
  *   &count=0                  skip the kick-off countdown
  *   &auto=1                   kick off as soon as the page loads
@@ -171,10 +167,8 @@ const debug = (() => {
     origin: Date.now(),
     squads: [list('a'), list('b')],
     gameType: int('g'),
-    subMinutes: int('sub'),
     gameMinutes: int('game'),
     rotations: int('rot'),
-    intervalMode: params.get('mode') === 'manual' ? 'manual' : (params.get('mode') === 'rotations' ? 'rotations' : null),
     keepers: [int('ka'), int('kb')],
     countdown: params.get('count') !== '0',
     auto: params.get('auto') === '1'
@@ -209,8 +203,6 @@ const draft = {
   gameType: DEFAULT_GAME_TYPE,
   gameMinutes: DEFAULT_GAME_MINUTES,
   rotations: DEFAULT_ROTATIONS,
-  intervalMode: 'rotations',
-  subMinutes: DEFAULT_SUB_MINUTES,
   names: [[], []],
   keeper: [null, null],
   mode: 'pre',        /* 'pre' before kick-off, 'edit' with a game running */
@@ -248,7 +240,7 @@ const el = {
   values: {
     type: $('type-value'),
     time: $('time-value'),
-    pace: $('pace-value')
+    rotations: $('rotations-value')
   },
   readout: $('readout'),
   readoutLabel: $('readout-label'),
@@ -712,17 +704,15 @@ renderMute();
 /*
  * The interval freezes at kick-off, so an edit mid-game has to carry the frozen
  * number forward or the countdown would jump the moment somebody's name is
- * typed in. It carries it as long as the four settings the number came from are
- * untouched. Move any one of them and this returns undefined, the setup derives
+ * typed in. It carries it as long as the two settings the number came from are
+ * untouched. Move either of them and this returns undefined, the setup derives
  * again, and the new interval lands at the next change like every other edit —
- * which is a person deciding to change the interval, not a squad changing size.
+ * which is a person deciding to change the pace, not a squad changing size.
  */
 function frozenIntervalForDraft() {
   const was = draft.frozen;
   if (!was) return undefined;
-  if (draft.intervalMode !== was.intervalMode) return undefined;
   if (draft.rotations !== was.rotations) return undefined;
-  if (draft.subMinutes !== was.subMinutes) return undefined;
   if (draft.gameMinutes !== was.gameMinutes) return undefined;
   return was.intervalMs;
 }
@@ -732,8 +722,6 @@ function draftSetup() {
     gameType: draft.gameType,
     gameMinutes: draft.gameMinutes,
     rotations: draft.rotations,
-    intervalMode: draft.intervalMode,
-    subMinutes: draft.subMinutes,
     intervalMs: frozenIntervalForDraft(),
     teams: [
       { name: TEAM_NAMES[0], players: draft.names[0] },
@@ -747,8 +735,6 @@ function draftSignature() {
     g: draft.gameType,
     m: draft.gameMinutes,
     r: draft.rotations,
-    i: draft.intervalMode,
-    s: draft.subMinutes,
     n: draft.names,
     k: draft.keeper
   });
@@ -1237,10 +1223,9 @@ for (let t = 0; t < 2; t += 1) {
  * that repeats after 400ms at 8 a second. A bound makes the glyph --dim and
  * inert rather than disabled — there is no dead control here.
  *
- * There are four pickers for three slots. The third slot holds `rotations` or
- * `sub` depending on the mode, and the readout under the three holds whichever
- * of the two numbers the slot is not showing. Both live in the table so the
- * ranges have one home and `onGrid()` can snap a stored value either way.
+ * Three pickers, three slots, and the interval is not one of them. It is not a
+ * setting: it is what Game, Time and Rotations produce, and the readout under
+ * the three says so. `onGrid()` snaps a stored value onto a picker's range.
  */
 
 const PICKERS = {
@@ -1277,24 +1262,13 @@ const PICKERS = {
     get: () => draft.rotations,
     put(value) { draft.rotations = value; renderSetup(); },
     text: (n) => `${n} each`
-  },
-  sub: {
-    label: COPY.changeLabel,
-    min: 3,
-    max: 20,
-    step: 1,
-    get: () => draft.subMinutes,
-    put(value) { draft.subMinutes = value; renderSetup(); },
-    text: (n) => `${n} minutes`
   }
 };
 
-/* three cards on the screen. the third is whichever the mode calls for. */
-const SLOTS = ['type', 'time', 'pace'];
+const SLOTS = ['type', 'time', 'rotations'];
 
 function pickerFor(slot) {
-  if (slot !== 'pace') return PICKERS[slot];
-  return PICKERS[draft.intervalMode === 'manual' ? 'sub' : 'rotations'];
+  return PICKERS[slot];
 }
 
 const stepButtons = [...document.querySelectorAll('.step')];
@@ -1324,10 +1298,6 @@ function applyStaticCopy() {
 
 applyStaticCopy();
 
-/*
- * The third card's label moves with the mode, so every label is written here
- * and not once at boot.
- */
 function renderPickers() {
   for (const slot of SLOTS) {
     const picker = pickerFor(slot);
@@ -1346,34 +1316,19 @@ function renderPickers() {
 }
 
 /*
- * The number the three cards produce, and the way to swap which one of the pair
- * the third card is showing. `CHANGE EVERY 8:30` when the interval is worked
- * out, `1.7 ROTATIONS EACH` when it is set by hand — the same merge the live
- * bar uses, one slot carrying whichever meaning is the true one.
+ * The number the three cards produce: `CHANGE EVERY 8:30`. It is not a
+ * setting and it cannot be set — it is the result of the three above it, and
+ * it moves as names are typed.
  *
  * Under two names in a squad there is no number worth showing, so it shows an
  * em-dash, which is also when the notice below says two names minimum.
  */
 function renderReadout() {
-  const manual = draft.intervalMode === 'manual';
   const setup = draftSetup();
   const known = squadSizeOf(setup) >= 2;
-  let value = COPY.readoutNone;
-  if (known) {
-    value = manual ? rotationsPerPlayer(setup).toFixed(1) : formatCountdown(computeIntervalMs(setup));
-  }
-  el.readoutLabel.textContent = manual ? COPY.readoutEach : COPY.readoutEvery;
-  el.readoutValue.textContent = value;
-  el.readout.classList.toggle('flip', manual);
-  el.readout.setAttribute('aria-label', manual ? COPY.readoutToRotations : COPY.readoutToManual);
+  el.readoutLabel.textContent = COPY.readoutEvery;
+  el.readoutValue.textContent = known ? formatCountdown(computeIntervalMs(setup)) : COPY.readoutNone;
 }
-
-/* the pair swaps over. neither number is lost — the one that leaves the card
-   is the one that arrives in the readout. */
-el.readout.addEventListener('click', () => {
-  draft.intervalMode = draft.intervalMode === 'manual' ? 'rotations' : 'manual';
-  renderSetup();
-});
 
 let holdWait = 0;
 let holdRepeat = 0;
@@ -1962,8 +1917,6 @@ function saveSquad() {
     gameType: draft.gameType,
     gameMinutes: draft.gameMinutes,
     rotations: draft.rotations,
-    intervalMode: draft.intervalMode,
-    subMinutes: draft.subMinutes,
     names: draft.names
   });
 }
@@ -2101,16 +2054,12 @@ function openEdit() {
 
   const live = pending ? pending.setup : epoch.setup;
   draft.gameType = gameTypeOf(live);
-  draft.subMinutes = onGrid('sub', Math.round(live.subMinutes));
   draft.gameMinutes = onGrid('time', Math.round(live.gameMinutes));
   draft.rotations = onGrid('rotations', rotationsOf(live));
-  draft.intervalMode = intervalModeOf(live);
   /* the interval the kick-off froze, with the settings it came from beside it */
   draft.frozen = Number.isFinite(Number(live.intervalMs)) ? {
     intervalMs: Number(live.intervalMs),
-    intervalMode: draft.intervalMode,
     rotations: draft.rotations,
-    subMinutes: draft.subMinutes,
     gameMinutes: draft.gameMinutes
   } : null;
   draft.mode = 'edit';
@@ -2397,11 +2346,8 @@ function loadSquadIntoDraft(squad) {
   if (Number.isFinite(squad.gameType)) draft.gameType = onGrid('type', squad.gameType);
   if (Number.isFinite(squad.gameMinutes)) draft.gameMinutes = onGrid('time', squad.gameMinutes);
   if (Number.isFinite(squad.rotations)) draft.rotations = onGrid('rotations', squad.rotations);
-  if (Number.isFinite(squad.subMinutes)) draft.subMinutes = onGrid('sub', squad.subMinutes);
-  /* the mode is part of the squad, so it survives between games */
-  if (squad.intervalMode === 'manual' || squad.intervalMode === 'rotations') {
-    draft.intervalMode = squad.intervalMode;
-  }
+  /* a squad saved by the build that had the manual override carries an
+     `intervalMode` and a `subMinutes`. Both are read and ignored. */
 }
 
 function restoreGame() {
@@ -2471,10 +2417,8 @@ if (debug) {
 function boot() {
   if (debug) {
     if (Number.isFinite(debug.gameType)) draft.gameType = debug.gameType;
-    if (Number.isFinite(debug.subMinutes)) draft.subMinutes = debug.subMinutes;
     if (Number.isFinite(debug.gameMinutes)) draft.gameMinutes = debug.gameMinutes;
     if (Number.isFinite(debug.rotations)) draft.rotations = debug.rotations;
-    if (debug.intervalMode) draft.intervalMode = debug.intervalMode;
     for (let t = 0; t < 2; t += 1) {
       if (debug.squads[t]) draft.names[t] = debug.squads[t].slice(0, 24);
     }
