@@ -404,6 +404,27 @@ button {
 
 .notice { color: var(--ink-3); }
 
+/* a text control, deliberately not a button shape. Clearing is not the thing
+   that happens on this screen — kicking off is — so it must never read as a
+   second primary. */
+.clear {
+  align-self: center;
+  margin: var(--s-edge) 0 0;
+  background: none;
+  border: 0;
+  padding: var(--s-pack) var(--s-part);
+  color: var(--ink-3);
+  font-size: var(--t-eyebrow);
+  font-weight: 500;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.clear[hidden] { display: none; }
+
 /* the same button as the confirm's two, so the ink means the same thing in
    both places: this is the thing that happens */
 .start {

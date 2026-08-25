@@ -57,6 +57,7 @@ const COPY = {
   gameTimeLabel: 'Time',
   changeLabel: 'Intervals',
   start: 'Kick off',
+  clear: 'Clear all',
   editAria: 'Edit setup',
   homeAria: 'End the game',
   endWarning: 'This will end your current game.',
@@ -227,6 +228,7 @@ const el = {
   },
   notice: $('notice'),
   start: $('start'),
+  clear: $('clear'),
   livebar: $('livebar'),
   liveClock: $('live-clock'),
   liveNote: $('live-note'),
@@ -813,6 +815,13 @@ function renderSetup() {
   el.livebar.hidden = !editing;
   el.setup.classList.toggle('live', editing);
   el.start.classList.toggle('hairline', !valid);
+
+  /* Clear all empties both lists. It exists because the squad is remembered
+     between games, and a remembered squad with no way out is a trap. It never
+     shows mid-game — ending the game is the stop square, and the two must not
+     be confused. */
+  el.clear.textContent = COPY.clear;
+  el.clear.hidden = editing || !anyTyped;
 
   const dirty = editing && (state.pendingEdit ||
     (draft.signature !== '' && draftSignature() !== draft.signature));
@@ -1852,6 +1861,17 @@ function saveSquad() {
     names: draft.names
   });
 }
+
+/* empties both lists and forgets the remembered squad. Never mid-game: the
+   button is hidden then, so this cannot cost a running rota. */
+el.clear.addEventListener('click', () => {
+  if (draft.mode === 'edit') return;
+  draft.names = [[], []];
+  draft.keeper = [null, null];
+  if (!debug) dropKey(KEY_SQUAD);
+  renderSetup();
+  el.inputs[0].focus();
+});
 
 el.start.addEventListener('click', () => {
   const sizes = draft.names.map((names) => names.length);
