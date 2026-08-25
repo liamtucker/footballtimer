@@ -91,6 +91,20 @@ thing from the name, which is what it is.
 that is being shrunk to fit takes the same `--fit` multiplier the type does; a gap that did not
 shrink would push the last name out of its column.
 
+## The sounds
+
+**One alarm, two and a half seconds, the same at kick-off and at every changeover, and it
+finishes before the first word.** The whistle it replaces was band-passed noise around 3.4kHz,
+and it was inaudible on a touchline: noise spreads its energy over a wide band, so peak amplitude
+buys almost no loudness. Rendered through an `OfflineAudioContext` at 48kHz it measured peak
+0.344, RMS 0.075. The alarm — square oscillators alternating 1047Hz and 1397Hz at 2Hz, through a
+soft clipper and a 6.5kHz lowpass — measures peak 0.936, RMS 0.469. That is 15.9dB, and it does
+not clip. A tonal source in the band where a small driver and a human ear are both most sensitive
+is the whole of the difference.
+
+It alternates rather than holding one note because an alternating pair reads as an alarm and a
+held note reads as a fault.
+
 ## Tokens
 
 ```
@@ -211,11 +225,18 @@ meaning anything. Instead the rows are `auto`, the pin inside a row becomes one 
 air lands around the groups instead of inside them, which is the same rule the landscape spacing
 runs on. No type value is overridden; the rung-down rule has done it.
 
-**The mute.** `volume-2` in `--ink-3`, on by default. Muted is not a quieter icon but a louder
-one: `volume-x` inside a filled 28px `--off` circle, plus the spine's conditional eyebrow.
-Filled among two outline icons reads at a glance without depending on colour, and it is the same
-size and weight as the pencil beside it, so it is not a second primary. **It appears wherever
+**The mute carries three states, and two of them look alike.** On is `volume-2` in `--ink-3`.
+Muted is the same icon with a line through all of it. Broken is the speaker with **no waves at
+all** and a cross where they were, in `--off`. Muted and broken mean opposite things, so shape
+separates them before colour does: muted still has its waves, because the sound is there and has
+been switched off, and broken has none, because there is nothing to switch. On the ink bar the
+colour is dropped and the shape carries it alone. Muted wins over broken. **It appears wherever
 the voice is live** — the game screen and the live bar — and nowhere on setup before kick-off.
+
+**No fault is a word on this screen.** `No voice` was a text label doing an icon's job, and
+`Screen may sleep` names a fault that announces itself the moment the screen goes dark. The
+spine's conditional eyebrow says one thing only, that an edit is pending. Both strings live on
+in a visually hidden `role="status"` line.
 
 ---
 
@@ -228,7 +249,7 @@ whoever is leaving it.** The arrow describes the player, not the slot, so the in
 green ↑ and the incoming sub is red ↓ — he is coming off the pitch. The eyebrow never changes.
 
 ```
-t 0      = T−10s. chime, then speechSynthesis speaks the change
+t 0      = T−10s. the alarm, 2.5s. then the chime and the names, from 2.65s
          ground → #FFFFFF, 200ms. drift advances one step, 600ms
 t 0–140  hold. the stillness is what makes the move read as a consequence
 t 140    keeper out: --ink → --off, translateY down to the bottom line, scaling to lead,
@@ -242,7 +263,7 @@ t 200    sub slot the same at lead: the new sub turns --off with a ↓, the old 
          on line 3 in --on with a ↑, 400ms
 t 640    settled. colours, arrows and the count hold for the rest of the window
 t 1–9s   the clock ticks down as it always does. no size change, no sound
-t 10s    = T. whistle. ground → --ground 300ms; green → --ink and the ↑ fades, 250ms;
+t 10s    = T. ground → --ground 300ms; green → --ink and the ↑ fades, 250ms;
          the outgoing names fade, the strip rebuilds and fades in, 250ms. no travel back
 ```
 
@@ -282,7 +303,10 @@ picker   72px card, radius 12, --surface, inset 0 0 0 1px --hair, padding-top 6p
 readout  44px, full width, no fill, a 1px --dim rule along its top, --s-pack above.
          one line centred: eyebrow/500/.28em --ink-3 beside eyebrow/700/.1em --ink,
          then a 20px swap glyph in --ink-3. the whole row is the target
-kick off 56px, radius 12, --ink fill, white body / 700
+kick off 56px, radius 12, --ink fill, white body / 700. flex 1 in a row with
+         the sound test, which is 56x56, radius 12, inset 0 0 0 1px --ink, no
+         fill, a 24px speaker glyph. broken swaps the glyph and the edge to
+         --off
 ```
 
 Every gap in the settings column is `--s-pack`: between the three cards, above the readout and
@@ -298,8 +322,14 @@ enterkeyhint="next"` — autocorrect mangles names and a mangled name gets spoke
 meta, all of it: `width=device-width, initial-scale=1, viewport-fit=cover,
 interactive-widget=resizes-content`.
 
-**The list.** Drag anywhere on the row to reorder: it takes the shadow and `scale(1.02)`, the
-others move on a 200ms transform, the gap it left stays open. Tap a name to make them the
+**The list. A drag is armed by a hold, never by a move.** 400ms of stillness on a row takes it:
+it lifts to `scale(1.045)` on a 140ms transition, takes the shadow, and the phone buzzes for 12ms
+where it can. The others move on a 200ms transform and the gap it left stays open. Before the
+hold lands the row carries `touch-action: pan-y` and the page scrolls exactly as it would over
+any other list — which is the whole point, because a squad of nine could not be scrolled at all
+when every row was `touch-action: none` and every finger lands on a name. Only the armed drag
+suppresses the scroll, with `preventDefault` on a non-passive `touchmove`, and it works because
+a finger that has been still for 400ms has not started a scroll for the browser to commit to. Tap a name to make them the
 starting keeper: the row fills `--ink` with white text and an eyebrow at 60% white, right
 aligned so every name keeps the same left edge; a name below the divider moves to the last pitch
 position first, 250ms. One filled row per team, none by default — the keeper is drawn at random
@@ -349,10 +379,13 @@ and a divider, so the divider falls below the fold on a 390 px landscape and the
 scrolled to reach it. Nothing shorter than the bar is available: it carries the countdown at
 `count`, which is 40 px of type.
 
-**Portrait** — one column, `display: flex`, `gap: 28px`, `padding: 16px 16px 96px`; the page
-scrolls, the lists do not. **The settings come first**, because the game type sets where the
-divider falls and you pick it before typing a name. Kick off is `position: fixed` at the bottom
-over a 96px `linear-gradient(transparent, --ground 60%)`. No shadow.
+**Portrait** — one column, `display: flex`, `gap: 28px`, `padding: 16px`; the page scrolls, the
+lists do not. **Nothing is pinned over the content.** Adding names *is* this screen, and a button
+fixed to the bottom of the viewport sat on the field the names are typed into. So `.settings-col`
+becomes `display: contents` and its two halves become items of the page: the settings go first,
+because the game type sets where the divider falls and you pick it before typing a name, and Kick
+off goes last, under both lists, scrolled to and never scrolled past. No gradient, no shadow, no
+fixed anything.
 
 ---
 

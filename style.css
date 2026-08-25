@@ -117,6 +117,23 @@ button {
   line-height: 1.2;
 }
 
+/*
+ * A fault that has an icon does not also get a word. This is where the words
+ * live instead — for a reader that cannot see the icon, and for nothing else.
+ */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* the messages are not labels — they are sentences, and they keep their case */
 .notice {
   font-size: var(--t-body);
@@ -441,6 +458,18 @@ button {
 /* mid-game the number leads and the words follow: `1.8 ROTATIONS EACH` */
 .readout.flip .readout-label { order: 2; }
 
+/*
+ * The row borrows itself to the sound test's answer. It is the settings
+ * column's result line and this is a result, it sits next to the control that
+ * produced it, and it goes away the moment anything on the screen changes.
+ */
+.readout.report .readout-value {
+  letter-spacing: 0;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.15;
+}
+
 .readout-label,
 .readout-value {
   font-size: var(--t-eyebrow);
@@ -464,6 +493,30 @@ button {
 .col-spacer { flex: 1 1 auto; min-height: 0; }
 
 .foot { flex: none; display: flex; flex-direction: column; gap: var(--s-pack); }
+
+/*
+ * The sound test sits beside Kick off because that is when it is used: the
+ * last thing before the game, in the same reach as the thing that starts it.
+ * It is a control, so it takes a control's edge and a control's 56px target —
+ * the same button as Kick off without the fill, because it is not the thing
+ * that happens on this screen.
+ */
+.start-row { display: flex; gap: var(--s-pack); }
+.start-row .start { flex: 1 1 auto; }
+
+.test {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.test svg { width: 24px; height: 24px; display: block; }
+.test:active { background: rgba(18, 18, 20, .06); }
+.test.broken { color: var(--off); box-shadow: inset 0 0 0 1px var(--off); }
 
 .notice { color: var(--ink-3); }
 
@@ -860,6 +913,17 @@ button {
   flex: none;
 }
 .icon-btn svg { width: 24px; height: 24px; display: block; }
+
+/*
+ * Three states, and broken has to be unmistakable against muted because they
+ * look alike and mean opposite things. Muted keeps its waves and takes a line
+ * through the whole icon — the sound is there and it is switched off. Broken
+ * has no waves at all and a cross where they were — there is no sound to
+ * switch. Shape first, position second, colour third.
+ */
+.icon-btn.mute.broken { color: var(--off); }
+/* on the ink bar the shape carries it alone: --off on near-black is unreadable */
+.livebar .icon-btn.mute.broken { color: #FFFFFF; }
 
 /* --------------------------------------------------------- the confirm */
 

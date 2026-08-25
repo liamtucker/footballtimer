@@ -133,7 +133,12 @@
 
     <div class="foot">
       <div class="notice" id="notice" hidden></div>
-      <button class="start" id="start" type="button">Kick off</button>
+      <!-- the sound is checked before the game, not discovered during it. it
+           is also the gesture iOS wants before it will speak. -->
+      <div class="start-row">
+        <button class="test" id="test" type="button"></button>
+        <button class="start" id="start" type="button">Kick off</button>
+      </div>
     </div>
 
   </div>
@@ -180,6 +185,7 @@
     <div class="clock" id="clock">0:00</div>
     <div class="spine-foot">
       <div class="notes eyebrow" id="notes"></div>
+      <p class="sr-only" id="faults" role="status"></p>
       <div class="spine-icons">
         <button class="icon-btn" id="home" type="button" aria-label="End the game">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

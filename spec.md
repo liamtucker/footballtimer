@@ -15,7 +15,12 @@ the order drifted, settling it went back to whoever argued hardest.
 
 A screen you set up during the warm-up and then don't touch. It shows who is in
 goal and who is the sub, for both teams, and a countdown to the next change. At
-the change it says the names out loud.
+the change an alarm sounds and it says the names out loud.
+
+**The voice says the state, not the transition**, in the words the screen uses:
+`Bibs. Goal, Umar. Sub, Kevin.` A state is true for the whole of the next
+shift; a transition is true for a second, and whoever looked up late has missed
+it.
 
 The sub reads it out anyway — they are the one person standing still with
 nothing to do, and they have no social cost in calling a name because they are
@@ -46,7 +51,7 @@ one of them is the wrong feature.
 
 Entered during the warm-up. Two screens exist and this is the first.
 
-Three settings:
+Three settings, one readout and one control:
 
 - **Game type.** Players on the pitch per team, 4 to 11. Default 6.
 - **Game time.** Default 2 hours. Nothing happens when it elapses — the rotation
@@ -64,6 +69,12 @@ by choosing a number of minutes is arithmetic, and the app does arithmetic.
 
 A squad saved by an older build may carry an `intervalMode` and a `subMinutes`.
 Both are read and ignored.
+
+Beside `Kick off` sits **the sound test**. One tap speaks a line and sounds the
+alarm, so the sound is checked in the warm-up rather than discovered at the
+first change. It is also the user gesture iOS wants before it will speak at
+all, and its answer — how many voices the phone has, whether the utterance
+started, whether it errored — is written into the readout's row.
 
 Then two teams, `Bibs` and `No bibs`, each an ordered list of names. A name is
 typed into an input and moves up into the list. A row is dragged to reorder it.
@@ -193,10 +204,11 @@ who is in goal and who is the sub, for each team. Nothing names the players who
 are simply playing — being on the pitch is the default state.
 
 At each change: a ten-second changeover window with its own countdown, showing
-who comes off and who goes on, with colour and arrows. A whistle marks the
-moment. The voice says the names.
+who comes off and who goes on, with colour and arrows. An alarm opens the
+window and the voice says the names after it.
 
-Kick-off runs a ten-second countdown and a whistle before change 0.
+Kick-off runs a ten-second countdown, then the same alarm and the same spoken
+line before change 0.
 
 ## Settled
 

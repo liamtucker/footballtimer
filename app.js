@@ -88,6 +88,13 @@ const COPY = {
   pending: 'Edits land at the next change',
   noVoice: 'No voice',
   noLock: 'Screen may sleep',
+  testAria: 'Test the sound',
+  /* the sound test's answer, in the readout's own register. it is read back
+     to somebody who is not holding the phone, so every field says its name. */
+  report: 'VOICES {v} · QUEUED {q} · START {s} · END {e} · ERROR {x}',
+  reportYes: 'YES',
+  reportNo: 'NO',
+  reportNone: 'NONE',
   chipLabel: 'Next change',
   muteOn: 'Mute voice',
   muteOff: 'Unmute voice',
@@ -228,7 +235,11 @@ const state = {
   pendingEdit: false,
   degradedVoice: false,
   degradedLock: false,
-  muted: false
+  shownBroken: false,
+  muted: false,
+  /* the sound test's answer, and the draft it was true for */
+  soundReport: '',
+  soundReportFor: ''
 };
 
 const $ = (id) => document.getElementById(id);
@@ -250,7 +261,9 @@ const el = {
   readoutLabel: $('readout-label'),
   readoutValue: $('readout-value'),
   notice: $('notice'),
+  faults: $('faults'),
   start: $('start'),
+  test: $('test'),
   clear: $('clear'),
   livebar: $('livebar'),
   liveClock: $('live-clock'),
@@ -626,31 +639,62 @@ function announce(lines) {
  * a spine and mean opposite things.
  */
 
-const SPEAKER = '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/>' +
-  '<path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>';
+/*
+ * THREE STATES IN ONE ICON
+ *
+ * On, muted by choice, and broken. The last two look alike and mean opposite
+ * things, so they cannot differ by colour alone:
+ *
+ *   on      the speaker and its two waves
+ *   muted   the same icon, with a line drawn through the whole of it — the
+ *           sound is there and it has been switched off
+ *   broken  the speaker with no waves at all and a cross where they were —
+ *           there is nothing to switch off
+ *
+ * Shape first, then where the mark sits, then colour. `--off` is third and it
+ * is dropped entirely on the ink bar, where it cannot be read.
+ *
+ * Muted wins over broken. A muted phone that also cannot speak is a muted
+ * phone: it is doing what it was told, and `No voice` on top of that is a
+ * fault report for a fault nobody has.
+ */
 
-const ICON_SVG = (extra) =>
+const SPEAKER = '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/>';
+const WAVES = '<path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>';
+const SLASH = '<path d="m3 3 18 18"/>';
+const CROSS = '<path d="m16.5 9 5 6"/><path d="m21.5 9-5 6"/>';
+
+const ICON_SVG = (body) =>
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
   'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  SPEAKER + extra + '</svg>';
+  SPEAKER + body + '</svg>';
 
-const ICON_UNMUTED = ICON_SVG('');
-const ICON_MUTED = ICON_SVG('<path d="m3 3 18 18"/>');
+const ICON_ON = ICON_SVG(WAVES);
+const ICON_MUTED = ICON_SVG(WAVES + SLASH);
+const ICON_BROKEN = ICON_SVG(CROSS);
+
+/** True when the voice has failed and nobody asked for silence. */
+function voiceBroken() {
+  return state.degradedVoice && !state.muted;
+}
 
 function renderMute() {
-  const label = state.muted ? COPY.muteOff : COPY.muteOn;
+  const broken = voiceBroken();
+  const label = state.muted ? COPY.muteOff : (broken ? COPY.noVoice : COPY.muteOn);
   for (const node of document.querySelectorAll('.mute')) {
-    node.innerHTML = state.muted ? ICON_MUTED : ICON_UNMUTED;
+    node.innerHTML = state.muted ? ICON_MUTED : (broken ? ICON_BROKEN : ICON_ON);
     node.setAttribute('aria-label', label);
     node.setAttribute('aria-pressed', state.muted ? 'true' : 'false');
+    node.classList.toggle('broken', broken);
   }
+  state.shownBroken = broken;
 }
 
 function toggleMute() {
   state.muted = !state.muted;
   if (state.muted) {
     announceToken += 1;
-    try { speechSynthesis.cancel(); } catch (error) { /* ignore */ }
+    clearVoice();
   }
   renderMute();
   setNotes();
@@ -818,6 +862,10 @@ function renderSetup() {
   /* the ink moves: a corner button before kick-off, the top bar during */
   const editing = draft.mode === 'edit';
   el.start.hidden = editing;
+  /* the test belongs to the warm-up. mid-game the live bar carries the mute,
+     and the sound has already proved itself or not. */
+  el.test.hidden = editing;
+  renderTest();
   el.livebar.hidden = !editing;
   el.setup.classList.toggle('live', editing);
   el.start.classList.toggle('hairline', !valid);
@@ -833,6 +881,137 @@ function renderSetup() {
     (draft.signature !== '' && draftSignature() !== draft.signature));
   el.liveNote.textContent = dirty ? COPY.pending : '';
 }
+
+/* =========================================================== sound test */
+
+/*
+ * One tap plays the alarm and speaks a line, so the sound is checked before
+ * the game rather than discovered during it. It does real work besides: iOS
+ * will not speak later in a session unless it has spoken once inside a user
+ * gesture, and this is a gesture that speaks. That is why the line goes first
+ * and the alarm second — the `speak()` has to happen in the same tick as the
+ * tap, and it is also the order a changeover uses.
+ *
+ * The answer is written into the readout, because a person reading it out to
+ * somebody else needs the words, and because a sound test that says nothing
+ * when it fails is the thing being fixed.
+ */
+
+/*
+ * A real line, from the names already on the screen, because the point is to
+ * hear whether the engine can say these names. It is a sample and not a
+ * claim: nothing has been drawn yet, so it takes the first legal start.
+ */
+function sampleLine() {
+  for (let t = 0; t < 2; t += 1) {
+    const names = draft.names[t];
+    if (names.length === 0) continue;
+    const at = draft.keeper[t] == null ? Math.min(1, names.length - 1) : draft.keeper[t];
+    const subs = names.slice(draft.gameType).map((name) => ({ name }));
+    return lineFor(t, { name: names[at] }, subs);
+  }
+  /* an empty screen still has to prove the voice, and it invents nobody */
+  return `${said(TEAM_NAMES[0])}. ${said(TEAM_NAMES[1])}.`;
+}
+
+function reportText(seen) {
+  const yn = (value) => (value ? COPY.reportYes : COPY.reportNo);
+  return COPY.report
+    .replace('{v}', String(seen.voices))
+    .replace('{q}', yn(seen.queued))
+    .replace('{s}', yn(seen.started))
+    .replace('{e}', yn(seen.ended))
+    .replace('{x}', seen.error ? String(seen.error).toUpperCase() : COPY.reportNone);
+}
+
+function showReport(seen) {
+  state.soundReport = reportText(seen);
+  state.soundReportFor = draftSignature();
+  renderReadout();
+  /* the icon is the answer for anyone who is not reading the line */
+  renderTest();
+  renderMute();
+}
+
+/*
+ * The voice, instrumented. It does not go through `speak()`: that one is
+ * built to keep an announcement moving, and this one is built to say what
+ * happened. It also ignores the mute, because the mute is a setting and this
+ * is a test of the phone.
+ */
+function testVoice(then) {
+  const seen = { voices: voiceCount(), queued: false, started: false, ended: false, error: null };
+  let moved = false;
+  const move = () => {
+    if (moved) return;
+    moved = true;
+    then();
+  };
+  showReport(seen);
+
+  if (!haveVoice()) {
+    seen.error = 'unsupported';
+    state.degradedVoice = true;
+    showReport(seen);
+    move();
+    return;
+  }
+
+  const text = sampleLine();
+  try {
+    clearVoice();
+    speechSynthesis.resume();
+    const utterance = utteranceFor(text);
+    utterance.onstart = () => {
+      seen.started = true;
+      state.degradedVoice = false;
+      showReport(seen);
+    };
+    utterance.onend = () => {
+      seen.ended = true;
+      showReport(seen);
+      move();
+    };
+    utterance.onerror = (event) => {
+      seen.error = (event && event.error) || 'unknown';
+      state.degradedVoice = true;
+      showReport(seen);
+      move();
+    };
+    speechSynthesis.speak(utterance);
+    seen.queued = speechSynthesis.speaking || speechSynthesis.pending;
+    showReport(seen);
+    /* `speaking` proves nothing and `start` proves everything */
+    window.setTimeout(() => {
+      if (seen.started) return;
+      state.degradedVoice = true;
+      showReport(seen);
+    }, VOICE_START_MS);
+    window.setTimeout(move, sayMs(text));
+  } catch (error) {
+    seen.error = 'threw';
+    state.degradedVoice = true;
+    showReport(seen);
+    move();
+  }
+}
+
+function runSoundTest() {
+  markGesture();
+  testVoice(() => { alarm(); });
+}
+
+function renderTest() {
+  const broken = state.degradedVoice;
+  el.test.innerHTML = broken ? ICON_BROKEN : ICON_ON;
+  el.test.classList.toggle('broken', broken);
+  el.test.setAttribute('aria-label', broken ? COPY.noVoice : COPY.testAria);
+}
+
+el.test.addEventListener('click', (event) => {
+  event.preventDefault();
+  runSoundTest();
+});
 
 /* --------------------------------------------------------- the marker */
 
@@ -1354,18 +1533,50 @@ function renderPickers() {
 }
 
 /*
- * The number the three cards produce: `CHANGE EVERY 8:30`. It is not a
- * setting and it cannot be set — it is the result of the three above it, and
- * it moves as names are typed.
+ * THE ROW ANSWERS THE QUESTION THAT IS LIVE
+ *
+ * Before kick-off: `CHANGE EVERY 8:30`, the number the three cards produce. It
+ * is not a setting and it cannot be set, and it moves as names are typed.
+ *
+ * Mid-game: `1.8 ROTATIONS EACH`. The interval froze at kick-off, so repeating
+ * the frozen clock back would be repeating something the person already set.
+ * What they cannot see is what it is now worth: he asked for twice each with
+ * seven, an eighth turned up, and 8:30 quietly became 1.8 rotations each. The
+ * engine has always known that number and nothing showed it.
  *
  * Under two names in a squad there is no number worth showing, so it shows an
  * em-dash, which is also when the notice below says two names minimum.
  */
 function renderReadout() {
+  /* the sound test borrows the row, until anything on the screen changes */
+  if (state.soundReport && state.soundReportFor !== draftSignature()) {
+    state.soundReport = '';
+    state.soundReportFor = '';
+  }
+  if (state.soundReport) {
+    el.readout.classList.add('report');
+    el.readout.classList.remove('flip');
+    el.readoutLabel.textContent = '';
+    el.readoutValue.textContent = state.soundReport;
+    return;
+  }
+  el.readout.classList.remove('report');
+
   const setup = draftSetup();
   const known = squadSizeOf(setup) >= 2;
-  el.readoutLabel.textContent = COPY.readoutEvery;
-  el.readoutValue.textContent = known ? formatCountdown(computeIntervalMs(setup)) : COPY.readoutNone;
+  const live = draft.mode === 'edit';
+  const worth = live && known ? rotationsPerPlayer(setup) : null;
+
+  let value = COPY.readoutNone;
+  if (live) {
+    if (worth != null) value = worth.toFixed(1);
+  } else if (known) {
+    value = formatCountdown(computeIntervalMs(setup));
+  }
+
+  el.readoutLabel.textContent = live ? COPY.readoutEach : COPY.readoutEvery;
+  el.readoutValue.textContent = value;
+  el.readout.classList.toggle('flip', live);
 }
 
 let holdWait = 0;
@@ -1829,14 +2040,24 @@ function setClock(text, pop) {
   el.clock.classList.add('pop');
 }
 
+/*
+ * The spine says one thing and it is not a fault. `No voice` was a text label
+ * doing an icon's job, and the speaker icon does that job now; `Screen may
+ * sleep` names a fault that announces itself the moment the screen goes dark.
+ * Both keep their words, in the one place words are still worth having.
+ */
 function setNotes() {
-  const lines = [];
-  if (state.pendingEdit) lines.push(COPY.pending);
-  if (state.degradedVoice && !state.muted) lines.push(COPY.noVoice);
-  if (state.degradedLock) lines.push(COPY.noLock);
-  const text = lines.join(' · ');
-  if (el.notes.textContent === text) return;
-  el.notes.textContent = text;
+  const notes = state.pendingEdit ? COPY.pending : '';
+  if (el.notes.textContent !== notes) el.notes.textContent = notes;
+
+  const faults = [];
+  if (voiceBroken()) faults.push(COPY.noVoice);
+  if (state.degradedLock) faults.push(COPY.noLock);
+  const said = faults.join('. ');
+  if (el.faults.textContent !== said) el.faults.textContent = said;
+
+  /* the icon is rebuilt only when the answer changes, not 4 times a second */
+  if (voiceBroken() !== state.shownBroken) renderMute();
 }
 
 /* ================================================================== tick */
@@ -1987,6 +2208,7 @@ el.start.addEventListener('click', () => {
   /* the gesture iOS needs, for both the audio context and the voice */
   markGesture();
   unlockVoice();
+  state.soundReport = '';
   saveSquad();
   beginKickOff();
 });

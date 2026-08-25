@@ -216,82 +216,134 @@ able to read it.
 
 ## Sound controls
 
-**The mute is an icon and nothing else.** A speaker, and a speaker with a slash.
-The state proves itself within one interval: the change comes and it either
-speaks or it does not. A word beside it would say what the icon says.
+**The mute is an icon and nothing else.** It carries three states and no words:
+
+| state | icon | means |
+|---|---|---|
+| on | a speaker and its two waves | the voice will speak |
+| muted | the same icon, a line drawn through all of it | switched off on purpose |
+| broken | the speaker with no waves, and a cross where they were | it cannot speak |
+
+Muted and broken look alike and mean opposite things, so they differ by shape
+first — muted keeps its waves, broken has none — then by where the mark sits,
+then by colour. `--off` is third, and it is dropped on the ink bar where it
+cannot be read.
+
+**Muted wins over broken.** A muted phone that also cannot speak is a muted
+phone. It is doing what it was told.
 
 | key | string | count |
 |---|---|---|
 | `mute.aria.on` | `Mute voice` | 10 |
 | `mute.aria.off` | `Unmute voice` | 12 |
+| `mute.aria.broken` | `No voice` | 8 |
 
-The label names the action, not the state, and swaps with the state. `voice` is
-in it because the whistle and the chime are separate sounds. Drop to `Mute` [4]
-and `Unmute` [6] only if the control silences everything.
+The label names the action and swaps with the state, except when the voice is
+broken, where it names the state — there is no action to offer.
 
-**Muted is not a fault.** Suppress `No voice` while muted. The two look alike and
-mean opposite things.
+**`No voice` and `Screen may sleep` are not on the screen.** Both were text
+labels doing an icon's job. The speaker icon says the first. The second says
+itself the moment the screen goes dark. The words survive in a visually hidden
+`role="status"` line in the spine, for a reader who cannot see the icon.
 
 | key | string | count |
 |---|---|---|
 | `notice.noVoice` | `No voice` | 8 |
 | `notice.noLock` | `Screen may sleep` | 16 |
 
+## The sound test
+
+One control on the setup screen, beside `Kick off`. It speaks a line and then
+sounds the alarm, so the sound is checked before the game rather than
+discovered during it.
+
+| key | string | count |
+|---|---|---|
+| `test.aria` | `Test the sound` | 14 |
+
+**No instruction anywhere near it.** It is a speaker icon in a 56px button with
+a hairline edge — the same button as `Kick off`, without the fill.
+
+**Its answer takes the readout's row**, because that row is the settings
+column's result line and this is a result. It clears itself the moment anything
+on the screen changes.
+
+```
+VOICES {n} · QUEUED {YES|NO} · START {YES|NO} · END {YES|NO} · ERROR {code|NONE}
+```
+
+`VOICES 191 · QUEUED YES · START NO · END NO · ERROR NONE`
+
+This is the one place a diagnostic is written out in words, and the reason is
+that it gets read down a phone to somebody who is not holding it. Every field
+says its own name. `QUEUED` is whether `speechSynthesis.speaking` went true,
+which proves the utterance was accepted and nothing else. `START` is the one
+that proves a voice.
+
 ## The spoken line
 
-Nobody is looking at the screen. It plays through a phone into a speaker, at the
-**start** of the ten seconds, so the named players have the countdown to walk.
-The whistle lands at the end.
+Nobody is looking at the screen. It plays through a phone into a speaker.
 
-- **Chime.** Names follow. One short tone, the same tone every time, no melody,
-  about 400 ms. It sounds before each team.
-- **Whistle.** The change is now. Nothing else uses it.
+- **Alarm.** The moment is now. Two and a half seconds of two-tone klaxon, the
+  same sound at kick-off and at every changeover, and **it finishes before the
+  first word.** A spoken name underneath it is a spoken name nobody hears.
+- **Chime.** Names follow. One short tone, the same every time, about 330ms. It
+  sounds before each team, and it marks the seam where a half-listening player
+  has to re-latch.
 
-A sleeping Bluetooth speaker eats the first token of any audio, so nothing that
-carries information may go first. The chime absorbs that. It sounds before
-**each** team to mark the seam where a half-listening player has to re-latch.
-
-**The voice keeps the grammar the screen dropped.** The screen says `GOAL`. The
-voice says "Chris in goal". A label and a sentence are different jobs.
-
-**Template, a normal change.**
+**Template. One, for every change and for kick-off alike.**
 
 ```
-[chime] {teamA}. {keeperA} in goal. {subsA} off. [chime] {teamB}. {keeperB} in goal. {subsB} off.
+[chime] {team}. Goal, {keeper}. {Sub|Subs}, {names}.
 ```
 
-`Bibs. Chris in goal. Mo off.` [chime] `No bibs. Sam in goal. Alex off.`
+It states **the state, not the transition**: who is in goal and who is sitting
+down. A state is true for the next ten minutes; a transition is true for a
+second, and a person who looked up late has missed it. `{names}` is one name,
+or `{name} and {name}` for two.
 
-**Template, kick-off.** Nobody comes "off" at kick-off, they never went on.
+At a changeover the line describes the state **after** the change, which is ten
+seconds away. At kick-off it describes the state about to start. Bibs first,
+always.
+
+**It is the words the screen shows.** The eyebrows are `GOAL` and `SUB`/`SUBS`,
+and the voice says goal, sub and subs. Screen and voice finally agree. `SUB` is
+stored uppercase because the eyebrow is set from it directly, and read aloud
+that is three letters — so the voice takes the same word in the case a sentence
+is written in.
+
+A seven-man team, six a side, one sub:
 
 ```
-[chime] {teamA}. {keeperA} in goal. Sub, {subsA}. [chime] {teamB}. {keeperB} in goal. Sub, {subsB}.
+[chime] Bibs. Goal, Umar. Sub, Kevin.
 ```
 
-`Bibs. Chris in goal. Sub, Dave.` [chime] `No bibs. Sam in goal. Subs, Tom and Alex.`
-
-**Template, a team with no subs.** Drop the sub clause for that team only. Never
-say `no subs` out loud. It is information nobody can act on.
+A six-man team, six a side, no subs — **the clause is dropped and `no subs` is
+never said aloud.** It is information nobody can act on:
 
 ```
-[chime] Bibs. Chris in goal. [chime] No bibs. Sam in goal. Alex off.
+[chime] Non-bibs. Goal, Sam.
 ```
 
-**Slots.** `{subs}` is one name, or `{name} and {name}` for two. `Sub,` becomes
-`Subs,` for two. Nothing else varies.
+Two subs:
 
-Two facts per team, both about people who have to move. The team comes before the
-names, so nobody parses a name that is not theirs. Full stops, not commas, for a
-real pause. About seven seconds, inside the ten. If it runs long, cut a name
-before you cut a pause.
+```
+[chime] Bibs. Goal, Umar. Subs, Kevin and Tom.
+```
 
-**Option B, one chime.** Sound it once at the start and separate the teams with a
-longer pause. Quieter, 12 tones over two hours instead of 24. Costs the listener
-who tunes in halfway. Take it only if the field test says the chime is annoying.
+**Full stops, not commas, between the three facts.** The synthesiser honours a
+full stop with a real pause and runs a comma straight through, and a name run
+into the next name is the one thing that cannot happen here. The comma after
+`Goal` and after `Sub` is deliberate and short: it binds the label to the name
+it introduces.
 
-**Build note.** `speechSynthesis` cannot schedule a sound inside an utterance.
-Split it into two utterances and fire the chime from an `<audio>` element before
-each, on the `end` of the one before.
+**The name is spoken exactly as it was typed.** The screen's uppercase is a
+`text-transform` and never reaches the engine.
+
+**The timing.** Alarm 0 to 2500, chime at 2650, the first team at 3050, the
+second at about 6050, finishing near 8700. A changeover window is ten seconds,
+so it fits with a second to spare. It runs the same way at kick-off, where
+nothing is waiting on it.
 
 ## Errors and edges
 
@@ -325,6 +377,10 @@ Deleted strings. Remove them from `COPY` in `app.js`. Do not leave them unused.
 - `Interval`, `{n} minutes`, `Set the interval by hand` and `Work the interval
   out from the rotations`. The manual override is gone: the interval is always
   derived and never editable.
+- `No voice` and `Screen may sleep` **as visible labels**. The strings stay, in
+  the icon and in a hidden status line. Neither is set on the screen.
+- `{name} in goal`, `{names} off` and the separate kick-off template. One
+  template states the state now, and it serves both.
 
 **For Liam.** `Time` set the game length so the screen could say how long had
 been played. The readout is gone, so `Time` now drives nothing and shows nowhere
