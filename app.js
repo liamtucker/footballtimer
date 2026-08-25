@@ -565,14 +565,21 @@ function joinNames(names) {
  * comes first so nobody parses a name that is not theirs.
  *
  * The name is spoken exactly as it was typed. The screen's uppercase is a
- * `text-transform` and never reaches the engine.
+ * `text-transform` and never reaches the engine — and neither does the
+ * uppercase in COPY, which is there because the eyebrows are set from it
+ * directly. `SUB` read aloud is three letters. The voice says the same words
+ * in the case a sentence is written in.
  */
+function said(word) {
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+}
+
 function lineFor(teamIndex, keeper, subs) {
   if (!keeper) return null;
-  const bits = [`${TEAM_NAMES[teamIndex]}.`, `Goal, ${keeper.name}.`];
+  const bits = [`${said(TEAM_NAMES[teamIndex])}.`, `Goal, ${keeper.name}.`];
   const names = subs.map((player) => player.name);
   if (names.length > 0) {
-    bits.push(`${names.length > 1 ? COPY.subs : COPY.sub}, ${joinNames(names)}.`);
+    bits.push(`${said(names.length > 1 ? COPY.subs : COPY.sub)}, ${joinNames(names)}.`);
   }
   return bits.join(' ');
 }
