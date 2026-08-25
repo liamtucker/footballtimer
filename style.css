@@ -210,9 +210,12 @@ button {
   font-size: var(--t-body);
   font-weight: 500;
   color: var(--ink);
-  touch-action: none;
+  /* the page keeps the scroll until a hold takes the row. app.js sets this to
+     none at the moment it arms, and never before. */
+  touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
   position: relative;
   will-change: transform;
 }
@@ -255,13 +258,18 @@ button {
 .row-x svg { width: 16px; height: 16px; display: block; }
 .row.keeper .row-x { color: rgba(255, 255, 255, .55); }
 
+/*
+ * The arm. It is the one state change a person has to feel, so the row does
+ * not appear already lifted — it lifts, on a transition, under a finger that
+ * has been still. Nothing else on this screen moves without being pushed.
+ */
 .row.dragging {
   position: fixed;
   z-index: 40;
   margin: 0;
   box-shadow: var(--elev-1);
-  transform: scale(1.02);
-  transition: none;
+  transform: scale(1.045);
+  transition: transform 140ms var(--curve), box-shadow 140ms var(--curve);
 }
 
 .row.settling { transition: transform 200ms var(--curve); }
@@ -1026,5 +1034,6 @@ button {
   .swapping.go { transform: none; transition: opacity 200ms linear; }
 
   .row.settling, .row.shifting, .row.landing { transition: none; }
+  .row.dragging { transition: none; }
   .strip { transition: none; }
 }

@@ -1023,12 +1023,40 @@ for (let t = 0; t < 2; t += 1) {
 /* ---------------------------------------------------------------- drag */
 
 /*
- * Pointer Events, `touch-action: none` on the row, and a 6px threshold before
- * anything is treated as a drag — a stray tap would silently reassign the
- * keeper, so a drag must never read as a tap.
+ * A DRAG IS ARMED BY A HOLD, NEVER BY A MOVE
+ *
+ * The row used to carry `touch-action: none` and become a drag after 6px of
+ * movement. That took the scroll away from the list: a squad of nine cannot be
+ * scrolled at all if every finger that lands on a name is holding one, and on
+ * a phone every finger lands on a name.
+ *
+ * So the finger has to stay still to take the row. `HOLD_MS` of stillness arms
+ * it, the row lifts under the finger and the phone buzzes, and only from that
+ * moment is the scroll suppressed. Move before then and the drag is abandoned
+ * and the page scrolls exactly as it would over any other list.
+ *
+ * `touch-action: pan-y` on the row is what lets the browser scroll before the
+ * hold lands. It cannot be changed once a gesture is under way, so the armed
+ * drag stops the page with `preventDefault()` on a non-passive `touchmove` —
+ * which works precisely because a finger that has been still for 400ms has not
+ * started a scroll for the browser to have committed to.
+ *
+ * A tap is still a tap: released before the hold, with nothing moved, it picks
+ * the starting keeper. An armed drag that never moves is a drag that changed
+ * nothing, never a tap — the row moved under the finger, and a person who saw
+ * that happen did not tap.
  */
 
+const HOLD_MS = 400;   /* stillness that arms the drag */
+const HOLD_SLOP = 8;   /* movement inside the hold that abandons it */
+
 let drag = null;
+
+function cancelHold() {
+  if (!drag || !drag.holdTimer) return;
+  window.clearTimeout(drag.holdTimer);
+  drag.holdTimer = 0;
+}
 
 function beginDrag(event) {
   const row = event.target.closest('.row');
@@ -1044,16 +1072,36 @@ function beginDrag(event) {
     target: index,
     startY: event.clientY,
     startX: event.clientX,
+    lastY: event.clientY,
     active: false,
+    holdTimer: 0,
     pointerId: event.pointerId
   };
-  try { row.setPointerCapture(event.pointerId); } catch (error) { /* ignore */ }
+  /* a mouse has no scroll to protect and no patience to spend */
+  if (event.pointerType === 'mouse') return;
+  drag.holdTimer = window.setTimeout(arm, HOLD_MS);
+}
+
+/*
+ * The row is taken. This is the one moment the person has to feel, because
+ * everything after it behaves differently — so the row lifts, grows and takes
+ * a shadow on a transition rather than appearing already lifted, and the phone
+ * buzzes if it has anything to buzz with.
+ */
+function arm() {
+  if (!drag || drag.active) return;
+  drag.holdTimer = 0;
+  startDragging();
+  try { drag.row.setPointerCapture(drag.pointerId); } catch (error) { /* ignore */ }
+  if (typeof navigator.vibrate === 'function') {
+    try { navigator.vibrate(12); } catch (error) { /* ignore */ }
+  }
 }
 
 function startDragging() {
   const list = el.lists[drag.teamIndex];
   const rect = drag.row.getBoundingClientRect();
-  drag.offsetY = drag.startY - rect.top;
+  drag.offsetY = drag.lastY - rect.top;
   drag.gap = document.createElement('div');
   drag.gap.className = 'gap';
   drag.gap.style.height = `${rect.height}px`;
@@ -1062,6 +1110,8 @@ function startDragging() {
   drag.row.style.height = `${rect.height}px`;
   drag.row.style.left = `${rect.left}px`;
   drag.row.style.top = `${rect.top}px`;
+  /* only now, and never before: the scroll belonged to the page until here */
+  drag.row.style.touchAction = 'none';
   drag.row.classList.add('dragging');
   drag.active = true;
 }
@@ -1115,9 +1165,20 @@ function layoutDrag(target) {
 
 function onPointerMove(event) {
   if (!drag) return;
+  drag.lastY = event.clientY;
   if (!drag.active) {
-    if (Math.abs(event.clientY - drag.startY) < 6 && Math.abs(event.clientX - drag.startX) < 6) return;
-    startDragging();
+    const moved = Math.abs(event.clientY - drag.startY) > HOLD_SLOP ||
+      Math.abs(event.clientX - drag.startX) > HOLD_SLOP;
+    if (!moved) return;
+    /* a mouse has no hold to wait for. a finger that moved wanted the page. */
+    if (event.pointerType === 'mouse') {
+      try { drag.row.setPointerCapture(drag.pointerId); } catch (error) { /* ignore */ }
+      startDragging();
+    } else {
+      cancelHold();
+      drag = null;
+      return;
+    }
   }
   event.preventDefault();
   drag.row.style.top = `${event.clientY - drag.offsetY}px`;
@@ -1140,9 +1201,11 @@ function autoScroll(event) {
 function endDrag(event, commit) {
   if (!drag) return;
   const current = drag;
+  cancelHold();
   drag = null;
   try { current.row.releasePointerCapture(current.pointerId); } catch (error) { /* ignore */ }
 
+  /* released before the hold landed, and nothing moved: that is a tap */
   if (!current.active) {
     if (commit && draft.mode !== 'edit') chooseKeeper(current.teamIndex, current.index);
     return;
@@ -1168,6 +1231,11 @@ for (let t = 0; t < 2; t += 1) {
   const list = el.lists[t];
   list.addEventListener('pointerdown', beginDrag);
   list.addEventListener('pointermove', onPointerMove);
+  /* `touch-action` is fixed for the life of a gesture, so an armed drag has to
+     take the scroll back by hand. Non-passive, or preventDefault does nothing. */
+  list.addEventListener('touchmove', (event) => {
+    if (drag && drag.active) event.preventDefault();
+  }, { passive: false });
   list.addEventListener('pointerup', (event) => endDrag(event, true));
   list.addEventListener('pointercancel', (event) => endDrag(event, false));
   list.addEventListener('click', (event) => {
