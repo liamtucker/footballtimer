@@ -47,13 +47,13 @@ import {
   DEFAULT_GAME_MINUTES
 } from './rotation.js';
 
-import { buildAlarm, buildChime, buildTick, ALARM_MS } from './sound.js';
+import { buildHorn, buildChime, buildTick, HORN_MS } from './sound.js';
 
 const MS_PER_MINUTE = 60000;
 const NAME_MAX = 10;
 const WINDOW_MS = 10000;
 const COUNTDOWN_S = 10;
-/* the silence between the alarm ending and the first chime */
+/* the silence between the horn ending and the first chime */
 const VOICE_GAP_MS = 150;
 
 /* Every string, lifted from brain/copy.md. */
@@ -90,14 +90,14 @@ const COPY = {
   noLock: 'Screen may sleep',
   testAria: 'Test the sound',
   /* the sound test's answer, in the readout's own register. it is read back
-     to somebody who is not holding the phone, so every field says its name. */
-  report: 'VOICES {v} · QUEUED {q} · START {s} · END {e} · ERROR {x}',
+     to somebody who is not holding the phone, so every field says its name.
+     the first line is the path the buzzer takes, the second is the voice. */
+  report: 'AUDIO WAS {a} · NOW {b} · RATE {r} · SESSION {n} · HORN {m}\n' +
+    'VOICES {v} · QUEUED {q} · START {s} · END {e} · ERROR {x}',
   reportYes: 'YES',
   reportNo: 'NO',
   reportNone: 'NONE',
   chipLabel: 'Next change',
-  muteOn: 'Mute voice',
-  muteOff: 'Unmute voice',
   closeAria: 'Close setup'
 };
 
@@ -236,7 +236,6 @@ const state = {
   degradedVoice: false,
   degradedLock: false,
   shownBroken: false,
-  muted: false,
   /* the sound test's answer, and the draft it was true for */
   soundReport: '',
   soundReportFor: ''
@@ -297,14 +296,73 @@ const teamEls = [0, 1].map((t) => {
 /* ================================================================ sound */
 
 /*
- * Two sounds, two meanings, never swapped. The alarm says the moment is now —
+ * Two sounds, two meanings, never swapped. The horn says the moment is now —
  * kick-off, and every changeover. The chime says names follow. Both are
  * synthesised in sound.js — no files, no network — and the context is created
  * inside a gesture so iOS unlocks it.
+ *
+ * WHY THE VOICE PLAYED AND THE BUZZER DID NOT
+ *
+ * Liam heard the names on his iPhone and heard no klaxon. That asymmetry is
+ * the diagnosis. On iOS the hardware ring/silent switch mutes Web Audio and
+ * does not mute `speechSynthesis`, because the two sit in different audio
+ * sessions. A phone on silent says the names and swallows the horn, which is
+ * the fault exactly. Nothing throws, and nothing reports it.
+ *
+ * A page can ask for the session iOS treats as media rather than as a UI
+ * sound. `navigator.audioSession.type = 'playback'` is that request, it is
+ * Safari 16.4 and later, and a playback session ignores the switch. It is set
+ * inside the gesture and before the context exists, because a context takes
+ * the session that is current when it is built.
+ *
+ * The second silent failure is `resume()`. It returns a promise and the old
+ * code dropped it. A context stuck in `suspended` makes no sound and reports
+ * no error, which looks the same as a muted phone. The state is now read
+ * before the resume, read again when the promise settles, and watched by
+ * `statechange` after that. All of it goes in the sound test's answer.
  */
 
 let ac = null;
 let gestured = false;
+
+/*
+ * What the last gesture and the last horn did. Liam is the only person who
+ * can hear the answer, so the sound test reads this back to him in words
+ * instead of leaving him to guess from silence.
+ */
+const heard = {
+  before: 'none',   /* AudioContext.state at the gesture, before the resume */
+  after: 'none',    /* and after it. `statechange` keeps it true */
+  rate: 0,          /* the context's sampleRate */
+  session: 'none',  /* navigator.audioSession.type, or that there is none */
+  horn: 'none'      /* whether the horn graph was built and scheduled */
+};
+
+/*
+ * The playback session. Feature-detected: it does not exist before Safari
+ * 16.4, and it does not exist on Android, where nothing mutes Web Audio in the
+ * first place. The type is read back rather than assumed, so an assignment
+ * that does not stick shows in the report instead of passing for a fix.
+ *
+ * There is no fallback for an iOS without it. The established one is a silent
+ * looping media element, which needs a synthesised WAV data URI and holds a
+ * media session open for the whole game. This app already needs
+ * `navigator.wakeLock`, which shipped in the same Safari 16.4, so a phone with
+ * no `audioSession` cannot hold the screen on either. If the report ever comes
+ * back `SESSION NONE`, that is one tap to learn it, and then the weight is
+ * worth carrying. Until then it is not.
+ */
+function claimSession() {
+  const session = navigator.audioSession;
+  if (!session) {
+    heard.session = 'none';
+    return;
+  }
+  try {
+    session.type = 'playback';
+  } catch (error) { /* a refused assignment is reported, not repaired */ }
+  heard.session = String(session.type || 'unknown');
+}
 
 /*
  * The context is created inside a gesture and never before. A game restored
@@ -320,39 +378,76 @@ function audio() {
     ac = new Ctor();
   } catch (error) {
     ac = null;
+    return null;
   }
+  heard.rate = ac.sampleRate || 0;
+  heard.after = ac.state;
+  ac.addEventListener('statechange', () => {
+    heard.after = ac ? ac.state : 'none';
+    refreshReport();
+  });
   return ac;
 }
 
 function markGesture() {
   gestured = true;
-  audio();
+  /* the session first. a context inherits whatever session is current when it
+     is built, so asking after it exists is asking too late. */
+  claimSession();
+  const ctx = audio();
+  heard.before = ctx ? ctx.state : 'none';
   resumeAudio();
+  refreshReport();
 }
 
+/*
+ * `resume()` is a promise, and the answer only arrives when it settles. A
+ * context left in `suspended` is the failure that looks like nothing at all.
+ */
 function resumeAudio() {
   if (!ac) return;
-  if (ac.state === 'suspended' || ac.state === 'interrupted') {
-    try { ac.resume(); } catch (error) { /* ignore */ }
+  heard.rate = ac.sampleRate || 0;
+  heard.after = ac.state;
+  if (ac.state === 'running') return;
+  const settle = () => {
+    heard.after = ac ? ac.state : 'none';
+    refreshReport();
+  };
+  try {
+    const done = ac.resume();
+    if (done && typeof done.then === 'function') done.then(settle, settle);
+    else settle();
+  } catch (error) {
+    settle();
   }
 }
 
 /*
- * The alarm. The same sound at kick-off and at every changeover, two and a
- * half seconds of two-tone klaxon. It replaced a whistle that nobody on a
- * touchline could hear: that whistle measured 0.075 RMS against a 0.344 peak,
- * and this measures 0.469 against 0.936 — six and a quarter times the RMS for
- * the same headroom, and it does not clip. sound.js has the reasoning.
+ * The horn. The same sound at kick-off and at every changeover, two and a half
+ * seconds of stadium horn. It is the third sound in this slot. A whistle was
+ * inaudible on a touchline, a two-tone klaxon was loud and read as an
+ * emergency, and this is loud and reads as a game: peak 0.940, RMS 0.602,
+ * against the klaxon's 0.936 and 0.469. sound.js has the reasoning.
  *
  * Returns its length in milliseconds, so the caller can put the voice after it
  * rather than under it.
  */
-function alarm() {
+function horn() {
   const ctx = audio();
-  if (!ctx) return ALARM_MS;
+  if (!ctx) {
+    heard.horn = 'no context';
+    refreshReport();
+    return HORN_MS;
+  }
   resumeAudio();
-  buildAlarm(ctx, ctx.currentTime + 0.01, ctx.destination);
-  return ALARM_MS;
+  try {
+    buildHorn(ctx, ctx.currentTime + 0.01, ctx.destination);
+    heard.horn = 'scheduled';
+  } catch (error) {
+    heard.horn = 'failed';
+  }
+  refreshReport();
+  return HORN_MS;
 }
 
 /* 660 then 880. The same tone every time, before each team. */
@@ -483,10 +578,27 @@ if ('speechSynthesis' in window) {
 
 /*
  * iOS will not speak later in the session unless it has spoken once inside a
- * user gesture. This is that once. The text is real and the volume is not
- * zero, because an empty utterance and a silent one are the two shapes known
- * to leave the queue stuck.
+ * user gesture. This is that once.
+ *
+ * IT USED TO SAY THE APP'S NAME OUT LOUD
+ *
+ * The unlock spoke `rota` at volume 0.02, and iOS did not honour the volume,
+ * so pressing Kick off announced the app before it announced anything about
+ * the game. The word is gone, but it could not be replaced by silence: an
+ * empty utterance and a whitespace one are the two shapes known to leave the
+ * iOS queue stuck with `speaking` true for ever, and a full stop on its own
+ * has no phonemes and behaves the same way. The text has to be speakable.
+ *
+ * So it stays real, and it goes past too fast to be a word: one syllable at
+ * the maximum rate is about fifty milliseconds. It also runs at the first
+ * touch anywhere on the page, which during a warm-up is a name field and not
+ * the Kick off button — so by the time anyone is listening for a horn, the
+ * unlock has already happened and the tap is silent.
  */
+let voiceUnlocked = false;
+/* every real request for the voice, counted. the unlock's tidy-up reads it. */
+let voiceAsks = 0;
+
 function unlockVoice() {
   if (!haveVoice()) {
     state.degradedVoice = true;
@@ -495,23 +607,28 @@ function unlockVoice() {
   try {
     /* a paused engine is the commonest wedge and resume() costs nothing */
     speechSynthesis.resume();
-    const utterance = utteranceFor('rota');
+    const utterance = utteranceFor('ok');
     utterance.volume = 0.02;
+    utterance.rate = 10;
     utterance.onstart = () => { state.degradedVoice = false; };
     speechSynthesis.speak(utterance);
-    /* and if it does stick, it must not still be there when the names are */
-    window.setTimeout(clearVoice, VOICE_START_MS);
+    voiceUnlocked = true;
+    /* and if it does stick, it must not still be there when the names are.
+       the unlock now runs on the first touch anywhere, and the touch that
+       opens the sound test is one of those — so this only clears the queue if
+       nothing has asked for the voice since, or it would cancel the very line
+       it was meant to make possible. */
+    const asked = voiceAsks;
+    window.setTimeout(() => {
+      if (voiceAsks === asked) clearVoice();
+    }, VOICE_START_MS);
   } catch (error) {
     state.degradedVoice = true;
   }
 }
 
 function speak(text, onEnd) {
-  if (state.muted) {
-    /* hold the slot open so the two chimes keep their spacing */
-    if (onEnd) window.setTimeout(onEnd, 800);
-    return;
-  }
+  voiceAsks += 1;
   let done = false;
   const finish = () => {
     if (done) return;
@@ -626,42 +743,31 @@ function announce(lines) {
   next();
 }
 
-/* ================================================================= mute */
+/* =========================================================== voice icon */
 
 /*
- * On by default. Muted is the same icon with a line through it and nothing
- * else changed — no second shape to learn, no colour and no container, so the
- * two states differ by exactly the thing that says off. It silences the voice
- * and nothing else: the whistle and the chime are separate sounds and they
- * still land.
+ * ONE ICON, TWO STATES
  *
- * It also suppresses `No voice`. A muted phone and a broken one look alike on
- * a spine and mean opposite things.
- */
-
-/*
- * THREE STATES IN ONE ICON
+ * The speaker used to carry three states, because there used to be a mute.
+ * There is not: Liam sets the volume on the phone, so a control that set it
+ * again on the screen was a second answer to a settled question.
  *
- * On, muted by choice, and broken. The last two look alike and mean opposite
- * things, so they cannot differ by colour alone:
+ * What is left is the sound test's own face, and it says one thing —
+ * whether the voice spoke when it was asked to:
  *
  *   on      the speaker and its two waves
- *   muted   the same icon, with a line drawn through the whole of it — the
- *           sound is there and it has been switched off
- *   broken  the speaker with no waves at all and a cross where they were —
- *           there is nothing to switch off
+ *   broken  the speaker with no waves at all and a cross where they were
  *
- * Shape first, then where the mark sits, then colour. `--off` is third and it
- * is dropped entirely on the ink bar, where it cannot be read.
+ * Shape first, then colour. It says nothing about the horn: the horn is a
+ * graph that either builds or does not, and the report says which.
  *
- * Muted wins over broken. A muted phone that also cannot speak is a muted
- * phone: it is doing what it was told, and `No voice` on top of that is a
- * fault report for a fault nobody has.
+ * The fault is quiet by construction. `degradedVoice` only turns on when an
+ * utterance was asked for and `start` never fired, so a phone that has never
+ * been asked never shows it, and one spoken word turns it off again.
  */
 
 const SPEAKER = '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/>';
 const WAVES = '<path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>';
-const SLASH = '<path d="m3 3 18 18"/>';
 const CROSS = '<path d="m16.5 9 5 6"/><path d="m21.5 9-5 6"/>';
 
 const ICON_SVG = (body) =>
@@ -670,48 +776,7 @@ const ICON_SVG = (body) =>
   SPEAKER + body + '</svg>';
 
 const ICON_ON = ICON_SVG(WAVES);
-const ICON_MUTED = ICON_SVG(WAVES + SLASH);
 const ICON_BROKEN = ICON_SVG(CROSS);
-
-/** True when the voice has failed and nobody asked for silence. */
-function voiceBroken() {
-  return state.degradedVoice && !state.muted;
-}
-
-function renderMute() {
-  const broken = voiceBroken();
-  const label = state.muted ? COPY.muteOff : (broken ? COPY.noVoice : COPY.muteOn);
-  for (const node of document.querySelectorAll('.mute')) {
-    node.innerHTML = state.muted ? ICON_MUTED : (broken ? ICON_BROKEN : ICON_ON);
-    node.setAttribute('aria-label', label);
-    node.setAttribute('aria-pressed', state.muted ? 'true' : 'false');
-    node.classList.toggle('broken', broken);
-  }
-  state.shownBroken = broken;
-}
-
-function toggleMute() {
-  state.muted = !state.muted;
-  if (state.muted) {
-    announceToken += 1;
-    clearVoice();
-  }
-  renderMute();
-  setNotes();
-}
-
-for (const node of document.querySelectorAll('.mute')) {
-  node.addEventListener('click', (event) => {
-    /* a tap on the mute is not a tap on the screen: it must not abort the
-       kick-off countdown and it must not re-open the edit route */
-    event.preventDefault();
-    event.stopPropagation();
-    markGesture();
-    toggleMute();
-  });
-}
-
-renderMute();
 
 /* ========================================================= setup screen */
 
@@ -862,8 +927,8 @@ function renderSetup() {
   /* the ink moves: a corner button before kick-off, the top bar during */
   const editing = draft.mode === 'edit';
   el.start.hidden = editing;
-  /* the test belongs to the warm-up. mid-game the live bar carries the mute,
-     and the sound has already proved itself or not. */
+  /* the test belongs to the warm-up. mid-game the sound has already proved
+     itself or not, and there is nothing left on this screen to prove it with. */
   el.test.hidden = editing;
   renderTest();
   el.livebar.hidden = !editing;
@@ -885,11 +950,11 @@ function renderSetup() {
 /* =========================================================== sound test */
 
 /*
- * One tap plays the alarm and speaks a line, so the sound is checked before
+ * One tap speaks a line and sounds the horn, so the sound is checked before
  * the game rather than discovered during it. It does real work besides: iOS
  * will not speak later in a session unless it has spoken once inside a user
  * gesture, and this is a gesture that speaks. That is why the line goes first
- * and the alarm second — the `speak()` has to happen in the same tick as the
+ * and the horn second — the `speak()` has to happen in the same tick as the
  * tap, and it is also the order a changeover uses.
  *
  * The answer is written into the readout, because a person reading it out to
@@ -916,7 +981,13 @@ function sampleLine() {
 
 function reportText(seen) {
   const yn = (value) => (value ? COPY.reportYes : COPY.reportNo);
+  const up = (value) => String(value || COPY.reportNone).toUpperCase();
   return COPY.report
+    .replace('{a}', up(heard.before))
+    .replace('{b}', up(heard.after))
+    .replace('{r}', heard.rate ? String(Math.round(heard.rate)) : COPY.reportNone)
+    .replace('{n}', up(heard.session))
+    .replace('{m}', up(heard.horn))
     .replace('{v}', String(seen.voices))
     .replace('{q}', yn(seen.queued))
     .replace('{s}', yn(seen.started))
@@ -924,22 +995,37 @@ function reportText(seen) {
     .replace('{x}', seen.error ? String(seen.error).toUpperCase() : COPY.reportNone);
 }
 
+/*
+ * The audio half of the answer arrives late. A resume settles, a state
+ * changes, and the horn is scheduled seconds after the tap. So the line is
+ * repainted where it already stands, and it is never put back on a screen that
+ * has moved past it.
+ */
+let lastSeen = null;
+
+function refreshReport() {
+  if (!lastSeen) return;
+  if (!state.soundReport) return;
+  if (state.soundReportFor !== draftSignature()) return;
+  showReport(lastSeen);
+}
+
 function showReport(seen) {
+  lastSeen = seen;
   state.soundReport = reportText(seen);
   state.soundReportFor = draftSignature();
   renderReadout();
   /* the icon is the answer for anyone who is not reading the line */
   renderTest();
-  renderMute();
 }
 
 /*
  * The voice, instrumented. It does not go through `speak()`: that one is
  * built to keep an announcement moving, and this one is built to say what
- * happened. It also ignores the mute, because the mute is a setting and this
- * is a test of the phone.
+ * happened.
  */
 function testVoice(then) {
+  voiceAsks += 1;
   const seen = { voices: voiceCount(), queued: false, started: false, ended: false, error: null };
   let moved = false;
   const move = () => {
@@ -997,8 +1083,10 @@ function testVoice(then) {
 }
 
 function runSoundTest() {
+  /* the last run's answer is not this run's answer */
+  heard.horn = 'none';
   markGesture();
-  testVoice(() => { alarm(); });
+  testVoice(() => { horn(); });
 }
 
 function renderTest() {
@@ -1006,6 +1094,7 @@ function renderTest() {
   el.test.innerHTML = broken ? ICON_BROKEN : ICON_ON;
   el.test.classList.toggle('broken', broken);
   el.test.setAttribute('aria-label', broken ? COPY.noVoice : COPY.testAria);
+  state.shownBroken = broken;
 }
 
 el.test.addEventListener('click', (event) => {
@@ -1859,7 +1948,7 @@ function openWindow(r, options) {
      it, and the thing that makes anyone look up has to come before the thing
      they are meant to hear. */
   if (options.speak) {
-    const wait = alarm();
+    const wait = horn();
     later(wait + VOICE_GAP_MS, () => announce(linesForChange(r)));
   }
 
@@ -2051,13 +2140,13 @@ function setNotes() {
   if (el.notes.textContent !== notes) el.notes.textContent = notes;
 
   const faults = [];
-  if (voiceBroken()) faults.push(COPY.noVoice);
+  if (state.degradedVoice) faults.push(COPY.noVoice);
   if (state.degradedLock) faults.push(COPY.noLock);
   const said = faults.join('. ');
   if (el.faults.textContent !== said) el.faults.textContent = said;
 
   /* the icon is rebuilt only when the answer changes, not 4 times a second */
-  if (voiceBroken() !== state.shownBroken) renderMute();
+  if (state.degradedVoice !== state.shownBroken) renderTest();
 }
 
 /* ================================================================== tick */
@@ -2205,9 +2294,11 @@ el.start.addEventListener('click', () => {
     renderSetup();
     return;
   }
-  /* the gesture iOS needs, for both the audio context and the voice */
+  /* the gesture iOS needs for the audio context. the voice was unlocked at
+     the first touch of the session, and a second one here would be a word
+     spoken over the kick-off. */
   markGesture();
-  unlockVoice();
+  if (!voiceUnlocked) unlockVoice();
   state.soundReport = '';
   saveSquad();
   beginKickOff();
@@ -2278,7 +2369,7 @@ function finishKickOff() {
   showDisplay();
   saveGame();
 
-  const wait = alarm();
+  const wait = horn();
   el.body.style.setProperty('--ground-ms', '500ms');
   el.body.classList.add('call');
   window.setTimeout(() => {
@@ -2288,7 +2379,7 @@ function finishKickOff() {
   }, 220);
 
   const r = rotation(setup, Math.max(0, elapsedMs()));
-  /* the same order as a changeover: the alarm finishes, then the names */
+  /* the same order as a changeover: the horn finishes, then the names */
   window.setTimeout(() => announce(linesForKickOff(r)), wait + VOICE_GAP_MS);
 
   startLoop();
@@ -2480,7 +2571,7 @@ el.edit.addEventListener('click', (event) => {
 
 /*
  * The whole bar is the way back, so there is nothing small to hit with a cold
- * thumb and no x to look for. The mute sits inside it and stops its own click.
+ * thumb and no x to look for. Nothing else sits inside it.
  */
 el.livebar.addEventListener('click', commitEdit);
 el.livebar.addEventListener('keydown', (event) => {
@@ -2553,11 +2644,19 @@ el.display.addEventListener('click', () => {
   if (state.degradedVoice) unlockVoice();
 });
 
-/* any first touch, anywhere, is enough to bring a restored game back to life */
+/*
+ * Any first touch, anywhere, is enough to bring a restored game back to life.
+ * Every later touch is a free second chance for a context that never reached
+ * `running` — a phone call or a lock screen leaves one `interrupted`, and an
+ * interrupted context is silent and says nothing about it.
+ */
 document.addEventListener('pointerdown', () => {
-  if (gestured) return;
-  markGesture();
-  if (state.game && state.degradedVoice) unlockVoice();
+  const first = !gestured;
+  if (first || (ac && ac.state !== 'running')) markGesture();
+  /* the first touch of the session is also the cheapest place to spend the
+     unlock, because nobody is waiting on a sound yet */
+  if (!voiceUnlocked) unlockVoice();
+  else if (first && state.game && state.degradedVoice) unlockVoice();
 }, { capture: true });
 
 /* ======================================================== staying alive */

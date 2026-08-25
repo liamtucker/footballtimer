@@ -22,6 +22,11 @@ Every string is exact. Lift it as written. Character counts are in brackets.
 Keep `rota`. It appears nowhere in the interface. It earns its place out loud:
 "the rota says Sam" moves the instruction off a person and onto an object.
 
+**The app never says its own name.** It used to: the utterance that unlocks the
+iOS voice spoke `rota` under a Kick off, and iOS did not honour the volume it
+was given, so the app announced itself before it announced the game. The
+template below is the only thing spoken, and the name is not in it.
+
 ## Register
 
 The sentence is gone. `Bibs in goal DOM sub DAVE` read as one line, and the old
@@ -151,7 +156,7 @@ Shorter, if the space is tight: `Edits land at the change` [24].
 
 ## Kick-off countdown
 
-Ten seconds, then a whistle. **No words.** Numerals only, with the teams already
+Ten seconds, then the horn. **No words.** Numerals only, with the teams already
 on screen behind them.
 
 ## Game screen at rest
@@ -191,7 +196,7 @@ word. Names in order, and position says the rest.
 
 ## The changeover
 
-Ten seconds, a countdown, then the whistle. Three facts per team and no more.
+Ten seconds, a countdown, then the horn. Three facts per team and no more.
 
 | key | string | count |
 |---|---|---|
@@ -210,36 +215,32 @@ say whether it points at the pitch or the bench.
 **A team with no subs** shows `GOAL` and the name alone. No `OFF`, no `ON`, no
 empty labelled slot.
 
-**Hold it after the whistle.** The changeover text stays five seconds past the
+**Hold it after the horn.** The changeover text stays five seconds past the
 change, then the rest state returns. Someone who looked up late has to still be
 able to read it.
 
 ## Sound controls
 
-**The mute is an icon and nothing else.** It carries three states and no words:
+**There are none.** There was a mute, and it is gone: the volume is on the side
+of the phone, and a control that answers a settled question a second time is a
+control with no job. Nothing on the screen switches a sound on or off.
+
+**One icon is left, and it reports rather than acts.** The sound test's own
+face carries two states and no words:
 
 | state | icon | means |
 |---|---|---|
-| on | a speaker and its two waves | the voice will speak |
-| muted | the same icon, a line drawn through all of it | switched off on purpose |
-| broken | the speaker with no waves, and a cross where they were | it cannot speak |
+| on | a speaker and its two waves | the voice spoke when it was asked |
+| broken | the speaker with no waves, and a cross where they were | it did not |
 
-Muted and broken look alike and mean opposite things, so they differ by shape
-first — muted keeps its waves, broken has none — then by where the mark sits,
-then by colour. `--off` is third, and it is dropped on the ink bar where it
-cannot be read.
-
-**Muted wins over broken.** A muted phone that also cannot speak is a muted
-phone. It is doing what it was told.
+Shape first, colour second. `--off` is the third signal and it is never the
+only one.
 
 | key | string | count |
 |---|---|---|
-| `mute.aria.on` | `Mute voice` | 10 |
-| `mute.aria.off` | `Unmute voice` | 12 |
-| `mute.aria.broken` | `No voice` | 8 |
+| `test.aria.broken` | `No voice` | 8 |
 
-The label names the action and swaps with the state, except when the voice is
-broken, where it names the state — there is no action to offer.
+Broken names the state, not an action — there is no action to offer.
 
 **`No voice` and `Screen may sleep` are not on the screen.** Both were text
 labels doing an icon's job. The speaker icon says the first. The second says
@@ -254,7 +255,7 @@ itself the moment the screen goes dark. The words survive in a visually hidden
 ## The sound test
 
 One control on the setup screen, beside `Kick off`. It speaks a line and then
-sounds the alarm, so the sound is checked before the game rather than
+sounds the horn, so the sound is checked before the game rather than
 discovered during it.
 
 | key | string | count |
@@ -266,27 +267,43 @@ a hairline edge — the same button as `Kick off`, without the fill.
 
 **Its answer takes the readout's row**, because that row is the settings
 column's result line and this is a result. It clears itself the moment anything
-on the screen changes.
+on the screen changes, and while it is there `Clear all` steps aside to give it
+the height.
 
 ```
+AUDIO WAS {state} · NOW {state} · RATE {n} · SESSION {type|NONE} · HORN {status}
 VOICES {n} · QUEUED {YES|NO} · START {YES|NO} · END {YES|NO} · ERROR {code|NONE}
 ```
 
-`VOICES 191 · QUEUED YES · START NO · END NO · ERROR NONE`
+```
+AUDIO WAS SUSPENDED · NOW RUNNING · RATE 48000 · SESSION PLAYBACK · HORN SCHEDULED
+VOICES 44 · QUEUED YES · START YES · END YES · ERROR NONE
+```
 
 This is the one place a diagnostic is written out in words, and the reason is
 that it gets read down a phone to somebody who is not holding it. Every field
-says its own name. `QUEUED` is whether `speechSynthesis.speaking` went true,
-which proves the utterance was accepted and nothing else. `START` is the one
-that proves a voice.
+says its own name.
+
+The first line is the path the horn takes and it exists because a silent phone
+and a silent bug look the same. `AUDIO WAS` and `NOW` are `AudioContext.state`
+either side of the resume, and anything but `NOW RUNNING` is a context that
+will make no sound and report no error. `SESSION` is `navigator.audioSession
+.type`: `PLAYBACK` is the one that makes iOS ignore the ring/silent switch, and
+`NONE` means the phone is too old to have the setting at all. `HORN` is whether
+the graph was built and scheduled.
+
+The second line is the voice. `QUEUED` is whether `speechSynthesis.speaking`
+went true, which proves the utterance was accepted and nothing else. `START` is
+the one that proves a voice.
 
 ## The spoken line
 
 Nobody is looking at the screen. It plays through a phone into a speaker.
 
-- **Alarm.** The moment is now. Two and a half seconds of two-tone klaxon, the
-  same sound at kick-off and at every changeover, and **it finishes before the
-  first word.** A spoken name underneath it is a spoken name nobody hears.
+- **Horn.** The moment is now. Two and a half seconds of stadium horn, the same
+  sound at kick-off and at every changeover, and **it finishes before the first
+  word.** A spoken name underneath it is a spoken name nobody hears. It is one
+  held note: a two-tone klaxon was as loud and read as an emergency.
 - **Chime.** Names follow. One short tone, the same every time, about 330ms. It
   sounds before each team, and it marks the seam where a half-listening player
   has to re-latch.
@@ -340,7 +357,7 @@ it introduces.
 **The name is spoken exactly as it was typed.** The screen's uppercase is a
 `text-transform` and never reaches the engine.
 
-**The timing.** Alarm 0 to 2500, chime at 2650, the first team at 3050, the
+**The timing.** Horn 0 to 2500, chime at 2650, the first team at 3050, the
 second at about 6050, finishing near 8700. A changeover window is ten seconds,
 so it fits with a second to spare. It runs the same way at kick-off, where
 nothing is waiting on it.

@@ -15,7 +15,7 @@ the order drifted, settling it went back to whoever argued hardest.
 
 A screen you set up during the warm-up and then don't touch. It shows who is in
 goal and who is the sub, for both teams, and a countdown to the next change. At
-the change an alarm sounds and it says the names out loud.
+the change a horn sounds and it says the names out loud.
 
 **The voice says the state, not the transition**, in the words the screen uses:
 `Bibs. Goal, Umar. Sub, Kevin.` A state is true for the whole of the next
@@ -71,10 +71,11 @@ A squad saved by an older build may carry an `intervalMode` and a `subMinutes`.
 Both are read and ignored.
 
 Beside `Kick off` sits **the sound test**. One tap speaks a line and sounds the
-alarm, so the sound is checked in the warm-up rather than discovered at the
+horn, so the sound is checked in the warm-up rather than discovered at the
 first change. It is also the user gesture iOS wants before it will speak at
-all, and its answer — how many voices the phone has, whether the utterance
-started, whether it errored — is written into the readout's row.
+all, and its answer — the state of the audio context, the audio session type,
+whether the horn was scheduled, how many voices the phone has, whether the
+utterance started, whether it errored — is written into the readout's row.
 
 Then two teams, `Bibs` and `No bibs`, each an ordered list of names. A name is
 typed into an input and moves up into the list. A row is dragged to reorder it.
@@ -204,10 +205,10 @@ who is in goal and who is the sub, for each team. Nothing names the players who
 are simply playing — being on the pitch is the default state.
 
 At each change: a ten-second changeover window with its own countdown, showing
-who comes off and who goes on, with colour and arrows. An alarm opens the
+who comes off and who goes on, with colour and arrows. The horn opens the
 window and the voice says the names after it.
 
-Kick-off runs a ten-second countdown, then the same alarm and the same spoken
+Kick-off runs a ten-second countdown, then the same horn and the same spoken
 line before change 0.
 
 ## Settled

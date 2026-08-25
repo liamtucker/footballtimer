@@ -462,12 +462,33 @@ button {
  * The row borrows itself to the sound test's answer. It is the settings
  * column's result line and this is a result, it sits next to the control that
  * produced it, and it goes away the moment anything on the screen changes.
+ *
+ * The answer is two lines of plain words now, not one, because Liam is the
+ * only person who can hear whether it worked and he has to be able to read it
+ * back. So the row grows to hold it rather than clipping it. It is the one
+ * place in this app where words beat a shape, and the only row that is allowed
+ * to change size.
+ *
+ * It grows into the slack above it and no further. Landscape has about thirty
+ * pixels of slack and the answer wants a hundred and twenty, so the last rule
+ * is the one that matters: the row shrinks and scrolls before it moves Kick
+ * off. A control that has walked off the bottom of the screen is worse than a
+ * line that has to be scrolled to finish reading.
  */
+.readout.report {
+  height: auto;
+  min-height: 44px;
+  flex: 0 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--s-pack);
+}
+
 .readout.report .readout-value {
   letter-spacing: 0;
-  white-space: normal;
+  white-space: pre-line;
   text-align: center;
-  line-height: 1.15;
+  line-height: 1.35;
 }
 
 .readout-label,
@@ -487,10 +508,26 @@ button {
 }
 
 /* the three cards, the readout and Clear all are one group, so that portrait
-   can move them as one and leave Kick off behind at the bottom of the page */
-.settings-group { display: flex; flex-direction: column; flex: none; }
+   can move them as one and leave Kick off behind at the bottom of the page.
+   the group may shrink, but only the readout inside it gives: the three cards
+   are 72px each and a squashed card is not a card. */
+.settings-group { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
+.settings-group > .settings { flex: none; }
 
 .col-spacer { flex: 1 1 auto; min-height: 0; }
+/*
+ * While the sound test's answer is on the screen, two things above it give up
+ * their height so the answer can be read whole and Kick off does not move: the
+ * spacer, and then Clear all. Landscape is 390px tall and the answer wants 78
+ * of them, and Clear all is the least urgent control on the screen against the
+ * most urgent line. It comes back the moment anything changes, which is also
+ * the moment the answer goes.
+ *
+ * Where `:has` is missing the answer scrolls inside its own row instead. That
+ * is the same trade one step worse, and it is why the row scrolls at all.
+ */
+.settings-col:has(.readout.report) .col-spacer { flex: 0 1 auto; }
+.settings-col:has(.readout.report) .clear { display: none; }
 
 .foot { flex: none; display: flex; flex-direction: column; gap: var(--s-pack); }
 
@@ -603,8 +640,6 @@ button {
   color: rgba(255, 255, 255, .6);
 }
 .live-note:empty { display: none; }
-
-.livebar .icon-btn { color: #FFFFFF; margin-left: auto; cursor: pointer; }
 
 #setup.live { padding-top: calc(68px + env(safe-area-inset-top)); }
 
@@ -913,17 +948,6 @@ button {
   flex: none;
 }
 .icon-btn svg { width: 24px; height: 24px; display: block; }
-
-/*
- * Three states, and broken has to be unmistakable against muted because they
- * look alike and mean opposite things. Muted keeps its waves and takes a line
- * through the whole icon — the sound is there and it is switched off. Broken
- * has no waves at all and a cross where they were — there is no sound to
- * switch. Shape first, position second, colour third.
- */
-.icon-btn.mute.broken { color: var(--off); }
-/* on the ink bar the shape carries it alone: --off on near-black is unreadable */
-.livebar .icon-btn.mute.broken { color: #FFFFFF; }
 
 /* --------------------------------------------------------- the confirm */
 

@@ -42,70 +42,102 @@ touched.
 ## State
 
 **Done.** v6 is built. The engine passes 88 assertions. Service worker cache
-`rota-v9`.
+`rota-v10`.
 
-**The sounds are the headline.** The whistle was inaudible on a touchline and
-the measurement says why: band-passed noise spreads its energy over a wide
-band, so peak amplitude buys almost no loudness. Rendered through an
-`OfflineAudioContext` at 48kHz it was peak 0.344, RMS 0.075. The alarm that
-replaces it is a two-tone klaxon — square oscillators alternating 1047Hz and
-1397Hz at 2Hz, through a soft clipper and a 6.5kHz lowpass — at peak 0.936,
-RMS 0.469. **15.9dB louder for the same headroom, and it does not clip.**
+**The buzzer was silent on Liam's iPhone and the voice was not.** That
+asymmetry was the whole diagnosis: on iOS the hardware ring/silent switch mutes
+Web Audio and does not mute `speechSynthesis`, so a phone on silent says the
+names and swallows the horn. Liam confirmed it — the switch was off. The fix is
+`navigator.audioSession.type = 'playback'`, set inside the gesture and before
+the context is built, because a context takes the session that is current when
+it is created. It is feature-detected and the type is read back, not assumed.
 
-- **`sound.js` is new.** It builds WebAudio graphs and decides nothing, so the
-  same code that plays can be rendered offline and measured. It is in the
-  service worker's file list.
-- **One alarm, 2.5s, the same at kick-off and at every changeover**, and it
-  **finishes before the first word**. Kick-off: alarm 0–2500, chime 2650, Bibs
-  3050, Non-bibs ~6050, done near 8700. A changeover is the same shape inside
-  the ten-second window.
-- **One spoken template, for both**: `Bibs. Goal, Umar. Sub, Kevin.` It states
-  the state, not the transition, in the words the screen already shows. A team
-  with no subs drops the clause and `no subs` is never said aloud.
+- **There is no fallback for an iOS without `audioSession`** (before Safari
+  16.4). The established one is a silent looping media element with a
+  synthesised WAV data URI, and this app already needs `navigator.wakeLock`,
+  which shipped in the same release. If the sound test ever reports
+  `SESSION NONE`, that is the moment to carry the weight.
+- **`resume()` was never awaited.** It returns a promise and the old code
+  dropped it. A context stuck in `suspended` makes no sound and reports no
+  error, which looks exactly like a muted phone. The state is now read before
+  the resume, again when the promise settles, and watched by `statechange`.
+- **Every touch is a second chance.** The pointerdown handler used to stop
+  after the first gesture. It now re-claims the session and re-resumes whenever
+  the context is not `running`, because a call or a lock leaves it
+  `interrupted` and an interrupted context is silent about being silent.
 
-**The voice works on Liam's phone** — he confirmed it. Nothing was rewritten.
-Two risks are gone: the unlock no longer speaks a whitespace utterance at
-volume 0, which is the shape that wedges a queue, and `cancel()` no longer
-runs before every `speak()`. A line moves on at a spoken estimate as well as
-on `end`, so one silent utterance costs the timing and never the second team.
+**The alarm is a horn now.** The two-tone klaxon was loud and read as an
+emergency — alternation is the strongest emergency cue a sound has, and 1047Hz
+is where a smoke alarm lives. A stadium horn is one held note, a couple of
+hundred Hertz down, carrying on its harmonics. Two throats, Bb3 and Eb4 a
+fourth apart, each a beating pair of sawtooths, driven four times into the soft
+clipper, lowpassed at 6.5kHz. The pitch climbs 40 cents into the note and drops
+70 cents out of it, because a real horn has to catch and has to run out.
 
-**The manual interval override is gone.** `intervalMode`, `subMinutes`, the
-fourth picker and the swap on the readout are out of the engine, the app, the
-tests and the three documents. Game, Time and Rotations are the three settings
-and the interval is their result, always derived, never editable. A squad
-saved by the old build may carry `intervalMode: 'manual'`; it is read and
-ignored, and a game already running keeps its frozen `intervalMs`.
+```
+the old whistle   peak 0.344   RMS 0.075   crest 4.58    550ms
+the klaxon        peak 0.936   RMS 0.469   crest 2.00   2504ms
+this horn         peak 0.940   RMS 0.602   crest 1.56   2522ms
+```
 
-**The freeze is honest now.** Mid-game the readout says what the frozen
-interval is currently worth — `1.8 ROTATIONS EACH` — instead of repeating the
-clock the person already set. Before kick-off it still says
-`CHANGE EVERY 8:30`.
+**Nothing was traded for the timbre. The horn is the loudest of the three and
+it does not clip.** A held note has no notches cut in it, so it spends all of
+its length at the ceiling where the klaxon spent nine tenths. Through a band
+model of a portable speaker — 400Hz to 6kHz — the horn is 0.544 against the
+klaxon's 0.513. `buildAlarm`/`ALARM_MS` are `buildHorn`/`HORN_MS`, and the
+timeline did not move: horn 0–2500, chime 2650, Bibs 3050.
 
-**Three touch fixes Liam asked for:**
+**The app no longer says its own name.** The utterance that unlocks the iOS
+voice spoke `rota` at volume 0.02, and iOS did not honour the volume, so Kick
+off announced the app. It could not be replaced by silence: an empty utterance,
+a whitespace one and a lone full stop all have no phonemes and are the shapes
+that leave the queue stuck. It is now `ok` at rate 10 — about fifty
+milliseconds — and it is spent at the **first touch anywhere on the page**,
+which during a warm-up is a name field. By the time anyone is listening for a
+horn the unlock has happened and Kick off is silent.
 
-- **A drag is armed by a hold.** 400ms of stillness lifts the row to
-  `scale(1.045)` and buzzes; before that the row is `touch-action: pan-y` and
-  the page scrolls. Every row used to be `touch-action: none`, so a squad of
-  nine could not be scrolled at all. Verified with real touch events.
-- **Kick off is not fixed in portrait.** `.settings-col` becomes
-  `display: contents` and its two halves become items of the page: settings
-  first, Kick off last, under both lists. Nothing sits over the field.
-- **A sound test beside Kick off.** One tap speaks a line and sounds the
-  alarm. It is also the gesture iOS wants before it will speak. Its answer
-  takes the readout's row:
-  `VOICES 191 · QUEUED YES · START NO · END NO · ERROR NONE`.
+**The mute is gone.** The volume is on the side of the phone and a control that
+answers a settled question twice has no job. Out: the icon on the spine and on
+the live bar, its three states, `state.muted`, the `speak()` guard that held the
+slot open while muted, `muteOn`/`muteOff`, and its sections in `copy.md` and
+`design.md`. The speaker survives in one place, as the sound test's own face,
+with two states instead of three — on and broken.
 
-**The speaker icon carries three states** — on, muted, broken. Broken is not
-muted wearing a colour: muted keeps its waves and takes a line through all of
-it, broken has no waves and a cross where they were. `No voice` and `Screen
-may sleep` are no longer text labels; both strings live in a hidden
-`role="status"` line.
+- **The fault state did not get noisier.** Muting used to suppress `No voice`
+  so a muted phone and a broken one did not look alike. With no mute there is
+  nothing to suppress, and `degradedVoice` is quiet by construction: it only
+  turns on when an utterance was asked for and `start` never fired, so a phone
+  that has never been asked never shows it and one spoken word turns it off.
+- **The spine holds two icons now**, the stop square and the pencil, 44px each
+  and right-aligned. Nothing was left holding space for the third.
 
-Everything below this line is unchanged from v5 and still true: the type
-scale, the space scale, the game screen, the team title, the casing rule, the
-settings column, the live-game state, the way home and portrait.
+**The sound test reports the whole path.** Liam is the only person who can hear
+the answer, so it is written out in words and read back:
 
-**Next.** The field test. Whether the alarm is the right length on a real
+```
+AUDIO WAS SUSPENDED · NOW RUNNING · RATE 48000 · SESSION PLAYBACK · HORN SCHEDULED
+VOICES 44 · QUEUED YES · START YES · END YES · ERROR NONE
+```
+
+Anything but `NOW RUNNING` is a context that will make no sound and say
+nothing about it. `SESSION NONE` means the phone predates the setting.
+
+- **The answer is two lines and the row grows for it.** Landscape has about
+  thirty pixels of slack against the seventy-eight the answer wants, so the
+  spacer collapses and `Clear all` steps aside while the answer is up; both
+  return the moment anything changes, which is the moment the answer goes. The
+  row still scrolls inside itself as the last resort, so **Kick off never
+  moves.** Verified at 390x844 and 844x390.
+
+**Everything else stands.** The sequence is unchanged and matches what Liam
+described: countdown ten seconds, horn, names; interval, horn, names. The
+countdown still ticks the last five seconds — measured at 5.0s to 9.0s after
+the tap, with the horn at 10.0s, the chime at 12.66s and the first word at
+13.07s. One spoken template, `Bibs. Goal, Umar. Sub, Kevin.`, the 400ms drag
+hold, the unpinned Kick off, `Clear all` and the stop square are all as they
+were.
+
+**Next.** The field test. Whether the horn is the right length on a real
 speaker, whether ten seconds of countdown at every change annoys people by
 minute forty, and whether one chime is enough.
 
@@ -113,29 +145,29 @@ minute forty, and whether one chime is enough.
 
 **Open, for Liam.**
 
+- **No agent can hear any of this.** The horn is proved by an
+  `OfflineAudioContext` render and nothing else. Audibility on the phone rests
+  on the session fix, and the sound test's first line is how it gets checked:
+  if it says `SESSION PLAYBACK · HORN SCHEDULED · NOW RUNNING` and there is
+  still no sound, the theory is wrong and the next suspect is routing the horn
+  through an `<audio>` element playing a rendered buffer.
 - **The voice has never been proved by an agent.** The automation browser has
   191 system voices and `speak()` queues, but no utterance ever fires `start`,
-  `end` or `error` — so the sound test's own diagnostic reads
-  `START NO · END NO · ERROR NONE` here. That is a property of the automation
-  browser, not of the app. Liam has heard the voice; nothing between here and
-  his phone can be checked without his phone.
+  `end` or `error` — so the sound test reads `START NO · END NO · ERROR NONE`
+  here and the icon shows broken. That is a property of the automation browser,
+  not of the app.
 - **`speechSynthesis.speaking` is worth nothing.** Measured in Chrome 151 it
-  stays `true` for ever on a queued utterance that never starts. The old
-  watchdog keyed on `!speaking && !pending`, so it could not fire on the one
-  failure that matters. Only `start` proves a voice.
+  stays `true` for ever on a queued utterance that never starts. Only `start`
+  proves a voice.
 - **A worst-case announcement can spill past the change.** Two squads of eight
   with two subs each, with a dead engine, runs on estimates to about 10.8s
-  against a 10s window. With a working engine it lands near 9.9s. Nothing
-  sounds at the change itself any more, so the spill is silent and harmless —
-  but dropping the first chime would buy 400ms if the field test wants it.
-- **`OFF` and `ON` are not on the screen.** `copy.md` keeps them; `design.md`
-  says the eyebrow never changes and the arrow plus the colour carry the
-  direction. The design won.
+  against a 10s window. Nothing sounds at the change itself, so the spill is
+  silent and harmless — but dropping the first chime would buy 400ms.
+- **`OFF` and `ON` are not on the screen.** The design won over `copy.md`.
 - **The live bar has no `Next change` label.** The string survives as the
   accessible name of the countdown.
-- **`brain/design.md` is 459 lines against a 200-line cap.** Variations B and
-  C describe alternatives to a design built and revised three times. They are
-  the first thing to cut.
+- **`brain/design.md` is 457 lines against a 200-line cap.** Variations B and
+  C are the first thing to cut.
 - **Mid-game the landscape setup still scrolls to reach the divider.** The
   live bar takes 68px and nothing shorter is available.
 

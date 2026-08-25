@@ -147,7 +147,7 @@ bottom of the row. **22 → 15.**
 | the countdown and the changeover are one state, not two | none |
 
 Deleted: the time-played readout, every container, every border, and every icon except two
-hairlines, the pencil and the mute.
+hairlines and the pencil.
 
 ### B — The shared header
 
@@ -196,7 +196,7 @@ bottom   the same two columns. height and line-height are lead x 1.2, which is
          the window each column holds the name leaving that slot
 spine    border-left 1px --hair, padding-left --s-edge, flex column, right aligned
          clock at count, tabular, centred by auto margins
-         a conditional eyebrow, then home, mute and pencil as 44px targets
+         a conditional eyebrow, then home and pencil as 44px targets
 ```
 
 **One hairline in the whole section, and it is the seam between the two teams.** Nothing else is
@@ -225,13 +225,12 @@ meaning anything. Instead the rows are `auto`, the pin inside a row becomes one 
 air lands around the groups instead of inside them, which is the same rule the landscape spacing
 runs on. No type value is overridden; the rung-down rule has done it.
 
-**The mute carries three states, and two of them look alike.** On is `volume-2` in `--ink-3`.
-Muted is the same icon with a line through all of it. Broken is the speaker with **no waves at
-all** and a cross where they were, in `--off`. Muted and broken mean opposite things, so shape
-separates them before colour does: muted still has its waves, because the sound is there and has
-been switched off, and broken has none, because there is nothing to switch. On the ink bar the
-colour is dropped and the shape carries it alone. Muted wins over broken. **It appears wherever
-the voice is live** — the game screen and the live bar — and nowhere on setup before kick-off.
+**There is no mute.** The volume is on the side of the phone and the screen does not ask about
+it a second time. The speaker icon survives in one place only, on the sound test on the setup
+screen, where it reports rather than acts: on is `volume-2` in `--ink-3`, broken is the same
+speaker with **no waves at all** and a cross where they were, in `--off`. Shape separates them
+before colour does. Two icons are left on the spine, home and the pencil, and 44px each still
+lands them under a thumb without the third.
 
 **No fault is a word on this screen.** `No voice` was a text label doing an icon's job, and
 `Screen may sleep` names a fault that announces itself the moment the screen goes dark. The
@@ -275,7 +274,7 @@ drift jumps, the ground lift and the colours stay.
 **Kick-off** is the same screen already assembled, with the clock counting down from ten, so the
 wait is spent reading the starting state including the keeper just drawn. Each second swaps
 instantly then `scale(1.08 → 1)` over 180ms; the last five carry a tick (sine 880Hz, 30ms, gain
-.08). The mute is present, the pencil is not, and any tap aborts back to setup.
+.08). The pencil is not present, and any tap aborts back to setup.
 
 ---
 
@@ -394,8 +393,8 @@ fixed anything.
 **The ink moves.** Before kick-off the only ink surface is a 56px button in the bottom-right
 corner: small, in the thumb, an action waiting for you. During the game that button is gone and
 the ink is a full-bleed bar across the top — 56px plus the top safe area in landscape, 64px in
-portrait — carrying the live countdown at `count` / 700 / white / tabular on the left, the mute
-and a 44px `x` on the right, and a conditional eyebrow at 60% white on one line beside the clock
+portrait — carrying the live countdown at `count` / 700 / white / tabular on the left and
+a conditional eyebrow at 60% white on one line beside the clock
 when an edit is pending. Setup takes `padding-top: 68px` / `80px` under it. Size, position,
 colour and content all invert, so the two states cannot be mistaken at a glance, and the `x` is
 the way back.
@@ -421,7 +420,7 @@ Gone home and turned up late live here too — both are a row added or removed.
 
 ## States
 
-Empty setup, a short squad, the keeper override, no sub, at rest, the change window, muted and a
+Empty setup, a short squad, the keeper override, no sub, at rest, the change window and a
 pending edit are all specified in place above. What is left:
 
 - *Full squad, landscape* — six rows and the divider show, the rest scrolls, the field never does.
