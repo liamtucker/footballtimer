@@ -41,132 +41,103 @@ touched.
 
 ## State
 
-**Done.** v5 is built. The engine passes 89 assertions.
+**Done.** v6 is built. The engine passes 88 assertions. Service worker cache
+`rota-v9`.
 
-**The interval is derived now, and it freezes at kick-off.** This is the one
-change to the engine since v4 and it replaces the old model outright:
+**The sounds are the headline.** The whistle was inaudible on a touchline and
+the measurement says why: band-passed noise spreads its energy over a wide
+band, so peak amplitude buys almost no loudness. Rendered through an
+`OfflineAudioContext` at 48kHz it was peak 0.344, RMS 0.075. The alarm that
+replaces it is a two-tone klaxon — square oscillators alternating 1047Hz and
+1397Hz at 2Hz, through a soft clipper and a 6.5kHz lowpass — at peak 0.936,
+RMS 0.469. **15.9dB louder for the same headroom, and it does not clip.**
 
-- **`rotations` is the control.** How many times each player goes in goal across
-  the game time. 1 to 5, default 2. The interval is
-  `gameMinutes / (N * rotations)`, floored to 15 seconds, never under 60. `N` is
-  the **larger** of the two squads, because the promise has to be kept for the
-  bigger one. 2 hours, 7 players, twice each is **8:30**.
-- **`intervalMode: 'manual'`** keeps the old behaviour and uses `subMinutes`.
-  `rotationsPerPlayer()` then reads the sum backwards — `10 minutes` is 1.7
-  rotations each, not 2 — so the screen never has to do arithmetic.
-- **`kickOff()` writes the interval onto the setup and `rotation()` reads it
-  from there.** A late arrival changes `N` and the countdown does not move. The
-  price, in the header and in `spec.md`: once frozen, "twice each" is slightly
-  less than twice for a squad that grew. That is the right trade.
-- Before kick-off nothing is stored, so the setup screen previews the number
-  live as names are typed. The edit route carries the frozen number forward
-  unless the person moves one of the four settings it came from — a deliberate
-  change to the interval lands at the next change, like every other edit.
-- **The third picker and the readout are one pair.** `ROTATIONS` `2 each` over
-  `CHANGE EVERY 8:30`; tap the readout and it becomes `INTERVAL` `10 minutes`
-  over `1.7 ROTATIONS EACH`. The readout is a 44px row with a swap glyph and no
-  instruction. The mode is saved with the squad. Em-dash under two names.
-- **Every gap in the settings column is now `--s-pack`.** The readout needed
-  54px that a 390px landscape did not have. Three cards, the readout, `Clear all`
-  and `Kick off` come to 366 of 370. It removes the `8px` literal `design.md`
-  flagged.
+- **`sound.js` is new.** It builds WebAudio graphs and decides nothing, so the
+  same code that plays can be rendered offline and measured. It is in the
+  service worker's file list.
+- **One alarm, 2.5s, the same at kick-off and at every changeover**, and it
+  **finishes before the first word**. Kick-off: alarm 0–2500, chime 2650, Bibs
+  3050, Non-bibs ~6050, done near 8700. A changeover is the same shape inside
+  the ten-second window.
+- **One spoken template, for both**: `Bibs. Goal, Umar. Sub, Kevin.` It states
+  the state, not the transition, in the words the screen already shows. A team
+  with no subs drops the clause and `no subs` is never said aloud.
 
-The refinement pass answered Liam's field notes against `brain/design.md`
-(variation A) and `brain/copy.md`; a later pass answered a nine-item punch
-list from Liam, which is where this list disagrees with those two documents:
+**The voice works on Liam's phone** — he confirmed it. Nothing was rewritten.
+Two risks are gone: the unlock no longer speaks a whitespace utterance at
+volume 0, which is the shape that wedges a queue, and `cancel()` no longer
+runs before every `speak()`. A line moves on at a spoken estimate as well as
+on `end`, so one silent utterance costs the timing and never the second team.
 
-- **The type scale is the law.** Five steps, ratio 1.5 — hero 60, count 40,
-  lead 27, body 18, eyebrow 12 — and one media query at 800px that drops the
-  top three one rung. Every `font-size` in `style.css` is one of those five
-  tokens. The container query, the vw clamp and the `--len` machinery are
-  gone. Two weights, 700 and 500. Tracking and line height are set by step.
-- **The space scale is the law on the game screen.** Five steps, ratio 1.5 —
-  `--s-tie` 4, `--s-pack` 6, `--s-part` 10, `--s-edge` 16, `--s-gutter` 24 —
-  each with a stated job. Every margin, padding and gap on the game screen is
-  one of them. Ten literals are left on setup, the live bar and the confirm
-  card; they are listed in `brain/design.md` under What I think is wrong.
-- **Everything is uppercase**, both screens, done with `text-transform` in the
-  stylesheet. The stored name stays exactly as typed and the voice still speaks
-  a normal name, so nothing in the engine or in `COPY` changed.
-- **The game screen.** A team row is a flex column with space between: the
-  title, the two eyebrows and the two names are one group at the top, and the
-  order strip is pinned to the bottom. The row uses its whole height and the
-  void in the middle is the runway the outgoing keeper walks down. Gaps run
-  4 inside a pair, 10 around the group, 10/16 around the seam, and the rest is
-  whatever height is left. The columns are two fixed fractions, `2.25fr 1fr`,
-  which is hero over lead, so the sub column starts at the same edge whatever
-  is in goal.
-- **The team title is not a pill and not a heading with a rule.** It is the
-  same size as the `GOAL` eyebrow beside it, 500 against its 700, tracked
-  `.28em` against its `.1em`, in `--ink-3`. Quieter and structurally different
-  rather than another shape with a word in it — it cannot be read as a name
-  and it cannot compete with the keeper. Setup keeps the heading-and-rule
-  shape, because on setup nothing competes with it.
-- **One hairline in the game section**, the seam between the two teams. It has
-  to exist: the strip is further from its own name than the two teams are from
-  each other, so space alone would attach the strip to the wrong team.
-- **A name too long for its column shrinks.** `--fit` is the width the line
-  has over the width it wants and it multiplies the step, measured in
-  `fitLine`. Every name that fits is left at 1.
-- **Line three** is the order strip at rest and the two outgoing names in the
-  change window. It is the last row of the section either way. The name line
-  holds whoever occupies the slot after the change; line three holds whoever
-  is leaving it.
-- **The mute** sits between the home button and the pencil, on by default.
-  Muted is the same icon with a diagonal through it — no colour, no container.
-  It silences the voice only, and it suppresses `No voice` while muted.
-- **Three picker slots**, one component, four pickers behind them. `[-] value
-  [+]`, 44px targets, hold to repeat after 400ms at 8/s, `--dim` and inert at a
-  bound. Every value reads the way it is said out loud.
-- **The live-game state.** The ink moves: a 56px corner button before kick-off,
-  a full-bleed top bar during the game carrying the countdown, the mute and
-  the conditional edit notice. The whole bar is the way back to the game, so
-  there is no `x` in it. The filled list row is a readout mid-game, not a
-  control.
-- **The way home.** A third spine target ends the game and returns to setup
-  with last week's squad in it. It is the only control that undoes something
-  and the only one that asks: `This will end your current game.`, Yes and No,
-  on the same button as `Kick off`. The clock does not pause for the question.
-- **Portrait** is the same two-column layout as landscape on the game screen,
-  and its own stacked layout on setup. Its game rows are content height, not
-  `1fr`: a third of 844px would put 200px between a name and its own strip.
-  The pin becomes one `--s-gutter` and `align-content: space-evenly` spreads
-  the surplus around the three blocks.
-- **The time-played readout is deleted.** The spine holds one number.
-- `COPY` in `app.js` is the only place a string is written. Nothing dangles.
+**The manual interval override is gone.** `intervalMode`, `subMinutes`, the
+fourth picker and the swap on the readout are out of the engine, the app, the
+tests and the three documents. Game, Time and Rotations are the three settings
+and the interval is their result, always derived, never editable. A squad
+saved by the old build may carry `intervalMode: 'manual'`; it is read and
+ignored, and a game already running keeps its frozen `intervalMs`.
 
-**Next.** The field test, unchanged: whether ten seconds of countdown at every
-change annoys people by minute forty, and whether one chime is enough.
+**The freeze is honest now.** Mid-game the readout says what the frozen
+interval is currently worth — `1.8 ROTATIONS EACH` — instead of repeating the
+clock the person already set. Before kick-off it still says
+`CHANGE EVERY 8:30`.
+
+**Three touch fixes Liam asked for:**
+
+- **A drag is armed by a hold.** 400ms of stillness lifts the row to
+  `scale(1.045)` and buzzes; before that the row is `touch-action: pan-y` and
+  the page scrolls. Every row used to be `touch-action: none`, so a squad of
+  nine could not be scrolled at all. Verified with real touch events.
+- **Kick off is not fixed in portrait.** `.settings-col` becomes
+  `display: contents` and its two halves become items of the page: settings
+  first, Kick off last, under both lists. Nothing sits over the field.
+- **A sound test beside Kick off.** One tap speaks a line and sounds the
+  alarm. It is also the gesture iOS wants before it will speak. Its answer
+  takes the readout's row:
+  `VOICES 191 · QUEUED YES · START NO · END NO · ERROR NONE`.
+
+**The speaker icon carries three states** — on, muted, broken. Broken is not
+muted wearing a colour: muted keeps its waves and takes a line through all of
+it, broken has no waves and a cross where they were. `No voice` and `Screen
+may sleep` are no longer text labels; both strings live in a hidden
+`role="status"` line.
+
+Everything below this line is unchanged from v5 and still true: the type
+scale, the space scale, the game screen, the team title, the casing rule, the
+settings column, the live-game state, the way home and portrait.
+
+**Next.** The field test. Whether the alarm is the right length on a real
+speaker, whether ten seconds of countdown at every change annoys people by
+minute forty, and whether one chime is enough.
 
 **Blocked.** Nothing.
 
 **Open, for Liam.**
 
+- **The voice has never been proved by an agent.** The automation browser has
+  191 system voices and `speak()` queues, but no utterance ever fires `start`,
+  `end` or `error` — so the sound test's own diagnostic reads
+  `START NO · END NO · ERROR NONE` here. That is a property of the automation
+  browser, not of the app. Liam has heard the voice; nothing between here and
+  his phone can be checked without his phone.
+- **`speechSynthesis.speaking` is worth nothing.** Measured in Chrome 151 it
+  stays `true` for ever on a queued utterance that never starts. The old
+  watchdog keyed on `!speaking && !pending`, so it could not fire on the one
+  failure that matters. Only `start` proves a voice.
+- **A worst-case announcement can spill past the change.** Two squads of eight
+  with two subs each, with a dead engine, runs on estimates to about 10.8s
+  against a 10s window. With a working engine it lands near 9.9s. Nothing
+  sounds at the change itself any more, so the spill is silent and harmless —
+  but dropping the first chime would buy 400ms if the field test wants it.
 - **`OFF` and `ON` are not on the screen.** `copy.md` keeps them; `design.md`
   says the eyebrow never changes and the arrow plus the colour carry the
-  direction. The design won, because an inline label beside a name is the
-  exact thing Liam asked to be removed. The eyebrows `GOAL` and `SUB` already
-  say which side of the pitch the arrow points at.
-- **The mute has no word beside it.** `design.md` wanted the spine's
-  conditional eyebrow to say so as well; `copy.md` forbids a word that repeats
-  what the icon says. Copy won.
-- **The live bar has no `Next change` label.** `design.md` gives the bar the
-  clock alone with a conditional eyebrow only when an edit is pending. The
-  string survives as the accessible name of the countdown.
-- **`brain/copy.md` is behind the screens.** It still names `Bibs` and
-  `No bibs` where the code has `bibs` and `non-bibs`, and it still describes
-  the muted dot and the `x` in the live bar. Its settings section is current.
-  `brain/design.md` is current for the type scale, the space scale, the game
-  screen, the team title, the casing rule and the settings column; the rest of
-  it still describes the muted dot and the portrait split. The code is the
-  current answer.
+  direction. The design won.
+- **The live bar has no `Next change` label.** The string survives as the
+  accessible name of the countdown.
+- **`brain/design.md` is 459 lines against a 200-line cap.** Variations B and
+  C describe alternatives to a design built and revised three times. They are
+  the first thing to cut.
 - **Mid-game the landscape setup still scrolls to reach the divider.** The
-  live bar takes 68px, which is more than a row and a divider, and nothing
-  shorter is available — it carries the countdown at `count`, 40px of type.
-  Before kick-off the divider and the first sub now fit with no scroll.
-- **`brain/design.md` is 392 lines against a 200-line cap.** Variations B and
-  C describe alternatives to a design built and revised twice. They are the
-  first thing to cut.
+  live bar takes 68px and nothing shorter is available.
 
 ## Debug hook
 
@@ -177,7 +148,7 @@ nothing is written to `localStorage`.
 - `&rate=60` — run 60x real time. `&rate=0` freezes it
 - `&a=Dom,Dave,Chris` and `&b=Sam,Tom,Alex` — prefill the two squads
 - `&g=7` — game type. `&game=120` — the game time
-- `&rot=2` — rotations each. `&mode=manual` uses `&sub=10` instead
+- `&rot=2` — rotations each
 - `&ka=2` and `&kb=3` — force the starting keeper index per team
 - `&count=0` — skip the kick-off countdown. `&auto=1` — kick off on load
 - `window.rota.setElapsed(ms)`, `.rate(n)`, `.view()`, `.rotation`, `.state`,
