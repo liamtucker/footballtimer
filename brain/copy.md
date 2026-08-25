@@ -35,7 +35,8 @@ grammar left to carry. **Size separates the classes, not case.**
   eyebrow from reading as a name.
 - **A team is capitalised, mid-size, and set apart from both.** `Bibs`,
   `No bibs`. Three classes on one row, three looks.
-- **A setting label is capitalised and small.** `Game`, `Time`, `Intervals`.
+- **A setting label is capitalised and small.** `Game`, `Time`, `Rotations`,
+  `Interval`.
 
 Lowercase now survives only inside a setting value. No punctuation on screen.
 
@@ -65,32 +66,58 @@ for.
 | `setup.gameType.value` | `{n} a side` | 8 at 6 |
 | `setup.gameTime.label` | `Time` | 4 |
 | `setup.gameTime.value` | `2 hours` | 7 |
-| `setup.change.label` | `Intervals` | 9 |
+| `setup.rotations.label` | `Rotations` | 9 |
+| `setup.rotations.value` | `{n} each` | 6 at 2 |
+| `setup.change.label` | `Interval` | 8 |
 | `setup.change.value` | `10 minutes` | 10 |
+| `setup.readout.every` | `Change every` | 12 |
+| `setup.readout.each` | `rotations each` | 14 |
+| `setup.readout.none` | `—` | 1 |
 | `setup.start` | `Kick off` | 8 |
 | `setup.clear` | `Clear all` | 9 |
 | `setup.restored` | `Delete anyone missing.` | 22 |
 | `setup.edit.aria` | `Edit setup` | 10 |
 
-Each select carries its visible label: `aria-label="Game"`, `"Time"`,
-`"Intervals"`.
+Each card carries its visible label: `aria-label="Game"`, `"Time"`,
+`"Rotations"` or `"Interval"`.
 
 **The three settings, one rule.** *A numeral, then the unit spelled the way it is
-said out loud.* Nothing clipped, no symbols. "six a side", "two hours", "ten
-minutes". It is the rule the spoken line already runs on, so the screen and the
+said out loud.* Nothing clipped, no symbols. "six a side", "two hours", "twice
+each". It is the rule the spoken line already runs on, so the screen and the
 voice never disagree about a number.
 
 - `Game` `6 a side`. The value keeps `a side` because `Game 6` means nothing. The
   label is there for the column, not for the value.
 - `Time` `45 minutes`, `1 hour`, `1 hour 15`, `2 hours`, `2 hours 30`, `3 hours`.
   Whole hours drop the minutes. Never `120 min`, it makes a person do maths.
-- `Intervals` `3 minutes` through `20 minutes`.
+- `Rotations` `1 each` through `5 each`. `2 each` reads as "everyone goes in goal
+  twice", which is the whole idea. Rejected: `2 turns`, which needs a second word
+  to say a turn at what; `x2`, which is a symbol.
+- `Interval` `3 minutes` through `20 minutes`. **Singular now.** It labels one
+  duration you set by hand, where `Intervals` labelled the plural fact of them.
 
 Every value fits ten characters, the same ceiling as a name. If the column cannot
 hold ten, shorten all three together. One clipped row is what broke this before.
 
-`Intervals` is plural over a single duration. It reads as "the intervals are ten
-minutes long", which is true.
+**The readout.** One sentence under the three cards, saying the number they
+produce, and tapping it swaps the third card for its opposite.
+
+- Working it out: `CHANGE EVERY 8:30`.
+- Set by hand: `1.7 ROTATIONS EACH`.
+
+The words move to the other side of the number because both readings put the
+number where the sentence puts it — you change *every* 8:30, and you get *1.7*
+rotations each. `8:30` is a clock, not a spoken unit, and it is the one place
+the numeral rule gives way: everybody reads a countdown, and the countdown on the
+game screen says `8:30` too. The number always
+carries its decimal — `2.0`, never `2` — so the readout is a measurement and not
+a count, and `ROTATIONS EACH` stays plural at every value without lying.
+
+Neither line carries an instruction. `Tap to change` was rejected twice, and the
+design answers it instead — the row is a control, so it wears a control's glyph.
+
+An em-dash when neither squad has two names. Nothing is guessed and nothing says
+`0:00`, which would be a number and therefore a lie.
 
 **The keeper marker.** `GOAL`, eyebrow register. The same word and the same look
 the player will see live, so the tap shows its own result. Liam's word, my

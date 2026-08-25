@@ -279,8 +279,16 @@ divider  eyebrow, --s-pack, a 1px --dim rule to the column edge. --s-tie above
 picker   72px card, radius 12, --surface, inset 0 0 0 1px --hair, padding-top 6px
          eyebrow at padding-left 14px, then 44×44 minus | value at body/700 tabular,
          centred | 44×44 plus. glyphs 20px --ink; --dim and inert at a bound
+readout  44px, full width, no fill, a 1px --dim rule along its top, --s-pack above.
+         one line centred: eyebrow/500/.28em --ink-3 beside eyebrow/700/.1em --ink,
+         then a 20px swap glyph in --ink-3. the whole row is the target
 kick off 56px, radius 12, --ink fill, white body / 700
 ```
+
+Every gap in the settings column is `--s-pack`: between the three cards, above the readout and
+above `Clear all`. The column is one control group, and three 72px cards plus the readout plus
+`Clear all` plus `Kick off` is 366 of the 370px a 390px landscape phone has. That packing is
+what makes it fit, and it takes the last literal out of this column.
 
 **The field** is the only 2px border in the product, and the arrow arming on the first keystroke
 is the field demonstrating itself once per name instead of a sentence of help. It sits
@@ -298,12 +306,30 @@ position first, 250ms. One filled row per team, none by default — the keeper i
 and the countdown reveals it. The divider sits after position `gameType`, absent when the squad
 is not larger than it.
 
-**The pickers.** One component, three instances, no native `<select>`. Press and hold repeats
-after 400ms at 8 a second. Ranges: game type 4–11 by 1; game time 30 min–3 h by 15; sub duration
-3–20 min by 1. Two 44px targets and a number is the most a cold thumb can be asked for, it needs
-no overlay and no dismiss, and it is identical in both orientations. **Kick off** is the only
-filled ink surface in the product except the live bar. Under two names it is a hairline button
-on transparent, and tapping it focuses the short field. No disabled control, no dead primary.
+**The pickers.** One component, three slots, no native `<select>`. Press and hold repeats after
+400ms at 8 a second. Ranges: game type 4–11 by 1; game time 30 min–3 h by 15; rotations 1–5 by
+1; interval 3–20 min by 1. Two 44px targets and a number is the most a cold thumb can be asked
+for, it needs no overlay and no dismiss, and it is identical in both orientations. **Kick off**
+is the only filled ink surface in the product except the live bar. Under two names it is a
+hairline button on transparent, and tapping it focuses the short field. No disabled control, no
+dead primary.
+
+**The third slot and the readout are one pair.** Four pickers exist for three slots. The third
+holds `Rotations` `2 each` and the readout under it says `CHANGE EVERY 8:30`; tap the readout
+and they swap — the card becomes `Interval` `10 minutes` and the readout becomes
+`1.7 ROTATIONS EACH`. One slot, two meanings, always the true one, which is the same merge the
+live bar already makes between the way back and the countdown.
+
+The readout **is a control**, so it takes a control's affordance and not a sentence telling you
+to tap it: a 44px row, a 20px swap glyph in the same weight as every other glyph on the screen,
+and the glyph going to `--ink` on press. It is **not** a fourth setting, so it has no card and
+no fill — it sits under a 1px `--dim` rule, the same rule the `SUBS` divider draws, which here
+means the same thing: what is under this line is not another one of the things above it.
+
+The line is one register, not a label beside a value, because it is a sentence. Weight and
+colour carry the number out of the words — 500 at `.28em` in `--ink-3` against 700 at `.1em` in
+`--ink`, which is the pairing the team title already makes against `GOAL`. It shows an em-dash
+when neither squad has two names, which is the same moment the notice says so.
 
 **Landscape** — `padding: --s-part` with `max(--s-gutter, env(...))` at the sides,
 `grid-template-columns: minmax(0,1fr) minmax(0,1fr) 13rem`, `gap: --s-edge`. A team column is
@@ -377,11 +403,9 @@ pending edit are all specified in place above. What is left:
 
 ## What I think is wrong
 
-1. **The game time setting should not exist.** It drives nothing in the engine, and with the
-   time-played readout gone it displays nothing either. A control with no consequence is exactly
-   the button `spec.md` says is the wrong button. It is drawn here because it was asked for;
-   delete it and the settings column loses one card and nothing else changes. The four-hour
-   restore window is already a constant, not a derivation.
+1. ~~**The game time setting should not exist.**~~ **Settled, and the other way.** Game time is
+   half of the interval sum now — `game time / (N × rotations)` — so it drives the number the
+   readout shows and the clock the whole game runs on. It stays.
 2. **`copy.md` says a connective is lowercase and small.** That was written for the inline
    sentence the eyebrows have replaced, and an eyebrow is a label, not a connective. The eyebrow
    renders uppercase and tracked; the copywriter still owns the words.
@@ -393,10 +417,11 @@ pending edit are all specified in place above. What is left:
    on the wrong team.
 6. **The space scale is the law on the game screen and not yet anywhere else.** Ten values on
    setup, the live bar and the confirm card are still literals: `5px` and `12px` inside the
-   field, `8px` on the settings column, the foot and the confirm row, `14px` on a picker label
+   field, `8px` on the confirm row, `14px` on a picker label
    and inside the live bar, `20px` on the confirm card, `28px` between portrait sections, and
    `68px` / `80px` / `96px`, which are all derived from the live bar's own height. Bringing them
-   across changes the setup design, which is why this pass did not.
+   across changes the setup design, which is why this pass did not. The settings column's own
+   `8px` gaps are gone — the readout needed the room and `--s-pack` was the honest answer.
 7. **This file is 392 lines against a 200-line cap.** Variations B and C describe alternatives to
    a design that has now been built and revised twice, and nobody will go back to them. They are
    the first thing to cut when someone is allowed to.

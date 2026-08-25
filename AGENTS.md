@@ -41,7 +41,36 @@ touched.
 
 ## State
 
-**Done.** v4 is built. The engine is untouched and still passes 71 assertions.
+**Done.** v5 is built. The engine passes 89 assertions.
+
+**The interval is derived now, and it freezes at kick-off.** This is the one
+change to the engine since v4 and it replaces the old model outright:
+
+- **`rotations` is the control.** How many times each player goes in goal across
+  the game time. 1 to 5, default 2. The interval is
+  `gameMinutes / (N * rotations)`, floored to 15 seconds, never under 60. `N` is
+  the **larger** of the two squads, because the promise has to be kept for the
+  bigger one. 2 hours, 7 players, twice each is **8:30**.
+- **`intervalMode: 'manual'`** keeps the old behaviour and uses `subMinutes`.
+  `rotationsPerPlayer()` then reads the sum backwards — `10 minutes` is 1.7
+  rotations each, not 2 — so the screen never has to do arithmetic.
+- **`kickOff()` writes the interval onto the setup and `rotation()` reads it
+  from there.** A late arrival changes `N` and the countdown does not move. The
+  price, in the header and in `spec.md`: once frozen, "twice each" is slightly
+  less than twice for a squad that grew. That is the right trade.
+- Before kick-off nothing is stored, so the setup screen previews the number
+  live as names are typed. The edit route carries the frozen number forward
+  unless the person moves one of the four settings it came from — a deliberate
+  change to the interval lands at the next change, like every other edit.
+- **The third picker and the readout are one pair.** `ROTATIONS` `2 each` over
+  `CHANGE EVERY 8:30`; tap the readout and it becomes `INTERVAL` `10 minutes`
+  over `1.7 ROTATIONS EACH`. The readout is a 44px row with a swap glyph and no
+  instruction. The mode is saved with the squad. Em-dash under two names.
+- **Every gap in the settings column is now `--s-pack`.** The readout needed
+  54px that a 390px landscape did not have. Three cards, the readout, `Clear all`
+  and `Kick off` come to 366 of 370. It removes the `8px` literal `design.md`
+  flagged.
+
 The refinement pass answered Liam's field notes against `brain/design.md`
 (variation A) and `brain/copy.md`; a later pass answered a nine-item punch
 list from Liam, which is where this list disagrees with those two documents:
@@ -86,9 +115,9 @@ list from Liam, which is where this list disagrees with those two documents:
 - **The mute** sits between the home button and the pencil, on by default.
   Muted is the same icon with a diagonal through it — no colour, no container.
   It silences the voice only, and it suppresses `No voice` while muted.
-- **Three custom pickers**, one component. `[-] value [+]`, 44px targets, hold
-  to repeat after 400ms at 8/s, `--dim` and inert at a bound. Every value now
-  reads the way it is said out loud.
+- **Three picker slots**, one component, four pickers behind them. `[-] value
+  [+]`, 44px targets, hold to repeat after 400ms at 8/s, `--dim` and inert at a
+  bound. Every value reads the way it is said out loud.
 - **The live-game state.** The ink moves: a 56px corner button before kick-off,
   a full-bleed top bar during the game carrying the countdown, the mute and
   the conditional edit notice. The whole bar is the way back to the game, so
@@ -113,10 +142,6 @@ change annoys people by minute forty, and whether one chime is enough.
 
 **Open, for Liam.**
 
-- `Time` still drives nothing. The designer, the copywriter and this pass all
-  think it should be cut. It is kept because Liam named its label. It is one
-  entry in `PICKERS`, one card in `index.html` and one field in `draft` —
-  cutting it is one small change.
 - **`OFF` and `ON` are not on the screen.** `copy.md` keeps them; `design.md`
   says the eyebrow never changes and the arrow plus the colour carry the
   direction. The design won, because an inline label beside a name is the
@@ -130,10 +155,11 @@ change annoys people by minute forty, and whether one chime is enough.
   string survives as the accessible name of the countdown.
 - **`brain/copy.md` is behind the screens.** It still names `Bibs` and
   `No bibs` where the code has `bibs` and `non-bibs`, and it still describes
-  the muted dot and the `x` in the live bar. `brain/design.md` is current for
-  the type scale, the space scale, the game screen, the team title and the
-  casing rule; the rest of it still describes the muted dot and the portrait
-  split. The code is the current answer.
+  the muted dot and the `x` in the live bar. Its settings section is current.
+  `brain/design.md` is current for the type scale, the space scale, the game
+  screen, the team title, the casing rule and the settings column; the rest of
+  it still describes the muted dot and the portrait split. The code is the
+  current answer.
 - **Mid-game the landscape setup still scrolls to reach the divider.** The
   live bar takes 68px, which is more than a row and a divider, and nothing
   shorter is available — it carries the countdown at `count`, 40px of type.
@@ -150,7 +176,8 @@ nothing is written to `localStorage`.
 - `?t=330`, `?t=5:30` or `?t=589.4` — start the clock at that elapsed time
 - `&rate=60` — run 60x real time. `&rate=0` freezes it
 - `&a=Dom,Dave,Chris` and `&b=Sam,Tom,Alex` — prefill the two squads
-- `&g=7` — game type. `&sub=10` and `&game=120` — the two durations
+- `&g=7` — game type. `&game=120` — the game time
+- `&rot=2` — rotations each. `&mode=manual` uses `&sub=10` instead
 - `&ka=2` and `&kb=3` — force the starting keeper index per team
 - `&count=0` — skip the kick-off countdown. `&auto=1` — kick off on load
 - `window.rota.setElapsed(ms)`, `.rate(n)`, `.view()`, `.rotation`, `.state`,

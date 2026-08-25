@@ -34,9 +34,17 @@ import {
   nearestLegalStartKeeper,
   legalStartKeepers,
   gameTypeOf,
+  rotationsOf,
+  intervalModeOf,
+  squadSizeOf,
+  computeIntervalMs,
+  rotationsPerPlayer,
   MIN_GAME_TYPE,
   MAX_GAME_TYPE,
+  MIN_ROTATIONS,
+  MAX_ROTATIONS,
   DEFAULT_GAME_TYPE,
+  DEFAULT_ROTATIONS,
   DEFAULT_SUB_MINUTES,
   DEFAULT_GAME_MINUTES
 } from './rotation.js';
@@ -55,7 +63,14 @@ const COPY = {
   keeperTag: 'GOAL',
   gameTypeLabel: 'Game',
   gameTimeLabel: 'Time',
-  changeLabel: 'Intervals',
+  rotationsLabel: 'Rotations',
+  changeLabel: 'Interval',
+  /* the readout is one sentence in two halves, and the halves swap over */
+  readoutEvery: 'Change every',
+  readoutEach: 'rotations each',
+  readoutNone: '—',
+  readoutToManual: 'Set the interval by hand',
+  readoutToRotations: 'Work the interval out from the rotations',
   start: 'Kick off',
   clear: 'Clear all',
   editAria: 'Edit setup',
@@ -121,7 +136,9 @@ function dropKey(key) {
  *   &a=Dom,Dave,Chris         team A squad
  *   &b=Sam,Tom,Alex           team B squad
  *   &g=7                      game type
- *   &sub=10 &game=120         the two durations
+ *   &game=120                 the game time
+ *   &rot=2                    rotations each. &mode=manual uses &sub instead
+ *   &sub=10                   the manual interval, in minutes
  *   &ka=2 &kb=3               force the starting keeper index per team
  *   &count=0                  skip the kick-off countdown
  *   &auto=1                   kick off as soon as the page loads
@@ -156,6 +173,8 @@ const debug = (() => {
     gameType: int('g'),
     subMinutes: int('sub'),
     gameMinutes: int('game'),
+    rotations: int('rot'),
+    intervalMode: params.get('mode') === 'manual' ? 'manual' : (params.get('mode') === 'rotations' ? 'rotations' : null),
     keepers: [int('ka'), int('kb')],
     countdown: params.get('count') !== '0',
     auto: params.get('auto') === '1'
@@ -189,12 +208,17 @@ function isPortrait() {
 const draft = {
   gameType: DEFAULT_GAME_TYPE,
   gameMinutes: DEFAULT_GAME_MINUTES,
+  rotations: DEFAULT_ROTATIONS,
+  intervalMode: 'rotations',
   subMinutes: DEFAULT_SUB_MINUTES,
   names: [[], []],
   keeper: [null, null],
   mode: 'pre',        /* 'pre' before kick-off, 'edit' with a game running */
   baseChange: 0,      /* the change index the edit picture was built from */
-  signature: ''
+  signature: '',
+  /* the interval the kick-off froze, and the four settings it was worked out
+     from. Only set in edit mode. See frozenIntervalForDraft(). */
+  frozen: null
 };
 
 const state = {
@@ -224,8 +248,11 @@ const el = {
   values: {
     type: $('type-value'),
     time: $('time-value'),
-    sub: $('sub-value')
+    pace: $('pace-value')
   },
+  readout: $('readout'),
+  readoutLabel: $('readout-label'),
+  readoutValue: $('readout-value'),
   notice: $('notice'),
   start: $('start'),
   clear: $('clear'),
@@ -682,11 +709,32 @@ renderMute();
 
 /* ========================================================= setup screen */
 
+/*
+ * The interval freezes at kick-off, so an edit mid-game has to carry the frozen
+ * number forward or the countdown would jump the moment somebody's name is
+ * typed in. It carries it as long as the four settings the number came from are
+ * untouched. Move any one of them and this returns undefined, the setup derives
+ * again, and the new interval lands at the next change like every other edit —
+ * which is a person deciding to change the interval, not a squad changing size.
+ */
+function frozenIntervalForDraft() {
+  const was = draft.frozen;
+  if (!was) return undefined;
+  if (draft.intervalMode !== was.intervalMode) return undefined;
+  if (draft.rotations !== was.rotations) return undefined;
+  if (draft.subMinutes !== was.subMinutes) return undefined;
+  if (draft.gameMinutes !== was.gameMinutes) return undefined;
+  return was.intervalMs;
+}
+
 function draftSetup() {
   return createSetup({
     gameType: draft.gameType,
-    subMinutes: draft.subMinutes,
     gameMinutes: draft.gameMinutes,
+    rotations: draft.rotations,
+    intervalMode: draft.intervalMode,
+    subMinutes: draft.subMinutes,
+    intervalMs: frozenIntervalForDraft(),
     teams: [
       { name: TEAM_NAMES[0], players: draft.names[0] },
       { name: TEAM_NAMES[1], players: draft.names[1] }
@@ -698,6 +746,8 @@ function draftSignature() {
   return JSON.stringify({
     g: draft.gameType,
     m: draft.gameMinutes,
+    r: draft.rotations,
+    i: draft.intervalMode,
     s: draft.subMinutes,
     n: draft.names,
     k: draft.keeper
@@ -1183,9 +1233,14 @@ for (let t = 0; t < 2; t += 1) {
 /* ------------------------------------------------------------ pickers */
 
 /*
- * One component, three instances. [-] value [+], 44px targets, and a press
- * and hold that repeats after 400ms at 8 a second. A bound makes the glyph
- * --dim and inert rather than disabled — there is no dead control here.
+ * One component, three slots. [-] value [+], 44px targets, and a press and hold
+ * that repeats after 400ms at 8 a second. A bound makes the glyph --dim and
+ * inert rather than disabled — there is no dead control here.
+ *
+ * There are four pickers for three slots. The third slot holds `rotations` or
+ * `sub` depending on the mode, and the readout under the three holds whichever
+ * of the two numbers the slot is not showing. Both live in the table so the
+ * ranges have one home and `onGrid()` can snap a stored value either way.
  */
 
 const PICKERS = {
@@ -1204,9 +1259,7 @@ const PICKERS = {
     },
     text: (n) => `${n} a side`
   },
-  /* `Time` drives nothing in the engine. It is one entry in this table, one
-     card in index.html and one field in the draft — cut those three and
-     nothing else in the app changes. */
+  /* `Time` is half of the interval sum now, so it drives the readout under it */
   time: {
     label: COPY.gameTimeLabel,
     min: 30,
@@ -1215,6 +1268,15 @@ const PICKERS = {
     get: () => draft.gameMinutes,
     put(value) { draft.gameMinutes = value; renderSetup(); },
     text: durationWords
+  },
+  rotations: {
+    label: COPY.rotationsLabel,
+    min: MIN_ROTATIONS,
+    max: MAX_ROTATIONS,
+    step: 1,
+    get: () => draft.rotations,
+    put(value) { draft.rotations = value; renderSetup(); },
+    text: (n) => `${n} each`
   },
   sub: {
     label: COPY.changeLabel,
@@ -1226,6 +1288,14 @@ const PICKERS = {
     text: (n) => `${n} minutes`
   }
 };
+
+/* three cards on the screen. the third is whichever the mode calls for. */
+const SLOTS = ['type', 'time', 'pace'];
+
+function pickerFor(slot) {
+  if (slot !== 'pace') return PICKERS[slot];
+  return PICKERS[draft.intervalMode === 'manual' ? 'sub' : 'rotations'];
+}
 
 const stepButtons = [...document.querySelectorAll('.step')];
 
@@ -1240,11 +1310,6 @@ function applyStaticCopy() {
     input.setAttribute('aria-label', COPY.addPlaceholder);
   }
   for (const add of el.adds) add.setAttribute('aria-label', COPY.addPlaceholder);
-  for (const [key, picker] of Object.entries(PICKERS)) {
-    const card = el.values[key].closest('.picker');
-    card.setAttribute('aria-label', picker.label);
-    card.querySelector('.picker-label').textContent = picker.label;
-  }
   el.start.textContent = COPY.start;
   el.edit.setAttribute('aria-label', COPY.editAria);
   el.livebar.setAttribute('aria-label', COPY.closeAria);
@@ -1259,17 +1324,56 @@ function applyStaticCopy() {
 
 applyStaticCopy();
 
+/*
+ * The third card's label moves with the mode, so every label is written here
+ * and not once at boot.
+ */
 function renderPickers() {
-  for (const [key, picker] of Object.entries(PICKERS)) {
+  for (const slot of SLOTS) {
+    const picker = pickerFor(slot);
+    const card = el.values[slot].closest('.picker');
+    card.setAttribute('aria-label', picker.label);
+    card.querySelector('.picker-label').textContent = picker.label;
     const value = picker.get();
-    el.values[key].textContent = picker.text(value);
+    el.values[slot].textContent = picker.text(value);
     for (const button of stepButtons) {
-      if (button.dataset.pick !== key) continue;
+      if (button.dataset.pick !== slot) continue;
       const next = value + Number(button.dataset.dir) * picker.step;
       button.classList.toggle('bound', next < picker.min || next > picker.max);
     }
   }
+  renderReadout();
 }
+
+/*
+ * The number the three cards produce, and the way to swap which one of the pair
+ * the third card is showing. `CHANGE EVERY 8:30` when the interval is worked
+ * out, `1.7 ROTATIONS EACH` when it is set by hand — the same merge the live
+ * bar uses, one slot carrying whichever meaning is the true one.
+ *
+ * Under two names in a squad there is no number worth showing, so it shows an
+ * em-dash, which is also when the notice below says two names minimum.
+ */
+function renderReadout() {
+  const manual = draft.intervalMode === 'manual';
+  const setup = draftSetup();
+  const known = squadSizeOf(setup) >= 2;
+  let value = COPY.readoutNone;
+  if (known) {
+    value = manual ? rotationsPerPlayer(setup).toFixed(1) : formatCountdown(computeIntervalMs(setup));
+  }
+  el.readoutLabel.textContent = manual ? COPY.readoutEach : COPY.readoutEvery;
+  el.readoutValue.textContent = value;
+  el.readout.classList.toggle('flip', manual);
+  el.readout.setAttribute('aria-label', manual ? COPY.readoutToRotations : COPY.readoutToManual);
+}
+
+/* the pair swaps over. neither number is lost — the one that leaves the card
+   is the one that arrives in the readout. */
+el.readout.addEventListener('click', () => {
+  draft.intervalMode = draft.intervalMode === 'manual' ? 'rotations' : 'manual';
+  renderSetup();
+});
 
 let holdWait = 0;
 let holdRepeat = 0;
@@ -1282,7 +1386,7 @@ function stopHold() {
 }
 
 function bump(key, dir) {
-  const picker = PICKERS[key];
+  const picker = pickerFor(key);
   const next = picker.get() + dir * picker.step;
   if (next < picker.min || next > picker.max) return false;
   picker.put(next);
@@ -1857,6 +1961,8 @@ function saveSquad() {
   writeJSON(KEY_SQUAD, {
     gameType: draft.gameType,
     gameMinutes: draft.gameMinutes,
+    rotations: draft.rotations,
+    intervalMode: draft.intervalMode,
     subMinutes: draft.subMinutes,
     names: draft.names
   });
@@ -1993,9 +2099,20 @@ function openEdit() {
   const { epoch, r, k } = view(elapsed);
   const pending = pendingEpoch(elapsed);
 
-  draft.gameType = gameTypeOf(pending ? pending.setup : epoch.setup);
-  draft.subMinutes = onGrid('sub', Math.round((pending ? pending.setup : epoch.setup).subMinutes));
-  draft.gameMinutes = onGrid('time', Math.round((pending ? pending.setup : epoch.setup).gameMinutes));
+  const live = pending ? pending.setup : epoch.setup;
+  draft.gameType = gameTypeOf(live);
+  draft.subMinutes = onGrid('sub', Math.round(live.subMinutes));
+  draft.gameMinutes = onGrid('time', Math.round(live.gameMinutes));
+  draft.rotations = onGrid('rotations', rotationsOf(live));
+  draft.intervalMode = intervalModeOf(live);
+  /* the interval the kick-off froze, with the settings it came from beside it */
+  draft.frozen = Number.isFinite(Number(live.intervalMs)) ? {
+    intervalMs: Number(live.intervalMs),
+    intervalMode: draft.intervalMode,
+    rotations: draft.rotations,
+    subMinutes: draft.subMinutes,
+    gameMinutes: draft.gameMinutes
+  } : null;
   draft.mode = 'edit';
   draft.signature = '';
   draft.baseChange = k;
@@ -2076,6 +2193,7 @@ function commitEdit() {
 
   draft.mode = 'pre';
   draft.signature = '';
+  draft.frozen = null;
   state.screen = 'display';
   el.setup.hidden = true;
   el.display.hidden = false;
@@ -2099,15 +2217,7 @@ function commitEdit() {
 function buildEditSetup(k) {
   const sizes = draft.names.map((names) => names.length);
   if (sizes.some((n) => n < 1)) return null;
-  let setup = createSetup({
-    gameType: draft.gameType,
-    subMinutes: draft.subMinutes,
-    gameMinutes: draft.gameMinutes,
-    teams: [
-      { name: TEAM_NAMES[0], players: draft.names[0] },
-      { name: TEAM_NAMES[1], players: draft.names[1] }
-    ]
-  });
+  let setup = draftSetup();
   const step = Math.max(0, k - draft.baseChange);
   for (let t = 0; t < 2; t += 1) {
     const n = draft.names[t].length;
@@ -2201,6 +2311,7 @@ function goHome() {
 
   draft.mode = 'pre';
   draft.signature = '';
+  draft.frozen = null;
   draft.keeper = [null, null];
   /* the setup screen comes back the way a cold boot leaves it: the squad from
      last time, ready to be a new game */
@@ -2285,7 +2396,12 @@ function loadSquadIntoDraft(squad) {
   /* a squad stored under an older range has to land on the picker's grid */
   if (Number.isFinite(squad.gameType)) draft.gameType = onGrid('type', squad.gameType);
   if (Number.isFinite(squad.gameMinutes)) draft.gameMinutes = onGrid('time', squad.gameMinutes);
+  if (Number.isFinite(squad.rotations)) draft.rotations = onGrid('rotations', squad.rotations);
   if (Number.isFinite(squad.subMinutes)) draft.subMinutes = onGrid('sub', squad.subMinutes);
+  /* the mode is part of the squad, so it survives between games */
+  if (squad.intervalMode === 'manual' || squad.intervalMode === 'rotations') {
+    draft.intervalMode = squad.intervalMode;
+  }
 }
 
 function restoreGame() {
@@ -2357,6 +2473,8 @@ function boot() {
     if (Number.isFinite(debug.gameType)) draft.gameType = debug.gameType;
     if (Number.isFinite(debug.subMinutes)) draft.subMinutes = debug.subMinutes;
     if (Number.isFinite(debug.gameMinutes)) draft.gameMinutes = debug.gameMinutes;
+    if (Number.isFinite(debug.rotations)) draft.rotations = debug.rotations;
+    if (debug.intervalMode) draft.intervalMode = debug.intervalMode;
     for (let t = 0; t < 2; t += 1) {
       if (debug.squads[t]) draft.names[t] = debug.squads[t].slice(0, 24);
     }

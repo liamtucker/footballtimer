@@ -102,21 +102,35 @@
         </div>
       </div>
 
-      <div class="picker" role="group" aria-label="Intervals">
-        <span class="eyebrow picker-label">Intervals</span>
+      <!-- the third slot holds whichever of the two the mode calls for:
+           Rotations when the interval is worked out, Interval when it is set
+           by hand. one slot, two meanings, always the true one. -->
+      <div class="picker" role="group">
+        <span class="eyebrow picker-label"></span>
         <div class="picker-row">
-          <button class="step" type="button" data-pick="sub" data-dir="-1" aria-label="Fewer">
+          <button class="step" type="button" data-pick="pace" data-dir="-1" aria-label="Fewer">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
                  stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
           </button>
-          <span class="picker-value" id="sub-value">10 minutes</span>
-          <button class="step" type="button" data-pick="sub" data-dir="1" aria-label="More">
+          <span class="picker-value" id="pace-value"></span>
+          <button class="step" type="button" data-pick="pace" data-dir="1" aria-label="More">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
                  stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
           </button>
         </div>
       </div>
     </div>
+
+    <!-- the number the three above produce. it is a control, so it carries a
+         control's glyph: tapping it swaps the pair over. -->
+    <button class="readout" id="readout" type="button">
+      <span class="readout-label" id="readout-label"></span>
+      <span class="readout-value" id="readout-value"></span>
+      <svg class="readout-swap" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m17 3 4 4-4 4"/><path d="M21 7H7"/><path d="m7 21-4-4 4-4"/><path d="M3 17h14"/>
+      </svg>
+    </button>
 
     <button class="clear" id="clear" type="button" hidden></button>
 

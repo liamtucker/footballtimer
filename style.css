@@ -352,7 +352,13 @@ button {
  * dismiss, and it is identical in both orientations.
  */
 
-.settings { display: flex; flex-direction: column; gap: 8px; }
+/*
+ * Every gap in the settings column is --s-pack. The column is one control group
+ * and 390px of landscape phone has to hold three 72px cards, the readout they
+ * produce, Clear all and Kick off. Packing them is the honest answer, and it
+ * takes the last literal out of this column.
+ */
+.settings { display: flex; flex-direction: column; gap: var(--s-pack); }
 
 .picker {
   height: 72px;
@@ -398,9 +404,68 @@ button {
   overflow: hidden;
 }
 
-.col-spacer { flex: 1 1 auto; min-height: 8px; }
+/*
+ * The derived number. It sits under the rule the three pickers stand on, so it
+ * reads as their result and not as a fourth setting — but it swaps the pair
+ * over when you tap it, so it is a control, and it takes a control's glyph and
+ * a control's 44px target rather than a sentence telling you to tap it.
+ *
+ * One register for the whole line, because it is a sentence and not a label
+ * beside a value. Weight and colour carry the number out of the words.
+ */
+.readout {
+  width: 100%;
+  height: 44px;
+  flex: none;
+  margin-top: var(--s-pack);
+  padding: 0 var(--s-part);
+  border: 0;
+  /* the same rule the SUBS divider draws, and it means the same thing here:
+     what is under this line is not another one of the things above it */
+  border-top: 1px solid var(--dim);
+  border-radius: 0;
+  background: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-pack);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
 
-.foot { flex: none; display: flex; flex-direction: column; gap: 8px; }
+/* in manual mode the number leads and the words follow: `1.7 ROTATIONS EACH` */
+.readout.flip .readout-label { order: 2; }
+
+.readout-label,
+.readout-value {
+  font-size: var(--t-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* the same pairing as the team title against GOAL: 500 at .28em beside 700
+   at .1em. one size, two weights, and the number comes forward. */
+.readout-label { font-weight: 500; letter-spacing: .28em; color: var(--ink-3); }
+.readout-value {
+  font-weight: 700;
+  letter-spacing: .1em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.readout-swap {
+  order: 3;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: block;
+  color: var(--ink-3);
+}
+
+.readout:active .readout-swap { color: var(--ink); }
+
+.col-spacer { flex: 1 1 auto; min-height: 0; }
+
+.foot { flex: none; display: flex; flex-direction: column; gap: var(--s-pack); }
 
 .notice { color: var(--ink-3); }
 
@@ -409,7 +474,7 @@ button {
    second primary. */
 .clear {
   align-self: center;
-  margin: var(--s-edge) 0 0;
+  margin: var(--s-pack) 0 0;
   background: none;
   border: 0;
   padding: var(--s-pack) var(--s-part);
