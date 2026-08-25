@@ -15,17 +15,55 @@
  * description of the live order, because a late arrival lands in a slot that no
  * rule about names could predict.
  *
- * THE INTERVAL IS A SETTING, NOT A SUM
+ * THE INTERVAL IS DERIVED FROM ROTATIONS, WITH A MANUAL OVERRIDE
  *
- * `subMinutes` is the interval. Nobody can reason about "two shifts each" and
- * everybody can reason about "we change every ten minutes", so the number a
- * person sets is the number the clock uses. `intervalMs` is `subMinutes` in
- * milliseconds and nothing else touches it, which is why a squad that grows or
- * shrinks mid-game never moves the countdown.
+ * Nobody can work out an interval that shares the game out evenly. That is
+ * arithmetic, so the app does it. `rotations` is how many times each player
+ * goes in goal across `gameMinutes`. An integer, default 2, range 1 to 5.
  *
- * `gameMinutes` is reference only. The display uses it to say how much of the
- * game has gone. The rotation never stops and nothing at all happens when it
- * elapses.
+ *     N           the LARGER of the two squads
+ *     raw         gameMinutes * 60000 / (N * rotations)
+ *     intervalMs  floor(raw / 15000) * 15000, then at least 60000
+ *
+ * The floor to 15 seconds is for the reader, not for the sum: 2 hours, 7
+ * players and 2 rotations is 8.571 minutes, and the screen says 8:30. It
+ * floors rather than rounds so the last rotation always finishes inside the
+ * game time. The 60-second clamp is a floor under the whole thing — 30 minutes
+ * shared 5 ways between 11 players is 32 seconds, which is a scramble and not
+ * a shift. It binds at no setting a person would choose.
+ *
+ * N is the LARGER squad because rotations is a promise, and a promise kept for
+ * the bigger squad is kept for the smaller one too. Eight against seven, twice
+ * each: the eight get exactly twice and the seven get a little more. The other
+ * way round the eight come up short, and short is the failure.
+ *
+ * `intervalMode: 'manual'` throws all of that away. `intervalMs` is then
+ * `subMinutes` in milliseconds, exactly as the old model had it, and
+ * `rotationsPerPlayer()` reads the sum backwards to say what the manual number
+ * actually buys — 1.7 rotations each, not 2. One slot on the screen, two
+ * meanings, and always the true one.
+ *
+ * `gameMinutes` is no longer reference only. It sets the interval in the
+ * default mode. Nothing still happens when it elapses: the rotation carries on
+ * for as long as the app is open.
+ *
+ * THE INTERVAL FREEZES AT KICK-OFF
+ *
+ * `kickOff()` resolves the interval and writes it onto the setup as
+ * `intervalMs`. `rotation()` reads that stored number whenever it is there and
+ * derives live only when it is not — which is the setup screen before kick-off,
+ * previewing the number as names are typed.
+ *
+ * It has to freeze because N moves. Somebody turns up at minute twenty, the
+ * larger squad goes from seven to eight, and a live derivation would shorten
+ * every interval — so the countdown on the screen would jump backwards in the
+ * middle of a shift. That is the same reason the deleted `lockClock` existed.
+ *
+ * The price, stated plainly: once the interval is frozen, "twice each" becomes
+ * slightly less than twice for a squad that grew. Seven players over 2 hours
+ * gives 8:30; an eighth arrival makes that 8:30 worth 1.76 rotations, not 2.
+ * A clock that does not jump is worth more than the last fifth of a shift, and
+ * nobody on a pitch is counting. That is the right trade.
  *
  * TWO POINTERS
  *
@@ -152,6 +190,16 @@ export const DEFAULT_SUB_MINUTES = 10;
 export const DEFAULT_GAME_MINUTES = 120;
 export const DEFAULT_TEAM_NAMES = ['Bibs', 'No bibs'];
 
+export const MIN_ROTATIONS = 1;
+export const MAX_ROTATIONS = 5;
+export const DEFAULT_ROTATIONS = 2;
+export const DEFAULT_INTERVAL_MODE = 'rotations';
+
+/* the derived interval lands on a 15-second grid so the number reads cleanly */
+export const INTERVAL_GRAIN_MS = 15000;
+/* and never below a minute — under that a shift is a scramble, not a shift */
+export const MIN_INTERVAL_MS = 60000;
+
 /* ---------------------------------------------------------------- helpers */
 
 function mod(a, b) {
@@ -183,9 +231,33 @@ export function subMinutesOf(setup) {
   return Math.max(1, Math.floor(num(setup && setup.subMinutes, DEFAULT_SUB_MINUTES)));
 }
 
-/** Reference only. The rotation never reads this. */
+/** The whole game, in whole minutes. In the default mode this sets the interval. */
 export function gameMinutesOf(setup) {
   return Math.max(0, Math.floor(num(setup && setup.gameMinutes, DEFAULT_GAME_MINUTES)));
+}
+
+/** How many times each player goes in goal across the game time. */
+export function rotationsOf(setup) {
+  return clamp(Math.floor(num(setup && setup.rotations, DEFAULT_ROTATIONS)), MIN_ROTATIONS, MAX_ROTATIONS);
+}
+
+/** `'rotations'` derives the interval. `'manual'` uses `subMinutes` instead. */
+export function intervalModeOf(setup) {
+  return (setup && setup.intervalMode) === 'manual' ? 'manual' : DEFAULT_INTERVAL_MODE;
+}
+
+/**
+ * N — the larger of the two squads.
+ *
+ * The bigger squad is the one the promise has to be kept for. Give it exactly
+ * its rotations and the smaller squad gets a little more, which is a squad
+ * being lucky. Size it off the smaller squad and the bigger one comes up short.
+ */
+export function squadSizeOf(setup) {
+  return ((setup && setup.teams) ?? []).reduce(
+    (most, team) => Math.max(most, ((team && team.players) ?? []).length),
+    0
+  );
 }
 
 /** Subs on the bench. A squad short of `gameType` has none and plays short. */
@@ -198,8 +270,10 @@ export function subCountFor(squadSize, gameType) {
  *
  * createSetup({
  *   gameType: 6,
- *   subMinutes: 10,
  *   gameMinutes: 120,
+ *   rotations: 2,
+ *   intervalMode: 'rotations',
+ *   subMinutes: 10,
  *   teams: [{ name: 'Bibs', players: ['Zoe', 'Alex', 'Sam'] }, { ... }]
  * })
  *
@@ -207,11 +281,19 @@ export function subCountFor(squadSize, gameType) {
  * open. The ids come from the list position, so the result is stable and pure,
  * and a drag renames nobody. The starting keeper is not drawn here — that
  * happens once, at `kickOff()`.
+ *
+ * `intervalMs` is optional and is normally absent: a fresh setup derives its
+ * interval live so the setup screen can preview it. Pass it to carry a frozen
+ * interval forward — a setup rebuilt for an edit mid-game keeps the number the
+ * kick-off wrote, so the countdown does not move under an edit either.
  */
 export function createSetup(input = {}) {
   const gameType = clamp(Math.floor(num(input.gameType, DEFAULT_GAME_TYPE)), MIN_GAME_TYPE, MAX_GAME_TYPE);
   const subMinutes = Math.max(1, Math.floor(num(input.subMinutes, DEFAULT_SUB_MINUTES)));
   const gameMinutes = Math.max(0, Math.floor(num(input.gameMinutes, DEFAULT_GAME_MINUTES)));
+  const rotations = rotationsOf(input);
+  const intervalMode = intervalModeOf(input);
+  const frozen = frozenIntervalOf(input);
   const teamsIn = Array.isArray(input.teams) ? input.teams : [];
 
   const teams = teamsIn.map((team, teamIndex) => {
@@ -227,12 +309,68 @@ export function createSetup(input = {}) {
     };
   });
 
-  return { gameType, subMinutes, gameMinutes, teams };
+  const setup = { gameType, subMinutes, gameMinutes, rotations, intervalMode, teams };
+  if (frozen !== null) setup.intervalMs = frozen;
+  return setup;
 }
 
-/** intervalMs = subMinutes in milliseconds. Nothing else feeds it. */
-export function computeIntervalMs(setup) {
+/* ------------------------------------------------------------- the interval */
+
+/** The interval the kick-off wrote down, or null if none has been written. */
+function frozenIntervalOf(setup) {
+  const stored = Number(setup && setup.intervalMs);
+  return Number.isFinite(stored) && stored > 0 ? Math.floor(stored) : null;
+}
+
+/**
+ * The interval `rotations` asks for: the game time, cut N * rotations ways,
+ * floored to 15 seconds and never under a minute. See the header.
+ */
+export function derivedIntervalMs(setup) {
+  const n = Math.max(1, squadSizeOf(setup));
+  const raw = (gameMinutesOf(setup) * MS_PER_MINUTE) / (n * rotationsOf(setup));
+  return Math.max(MIN_INTERVAL_MS, Math.floor(raw / INTERVAL_GRAIN_MS) * INTERVAL_GRAIN_MS);
+}
+
+/** The interval `subMinutes` asks for. Whole minutes, exactly as set. */
+export function manualIntervalMs(setup) {
   return subMinutesOf(setup) * MS_PER_MINUTE;
+}
+
+/** What the two settings work out to, before any freeze is considered. */
+export function resolveIntervalMs(setup) {
+  return intervalModeOf(setup) === 'manual' ? manualIntervalMs(setup) : derivedIntervalMs(setup);
+}
+
+/**
+ * The interval the clock actually runs on.
+ *
+ * The frozen number wins whenever it is there, which is from kick-off onwards.
+ * Before then there is nothing stored and this derives live, so the setup
+ * screen can show the number moving as names are typed.
+ */
+export function computeIntervalMs(setup) {
+  return frozenIntervalOf(setup) ?? resolveIntervalMs(setup);
+}
+
+/** True once the interval is written down and a roster change cannot move it. */
+export function isIntervalFrozen(setup) {
+  return frozenIntervalOf(setup) !== null;
+}
+
+/**
+ * The sum read backwards: how many rotations the live interval actually buys.
+ *
+ * One decimal place. This is what a manual interval is worth — `10 minutes` is
+ * 1.7 rotations each, not 2 — and it is what a frozen interval is worth after
+ * a squad has grown. Null when there is nobody to rotate.
+ */
+export function rotationsPerPlayer(setup) {
+  const n = squadSizeOf(setup);
+  if (n < 1) return null;
+  const intervalMs = computeIntervalMs(setup);
+  if (!(intervalMs > 0)) return null;
+  return Math.round(((gameMinutesOf(setup) * MS_PER_MINUTE) / (n * intervalMs)) * 10) / 10;
 }
 
 /** Which change the game is on. Counts past `gameMinutes` and never stops. */
@@ -304,13 +442,19 @@ export function setStartKeeper(setup, teamIndex, index) {
 }
 
 /**
- * Draw the starting keeper for any team that has not had one chosen. Returns a
- * new setup. Idempotent: a team that already has an anchor keeps it, so a tap
- * before kick-off survives, and calling this twice changes nothing.
+ * Two things are settled here, once, and written down: the starting keeper for
+ * any team that has not had one chosen, and the interval. Returns a new setup.
  *
- * This is the one impure moment in the module, and it happens once. After it
- * the answer is written into the setup and everything downstream is a pure
+ * Idempotent both ways. A team that already has an anchor keeps it, so a tap
+ * before kick-off survives, and an interval already frozen is left alone.
+ *
+ * The draw is the one impure moment in the module and it happens once. After
+ * this call the answers are in the setup and everything downstream is a pure
  * function of (setup, elapsedMs). Pass `random` to make it deterministic.
+ *
+ * Freezing the interval is what stops the countdown jumping when a late
+ * arrival changes N. It costs a squad that grows a little of its last
+ * rotation. See the header.
  */
 export function kickOff(setup, random = Math.random) {
   const g = gameTypeOf(setup);
@@ -322,7 +466,7 @@ export function kickOff(setup, random = Math.random) {
     const roll = clamp(num(random(), 0), 0, 0.999999);
     return { ...team, anchor: startAnchor(legal[Math.floor(roll * legal.length)], n, g) };
   });
-  return { ...setup, teams };
+  return { ...setup, teams, intervalMs: computeIntervalMs(setup) };
 }
 
 /* ----------------------------------------------------------------- engine */
@@ -431,6 +575,7 @@ function teamStateAt(team, changeIndex, g) {
  *
  * rotation(setup, elapsedMs) -> {
  *   intervalMs, changeIndex, msToNextChange, elapsedMs, gameMs, gameType,
+ *   rotations, intervalMode, frozen,
  *   teams: [{ name, order, subCount,
  *             keeper, keeperIndex, subs, subIndexes, onPitch, onPitchIndexes,
  *             nextKeeper, nextKeeperIndex, nextSubs, nextSubIndexes,
@@ -439,9 +584,10 @@ function teamStateAt(team, changeIndex, g) {
  *
  * `msToNextChange` is in (0, intervalMs]. It reads intervalMs exactly on a
  * change boundary, so the announcement fires on the crossing, never twice.
- * `gameMs` is the reference duration and stops nothing. Every player record in
- * the result is a fresh copy: nothing in `setup` is touched, and nothing the
- * caller does to the result reaches the setup.
+ * `intervalMs` is the frozen number once kick-off has written one and the live
+ * derivation before then. `gameMs` is the whole game and stops nothing. Every
+ * player record in the result is a fresh copy: nothing in `setup` is touched,
+ * and nothing the caller does to the result reaches the setup.
  */
 export function rotation(setup, elapsedMs) {
   const intervalMs = computeIntervalMs(setup);
@@ -456,6 +602,9 @@ export function rotation(setup, elapsedMs) {
     elapsedMs: elapsed,
     gameMs: gameMinutesOf(setup) * MS_PER_MINUTE,
     gameType,
+    rotations: rotationsOf(setup),
+    intervalMode: intervalModeOf(setup),
+    frozen: isIntervalFrozen(setup),
     teams: ((setup && setup.teams) ?? []).map((team) => teamStateAt(team, changeIndex, gameType))
   };
 }

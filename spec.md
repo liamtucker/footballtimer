@@ -49,12 +49,19 @@ Entered during the warm-up. Two screens exist and this is the first.
 Three settings:
 
 - **Game type.** Players on the pitch per team, 4 to 11. Default 6.
-- **Game time.** Default 2 hours. **Reference only.** Nothing happens when it
-  elapses — the rotation carries on for as long as the app is open. It exists so
-  the screen can say how long has been played.
-- **Sub duration.** Default 10 minutes. This *is* the interval. It is set
-  directly, because it is the only number in the system a person can reason
-  about. Nobody can predict what "two shifts each" feels like on a pitch.
+- **Game time.** Default 2 hours. Nothing happens when it elapses — the rotation
+  carries on for as long as the app is open. It is not reference only any more:
+  it is one of the two numbers the interval is worked out from.
+- **Rotations.** How many times each player goes in goal across the game time.
+  1 to 5, default 2. **The interval is worked out from this.** You cannot set
+  "everyone twice" by choosing a number of minutes — that is arithmetic, and the
+  app should do it.
+
+Under the three settings sits the number they produce: `CHANGE EVERY 8:30`.
+Tapping it swaps the pair. The third setting becomes **Interval** — minutes, set
+by hand, 3 to 20 — and the readout becomes what that interval is actually worth:
+`1.7 ROTATIONS EACH`. One slot, two meanings, always the true one. The mode is
+remembered with the squad.
 
 Then two teams, `Bibs` and `No bibs`, each an ordered list of names. A name is
 typed into an input and moves up into the list. A row is dragged to reorder it.
@@ -68,15 +75,51 @@ skip, and skipping is the thing that gets negotiated.
 
 ## What it works out
 
-Let `N` = squad size, `G` = game type, `C` = subs.
+Let `N` = the **larger** of the two squads, `G` = game type, `C` = subs.
 
-- **Interval** = sub duration. One clock, both teams change at the same moment.
+- **Interval**, in the default mode:
+
+  ```
+  raw        = game time in ms / (N * rotations)
+  intervalMs = floor(raw / 15s) * 15s,  and never below 60s
+  ```
+
+  2 hours, 7 players, twice each is 8.57 minutes raw, and the screen says
+  **8:30**. The floor to 15 seconds is for the reader. It floors rather than
+  rounds so the last rotation always finishes inside the game time. The
+  60-second clamp binds at no setting a person would choose.
+
+- **Interval**, with the manual override: the number of minutes, exactly.
+
+- **Rotations, read backwards** = `game time / (N * interval)`, to one decimal
+  place. That is what the manual mode shows, and it is what a frozen interval is
+  worth after a squad has grown.
+
 - **Subs per team** = `N − G`, floor 0. Not a setting. A squad smaller than the
   game type simply plays short, which is not an error.
 
-Every player gets the same length of shift. Nothing guarantees an equal *number*
-of shifts inside the game time, because the game time no longer drives anything.
-The clock just runs.
+One clock. Both teams change at the same moment.
+
+**`N` is the larger squad, not the smaller.** Rotations is a promise, and a
+promise kept for the bigger squad is kept for the smaller one too. Eight against
+seven, twice each: the eight get exactly twice and the seven get a little more.
+Size it off the seven and the eight come up short, and short is the failure.
+
+**The interval freezes at kick-off.** It is worked out once, written into the
+setup, and read from there for the rest of the game. It has to be, because `N`
+moves: somebody turns up at minute twenty, the larger squad goes from seven to
+eight, and a live sum would shorten every interval — so the countdown on the
+screen would jump backwards in the middle of a shift.
+
+The price, stated plainly: **once frozen, "twice each" becomes slightly less than
+twice for a squad that grew.** Seven players over 2 hours gives 8:30; an eighth
+arrival makes that 8:30 worth 1.76 rotations, not 2. A clock that does not jump
+is worth more than the last fifth of a shift, and nobody on a pitch is counting.
+That is the right trade.
+
+Every player gets the same length of shift. The number of shifts is now the
+thing you set, and it is honoured for as long as the squad you kicked off with
+is the squad on the pitch.
 
 ## The order
 
