@@ -248,7 +248,15 @@ input:focus { outline: none; }
   color: #fff;
 }
 
-.chip-word { letter-spacing: 1.2px; }
+/*
+ * CSS adds the track after the last character and Figma does not. On a word
+ * flush to an edge that is a whole track of daylight in the wrong place, and on
+ * a centred one it is half a track of off-centre. Both are taken back here.
+ */
+.chip-word {
+  letter-spacing: 1.2px;
+  margin-right: -1.2px;
+}
 
 /* ================================================================== setup */
 
@@ -351,10 +359,10 @@ input:focus { outline: none; }
 }
 
 .nm {
+  min-width: 0;
   font-size: var(--name);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: clip;
 }
 
 /*
@@ -393,6 +401,10 @@ input:focus { outline: none; }
   flex: 1 1 auto;
   min-width: 0;
   font-size: var(--name);
+  /* an input ignores `line-height: 1` for its own height and falls back to the
+     font's natural 1.2em box, which put 6.5px into the row that is not in the
+     file. Stated, it trims like every other line of display type. */
+  height: 1em;
 }
 
 .field::placeholder { color: var(--ink); opacity: var(--ghost); }
@@ -418,6 +430,7 @@ input:focus { outline: none; }
 .settings { display: flex; }
 
 .cell {
+  position: relative;
   flex: 1 1 0;
   min-width: 0;
   display: flex;
@@ -428,11 +441,26 @@ input:focus { outline: none; }
   text-align: center;
 }
 
-.cell + .cell { border-left: 1px solid var(--hair-hard); }
+/*
+ * Drawn, not bordered. A `border-left` is part of the cell it sits on and takes
+ * its width out of the flex share, which puts the first line at 129.33 and the
+ * second at 259.66. The file has them at 130 and 260, so the line is a mark on
+ * the cell and not a piece of it.
+ */
+.cell + .cell::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--hair-hard);
+}
 
 .cell-label {
   opacity: var(--dim);
   letter-spacing: 1.2px;
+  text-indent: .6px;
   width: 100%;
 }
 
@@ -477,6 +505,7 @@ input:focus { outline: none; }
 .kick-note {
   width: 100%;
   text-align: center;
+  text-indent: .48px;
   opacity: var(--dim);
 }
 
@@ -534,6 +563,7 @@ input:focus { outline: none; }
 .timer-label {
   width: 100%;
   text-align: center;
+  text-indent: .36px;
   color: #fff;
   letter-spacing: .72px;
 }
@@ -636,7 +666,11 @@ input:focus { outline: none; }
   opacity: var(--dim);
 }
 
-.keeper { font-size: var(--hero); }
+.keeper {
+  font-size: var(--hero);
+  white-space: nowrap;
+  overflow: hidden;
+}
 
 .subnames {
   display: flex;
@@ -644,7 +678,11 @@ input:focus { outline: none; }
   gap: 8px;
 }
 
-.sn { font-size: var(--name); }
+.sn {
+  font-size: var(--name);
+  white-space: nowrap;
+  overflow: hidden;
+}
 
 /*
  * ONE SUB IS READ FROM THE SAME DISTANCE AS THE KEEPER

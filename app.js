@@ -615,52 +615,28 @@ function announce(lines) {
 /* ================================================================ setup */
 
 /*
- * Does this engine's `createSetup` take player objects, or only names? Asked
- * once, of the engine itself, because the answer changed while this file was
- * being written and a guess either loses the flags or writes `[object Object]`
- * into a squad list.
+ * The draft, handed to the engine as it stands. The list is the order it was
+ * typed in and that order decides nothing: `kickOff` draws the ring and writes
+ * it back into the setup. The two flags travel on the player record, which is
+ * the only way they may be set — a boolean flipped on a live setup re-indexes
+ * the ring under its own anchor, so mid-game the engine's `setLate` and
+ * `setFixedGoalie` are the doors, and before kick-off there is nothing to
+ * corrupt because the setup is built fresh on every keystroke.
  */
-const TAKES_OBJECTS = (() => {
-  try {
-    const probe = engine.createSetup({
-      teams: [{ name: 'probe', players: [{ name: 'Ann', late: true }] }]
-    });
-    const player = probe && probe.teams && probe.teams[0] && probe.teams[0].players[0];
-    return Boolean(player && player.name === 'Ann');
-  } catch (error) {
-    return false;
-  }
-})();
-
 function draftSetup() {
-  const teams = [0, 1].map((t) => ({
-    name: TEAM_NAMES[t],
-    players: draft.players[t].map((p) => (TAKES_OBJECTS
-      ? { name: p.name, fixedGoalie: Boolean(p.fixedGoalie), late: Boolean(p.late) }
-      : p.name))
-  }));
-
-  const setup = engine.createSetup({
+  return engine.createSetup({
     gameType: draft.gameType,
     gameMinutes: draft.gameMinutes,
     rotations: draft.rotations,
-    teams
+    teams: [0, 1].map((t) => ({
+      name: TEAM_NAMES[t],
+      players: draft.players[t].map((p) => ({
+        name: p.name,
+        fixedGoalie: Boolean(p.fixedGoalie),
+        late: Boolean(p.late)
+      }))
+    }))
   });
-
-  /* an engine that took the objects has already applied its own rules to them
-     — one pair of gloves a team, among others — and must not be overwritten */
-  if (TAKES_OBJECTS) return setup;
-
-  /* an engine that took only names gets the flags written on afterwards */
-  (setup.teams || []).forEach((team, t) => {
-    (team.players || []).forEach((player, i) => {
-      const from = draft.players[t][i];
-      player.fixedGoalie = Boolean(from && from.fixedGoalie);
-      player.late = Boolean(from && from.late);
-    });
-  });
-
-  return setup;
 }
 
 function intervalText() {
@@ -738,6 +714,7 @@ function renderSetup() {
 
   el.kick.disabled = !ready();
   el.kickNote.textContent = `${COPY.rotateEvery} ${intervalText()}`;
+  fitNames();
 }
 
 /* -------------------------------------------------------------- naming */
@@ -918,14 +895,44 @@ function elapsedWords(ms) {
  * that column needs comes out of the engine — there is no arithmetic here.
  */
 function orderRows(team) {
-  const keeperId = team.nextKeeper ? team.nextKeeper.id : null;
-  const subIds = new Set((team.nextSubs || []).map((p) => p.id));
-  return (team.order || []).map((player) => {
-    const mark = player.id === keeperId ? 'i-glove' : subIds.has(player.id) ? 'i-swap' : null;
+  const subs = new Set(team.nextSubIndexes || []);
+  return (team.order || []).map((player, i) => {
+    const mark = i === team.nextKeeperIndex ? 'i-glove' : subs.has(i) ? 'i-swap' : null;
     const glyph = mark ? icon(mark, 'ic12') : icon('i-swap', 'ic12 blank');
     return `<div class="orow">${glyph}<span class="on">${safe(player.name)}</span></div>`;
   }).join('');
 }
+
+/*
+ * A NAME THAT DOES NOT FIT IS SET SMALLER, NOT CUT OFF
+ *
+ * The design's longest keeper is KEVIN and its longest squad name is LORENZO,
+ * so nothing in the file ever reaches the edge of its column. A real squad
+ * does: LORENZO at 50px is 157px against a 151px column, and clipping it turns
+ * the one thing the screen exists to say into LORENZ. So a line that is too
+ * wide is scaled down until it fits, and every name in the design is untouched
+ * because every name in the design already fits.
+ */
+const FIT_FLOOR = 24;
+
+function fitLine(node) {
+  node.style.fontSize = '';
+  if (!node.textContent) return;
+  const box = node.getBoundingClientRect().width;
+  if (!box) return;
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const wide = range.getBoundingClientRect().width;
+  if (wide <= box) return;
+  const size = parseFloat(getComputedStyle(node).fontSize);
+  node.style.fontSize = `${Math.max(FIT_FLOOR, Math.floor(size * box / wide))}px`;
+}
+
+function fitNames() {
+  document.querySelectorAll('.keeper, .sn, .nm').forEach(fitLine);
+}
+
+window.addEventListener('resize', fitNames);
 
 function paint(r) {
   (r.teams || []).forEach((team, t) => {
@@ -941,6 +948,7 @@ function paint(r) {
 
     el.orders[t].innerHTML = orderRows(team);
   });
+  fitNames();
 }
 
 function setCount(text) {

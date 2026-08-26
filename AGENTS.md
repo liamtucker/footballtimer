@@ -23,153 +23,149 @@ touched.
    no dependencies. Opening `index.html` runs it.
 3. **No backend and no accounts.** The only stored things are the setup and the
    kick-off timestamp, in `localStorage`.
-4. **Nothing to operate mid-game.** Two exceptions only: add a late arrival, and
-   mark a player gone home. Both are facts, not decisions. Do not add a third.
+4. **Nothing to operate mid-game.** The game screen carries one control and it
+   is `END`. The engine still exposes `addLateArrival` and `removePlayer`; no
+   screen calls them. Do not put a second control there.
 5. **A button that needs a judgement is the wrong button.** Check any new
    control against the four principles in `spec.md`.
-6. **System fonts only.** No webfont loads on a pitch with no signal.
+6. **The type is Barlow, and it ships with the app.** Barlow Condensed Bold and
+   Barlow SemiBold, four woff2 subsets in `fonts/`, precached by the service
+   worker. The rule this replaces was system fonts only, and the reason for it
+   stands: nothing may be fetched from a network on a pitch. Never link a font
+   from a CDN.
 7. Run `node test.js` before every commit. It must pass.
 
 ## Decisions
 
 - **Hosting.** GitHub Pages, from `main` at the repo root.
-- **Target.** Landscape phone, iOS Safari and Android Chrome both.
-- **Gone home.** In scope. The spec's open decision is settled — allow it.
+- **Target.** Portrait phone at 390x844, iOS Safari and Android Chrome both.
+  The design is portrait. Landscape is not drawn and is not supported.
+- **Who starts is drawn.** The first keeper and the first bench are drawn at
+  kick-off and written into the setup. Entry order decides nothing, so there is
+  no divider, no drag and no tap that sets a keeper.
 - **Squad memory.** The last squad is kept and prefilled at setup. A setup
   convenience only. It never touches the rotation. Nothing on the screen
   sweeps it away — a name leaves the list one row at a time.
 
 ## State
 
-**Done.** v6 is built. The engine passes 88 assertions. Service worker cache
-`rota-v10`.
+**Done.** v7. The interface is rebuilt from Figma node `78:655` — three frames,
+every value read out of the file. The engine passes 122 assertions. Service
+worker cache `rota-v11`.
 
-**The buzzer was silent on Liam's iPhone and the voice was not.** That
-asymmetry was the whole diagnosis: on iOS the hardware ring/silent switch mutes
-Web Audio and does not mute `speechSynthesis`, so a phone on silent says the
-names and swallows the horn. Liam confirmed it — the switch was off. The fix is
-`navigator.audioSession.type = 'playback'`, set inside the gesture and before
-the context is built, because a context takes the session that is current when
-it is created. It is feature-detected and the type is read back, not assumed.
+**The design is black, white and one grey.** `#171717`, `#ffffff`, `#444444`.
+Hairlines are `#171717` at 10% between blocks and at 20% between settings
+cells. No radius anywhere and no shadow anywhere. Black surfaces are flush to
+an edge — the team chip to the right, the Kick off bar and the sheet to the
+bottom. Type is Barlow Condensed Bold at 21, 28, 32, 50 and 150, over a Barlow
+SemiBold eyebrow at 12/14.4 whose track changes by role: 0.48px in the squad
+column, 0.72px on `NEXT ROTATION:`, 0.96px on a section label, 1.2px on a chip
+and a settings label.
 
-- **There is no fallback for an iOS without `audioSession`** (before Safari
-  16.4). The established one is a silent looping media element with a
-  synthesised WAV data URI, and this app already needs `navigator.wakeLock`,
-  which shipped in the same release. If the sound test ever reports
-  `SESSION NONE`, that is the moment to carry the weight.
-- **`resume()` was never awaited.** It returns a promise and the old code
-  dropped it. A context stuck in `suspended` makes no sound and reports no
-  error, which looks exactly like a muted phone. The state is now read before
-  the resume, again when the promise settles, and watched by `statechange`.
-- **Every touch is a second chance.** The pointerdown handler used to stop
-  after the first gesture. It now re-claims the session and re-resumes whenever
-  the context is not `running`, because a call or a lock leaves it
-  `interrupted` and an interrupted context is silent about being silent.
+**The display type is trimmed to its cap height, and that is why the file
+agrees.** Figma uses `text-box-trim: trim-both` with `text-box-edge: cap
+alphabetic`, so every vertical measurement in the design is cap-to-baseline.
+Barlow and Barlow Condensed are both 1000 units to the em with cap height 700,
+ascent 1000 and descent 200. With `line-height: 1` the cap top sits 0.2em down
+and the baseline 0.9em down, so `margin-block: -.2em -.1em` leaves a margin box
+of exactly 0.7em — which is why 50px occupies 35px, 32px occupies 22.4px and
+150px occupies 105px, the three numbers the file reports. It is margins and not
+`text-box` because `text-box` lands in Safari 18.4 and would leave every
+earlier iPhone a third of a line out.
 
-**The alarm is a horn now.** The two-tone klaxon was loud and read as an
-emergency — alternation is the strongest emergency cue a sound has, and 1047Hz
-is where a smoke alarm lives. A stadium horn is one held note, a couple of
-hundred Hertz down, carrying on its harmonics. Two throats, Bb3 and Eb4 a
-fourth apart, each a beating pair of sawtooths, driven four times into the soft
-clipper, lowpassed at 6.5kHz. The pitch climbs 40 cents into the note and drops
-70 cents out of it, because a real horn has to catch and has to run out.
+**The gauge is the shift, drawn backwards.** The timer block is 340px of
+`#444`, with a `#171717` bar pinned to its left edge and `scaleX`d to the share
+of the shift still to run. The black draws back to the left as the shift
+empties. In the design frame it is 284 of 390 against 6:09 of 8:30 — 369/510 is
+0.724 and 0.724 of 390 is 282, so the mechanism is `remaining / interval` and
+the designer's 284 is two pixels of eyeball.
 
-```
-the old whistle   peak 0.344   RMS 0.075   crest 4.58    550ms
-the klaxon        peak 0.936   RMS 0.469   crest 2.00   2504ms
-this horn         peak 0.940   RMS 0.602   crest 1.56   2522ms
-```
+**The countdown is the gauge finishing.** Twenty seconds before kick-off and
+ten before every rotation the gauge goes to nothing and the block is the grey
+underneath it, whole. White on `#444` is 7.6:1. At a rotation this is not a new
+state arriving — it is the thing the block has been saying for ten minutes,
+arriving at zero. Before kick-off the label reads `KICK OFF IN:` and the
+lineups are already on the screen, so the draw is visible before the horn.
 
-**Nothing was traded for the timbre. The horn is the loudest of the three and
-it does not clip.** A held note has no notches cut in it, so it spends all of
-its length at the ceiling where the klaxon spent nine tenths. Through a band
-model of a portable speaker — 400Hz to 6kHz — the horn is 0.544 against the
-klaxon's 0.513. `buildAlarm`/`ALARM_MS` are `buildHorn`/`HORN_MS`, and the
-timeline did not move: horn 0–2500, chime 2650, Bibs 3050.
-
-**The app no longer says its own name.** The utterance that unlocks the iOS
-voice spoke `rota` at volume 0.02, and iOS did not honour the volume, so Kick
-off announced the app. It could not be replaced by silence: an empty utterance,
-a whitespace one and a lone full stop all have no phonemes and are the shapes
-that leave the queue stuck. It is now `ok` at rate 10 — about fifty
-milliseconds — and it is spent at the **first touch anywhere on the page**,
-which during a warm-up is a name field. By the time anyone is listening for a
-horn the unlock has happened and Kick off is silent.
-
-**The mute is gone.** The volume is on the side of the phone and a control that
-answers a settled question twice has no job. Out: the icon on the spine and on
-the live bar, its three states, `state.muted`, the `speak()` guard that held the
-slot open while muted, `muteOn`/`muteOff`, and its sections in `copy.md` and
-`design.md`. The speaker survives in one place, as the sound test's own face,
-with two states instead of three — on and broken.
-
-- **The fault state did not get noisier.** Muting used to suppress `No voice`
-  so a muted phone and a broken one did not look alike. With no mute there is
-  nothing to suppress, and `degradedVoice` is quiet by construction: it only
-  turns on when an utterance was asked for and `start` never fired, so a phone
-  that has never been asked never shows it and one spoken word turns it off.
-- **The spine holds two icons now**, the stop square and the pencil, 44px each
-  and right-aligned. Nothing was left holding space for the third.
-
-**The sound test reports the whole path.** Liam is the only person who can hear
-the answer, so it is written out in words and read back:
+**A name carries two flags and the sheet is where they are set.** Tapping a
+name opens a black bar flush to the bottom, 20px of padding and 8px between an
+eyebrow and a 32px line — a settings cell, in white on black:
 
 ```
-AUDIO WAS SUSPENDED · NOW RUNNING · RATE 48000 · SESSION PLAYBACK · HORN SCHEDULED
-VOICES 44 · QUEUED YES · START YES · END YES · ERROR NONE
+KEVIN
+FIXED GOALIE · LATE
 ```
 
-Anything but `NOW RUNNING` is a context that will make no sound and say
-nothing about it. `SESSION NONE` means the phone predates the setting.
+There is no switch and no tick. The word is the control and how loud it is is
+its state: full ink on, 45% off, which is the same 45% the Kick off button uses
+when it cannot be pressed. A fixed goalie carries the glove in the squad list,
+the same glyph the game screen puts beside whoever is next in. A late player
+goes quiet at 30%, because late is a place at the back of the queue. The same
+bar asks the one question this app asks — `END THE GAME?` — so there is one
+modal surface and not two.
 
-- **The answer is two lines and the row grows for it.** Landscape has about
-  thirty pixels of slack against the seventy-eight the answer wants, so the
-  spacer collapses and `Clear all` steps aside while the answer is up; both
-  return the moment anything changes, which is the moment the answer goes. The
-  row still scrolls inside itself as the last resort, so **Kick off never
-  moves.** Verified at 390x844 and 844x390.
+**One sub is set at the keeper's size.** Two names at 32 is a list and a list
+wants the smaller size. One name is not a list, it is a second answer, so it
+takes the keeper's 50 and the label goes singular.
 
-**Everything else stands.** The sequence is unchanged and matches what Liam
-described: countdown ten seconds, horn, names; interval, horn, names. The
-countdown still ticks the last five seconds — measured at 5.0s to 9.0s after
-the tap, with the horn at 10.0s, the chime at 12.66s and the first word at
-13.07s. One spoken template, `Bibs. Goal, Umar. Sub, Kevin.`, the 400ms drag
-hold, the unpinned Kick off, `Clear all` and the stop square are all as they
-were.
+**A name that does not fit is set smaller, not cut off.** The longest keeper in
+the design is KEVIN and nothing in the file reaches the edge of its column. A
+real squad does — LORENZO at 50px is 157px against a 151px column — and
+clipping it turns the one thing the screen exists to say into LORENZ. Every
+name in the design is untouched because every name in the design already fits.
 
-**Next.** The field test. Whether the horn is the right length on a real
-speaker, whether ten seconds of countdown at every change annoys people by
-minute forty, and whether one chime is enough.
+**What the rebuild deleted.** The subs divider, the drag to reorder, the tap
+that set the starting keeper, and the edit route behind all three. The random
+draw makes entry order meaningless, so none of them had anything left to
+decide. Also gone: the mute (Liam removed it before this), the visible sound
+test, and the two mid-game roster controls. The iOS unlock still happens on the
+first touch anywhere and on the Kick off gesture.
+
+**What was carried across untouched.** The clock as `Date.now() - kickoff` with
+the `visibilitychange` resync; the announcement firing on the change crossing
+and not on a tick; `Bibs. Goal, Umar. Sub, Kevin.` with a chime before each team
+and the horn before the words; the `navigator.audioSession = 'playback'` fix
+that made the horn audible on a silent iPhone; the wake lock; `localStorage`
+persistence and silent restore; the offline service worker; the `?t=` debug
+hook, which still writes nothing.
+
+**Measured against the file at 390x844.** Every element lands within 0.8px of
+its Figma frame, and every residual is Figma rounding 14.4 to 15 and 22.4 to 22
+rather than a difference in the build. Three defects were found in the pass and
+fixed: an `<input>` ignores `line-height: 1` for its own height and fell back
+to the font's 1.2em box, putting 6.5px into the Enter name row that is not in
+the file; a `border-left` on a settings cell took its width out of that cell's
+flex share and put the dividers at 129.33 and 259.66 instead of 130 and 260;
+and CSS adds a letter-space after the last character where Figma does not,
+which stood the `BIBS` chip 1.2px off the right edge.
+
+**Next.** The field test, and it is the same one as before: whether the horn is
+the right length on a real speaker, and whether the countdown at every change
+annoys people by minute forty.
 
 **Blocked.** Nothing.
 
 **Open, for Liam.**
 
+- **The design's own numbers do not agree with each other.** The filled team
+  select shows squads of 8 and 7 with `ROTATE EVERY: 8:30`; 8:30 is the answer
+  for a squad of 7 and the answer for 8 is 7:30. The build does the arithmetic
+  and shows 7:30. The game frame has the same split — 6:09 left of a shift the
+  gauge draws as 8:30 but the setup calls 7:30.
+- **The second column of the team select is labelled `SUBS` in the file and set
+  to zero opacity.** It holds the column's width and says nothing, which is
+  correct now that nobody picks the bench — but it is a label waiting to be
+  deleted or given a job.
+- **The game frame marks two players with ⇆ in the second team's squad column
+  and marks none with the glove.** The first team has both. The build follows
+  the rule rather than the drawing: the glove on `nextKeeperIndex`, the arrows
+  on `nextSubIndexes`.
 - **No agent can hear any of this.** The horn is proved by an
-  `OfflineAudioContext` render and nothing else. Audibility on the phone rests
-  on the session fix, and the sound test's first line is how it gets checked:
-  if it says `SESSION PLAYBACK · HORN SCHEDULED · NOW RUNNING` and there is
-  still no sound, the theory is wrong and the next suspect is routing the horn
-  through an `<audio>` element playing a rendered buffer.
-- **The voice has never been proved by an agent.** The automation browser has
-  191 system voices and `speak()` queues, but no utterance ever fires `start`,
-  `end` or `error` — so the sound test reads `START NO · END NO · ERROR NONE`
-  here and the icon shows broken. That is a property of the automation browser,
-  not of the app.
-- **`speechSynthesis.speaking` is worth nothing.** Measured in Chrome 151 it
-  stays `true` for ever on a queued utterance that never starts. Only `start`
-  proves a voice.
-- **A worst-case announcement can spill past the change.** Two squads of eight
-  with two subs each, with a dead engine, runs on estimates to about 10.8s
-  against a 10s window. Nothing sounds at the change itself, so the spill is
-  silent and harmless — but dropping the first chime would buy 400ms.
-- **`OFF` and `ON` are not on the screen.** The design won over `copy.md`.
-- **The live bar has no `Next change` label.** The string survives as the
-  accessible name of the countdown.
-- **`brain/design.md` is 457 lines against a 200-line cap.** Variations B and
-  C are the first thing to cut.
-- **Mid-game the landscape setup still scrolls to reach the divider.** The
-  live bar takes 68px and nothing shorter is available.
+  `OfflineAudioContext` render and nothing else, and the voice has never fired
+  `start` in an automation browser. Audibility on the phone still rests on the
+  audio session fix.
+- **`brain/design.md` and `spec.md` describe the old interface.** Both are now
+  wrong about the screens and still right about the rotation and the sounds.
 
 ## Debug hook
 
@@ -181,7 +177,9 @@ nothing is written to `localStorage`.
 - `&a=Dom,Dave,Chris` and `&b=Sam,Tom,Alex` — prefill the two squads
 - `&g=7` — game type. `&game=120` — the game time
 - `&rot=2` — rotations each
-- `&ka=2` and `&kb=3` — force the starting keeper index per team
+- `&seed=3` — a deterministic draw, so the same URL gives the same pitch twice.
+  There is no way to force a starting keeper any more; the draw is the only way
+  in and a seed is the only way to repeat it.
 - `&count=0` — skip the kick-off countdown. `&auto=1` — kick off on load
-- `window.rota.setElapsed(ms)`, `.rate(n)`, `.view()`, `.rotation`, `.state`,
-  `.draft`, `.tick`
+- `window.rota.setElapsed(ms)`, `.rate(n)`, `.view()`, `.sheet(team, index)`,
+  `.heard`, `.engine`, `.rotation`, `.state`, `.draft`, `.tick`
