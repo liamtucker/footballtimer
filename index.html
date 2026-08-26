@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>rota</title>
-<meta name="theme-color" content="#F2F2F0">
+<meta name="theme-color" content="#ffffff">
 <meta name="color-scheme" content="light">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -13,211 +13,232 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-512.png" sizes="512x512" type="image/png">
 <link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preload" href="fonts/barlow-condensed-700-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/barlow-600-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="style.css">
 </head>
 <body class="boot">
 
-<!-- ------------------------------------------------------------- setup -->
+<!--
+  Every icon in the design, lifted from the Figma file as drawn. Nothing here
+  is hand-traced. The baked-in opacities are stripped: an icon takes its
+  opacity from the row it sits in, the same as the words beside it.
+-->
+<svg class="sprite" aria-hidden="true" focusable="false"><defs>
+
+  <symbol id="i-shirt" viewBox="0 0 16 16">
+    <path fill="currentColor" d="M13.9987 2C14.3669 2 14.6653 2.29848 14.6653 2.66667V7.33333C14.6653 7.70153 14.3669 8 13.9987 8H12.6647L12.6653 13.3333C12.6653 13.7015 12.3669 14 11.9987 14H3.9987C3.63051 14 3.33203 13.7015 3.33203 13.3333L3.33137 7.99933L1.9987 8C1.63051 8 1.33203 7.70153 1.33203 7.33333V2.66667C1.33203 2.29848 1.63051 2 1.9987 2H5.9987C5.9987 3.10457 6.89413 4 7.99867 4C9.10327 4 9.99867 3.10457 9.99867 2H13.9987Z"/>
+  </symbol>
+
+  <symbol id="i-shirt-o" viewBox="0 0 16 16">
+    <path fill="currentColor" d="M5.9987 2C5.9987 3.10457 6.89413 4 7.99867 4C9.10327 4 9.99867 3.10457 9.99867 2H13.9987C14.3669 2 14.6653 2.29848 14.6653 2.66667V7.33333C14.6653 7.70153 14.3669 8 13.9987 8H12.6647L12.6653 13.3333C12.6653 13.7015 12.3669 14 11.9987 14H3.9987C3.63051 14 3.33203 13.7015 3.33203 13.3333L3.33137 7.99933L1.9987 8C1.63051 8 1.33203 7.70153 1.33203 7.33333V2.66667C1.33203 2.29848 1.63051 2 1.9987 2H5.9987ZM13.332 3.33267H11.054L11.0428 3.36012C10.541 4.48153 9.43773 5.27501 8.14327 5.33025L7.99867 5.33333C6.64221 5.33333 5.47497 4.52307 4.95457 3.36012L4.9427 3.33267H2.66537V6.666L4.66453 6.66533L4.6647 12.6667H11.332L11.3312 6.66667L13.332 6.666V3.33267Z"/>
+  </symbol>
+
+  <symbol id="i-restart" viewBox="0 0 20 20">
+    <path fill="currentColor" d="M18.3333 10C18.3333 14.6023 14.6024 18.3333 10 18.3333C5.39767 18.3333 1.66667 14.6023 1.66667 10C1.66667 5.39762 5.39767 1.66667 10 1.66667V3.33333C6.31808 3.33333 3.33333 6.3181 3.33333 10C3.33333 13.6819 6.31808 16.6667 10 16.6667C13.6819 16.6667 16.6667 13.6819 16.6667 10C16.6667 7.70852 15.5106 5.68706 13.7498 4.48709L13.75 6.66667H12.0833V1.66667H17.0833V3.33333L15.0007 3.33324C17.0244 4.85362 18.3333 7.27394 18.3333 10Z"/>
+  </symbol>
+
+  <symbol id="i-up" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M13.0001 7.82843V20H11.0001V7.82843L5.63614 13.1924L4.22192 11.7782L12.0001 4L19.7783 11.7782L18.3641 13.1924L13.0001 7.82843Z"/>
+  </symbol>
+
+  <symbol id="i-x" viewBox="0 0 23 23">
+    <path fill="currentColor" d="M10.1448 11.5L2.6766 4.03177L4.03188 2.67648L11.5001 10.1446L18.9683 2.67648L20.3236 4.03177L12.8554 11.5L20.3236 18.9681L18.9683 20.3235L11.5001 12.8553L4.03188 20.3235L2.6766 18.9681L10.1448 11.5Z"/>
+  </symbol>
+
+  <symbol id="i-ball" viewBox="0 0 28 28">
+    <path fill="currentColor" d="M14 2.33333C20.4433 2.33333 25.6667 7.55667 25.6667 14C25.6667 20.4433 20.4433 25.6667 14 25.6667C7.55667 25.6667 2.33333 20.4433 2.33333 14C2.33333 7.55667 7.55667 2.33333 14 2.33333ZM15.9478 18.6666H12.0511L10.4423 20.8797L11.0885 22.8703C12.0047 23.1708 12.9834 23.3333 14 23.3333C15.0166 23.3333 15.9954 23.1708 16.9115 22.8703L17.5566 20.8797L15.9478 18.6666ZM6.1758 12.6839L4.66926 13.7778L4.66667 14C4.66667 16.018 5.3071 17.8864 6.39578 19.413L8.62463 19.4132L10.167 17.2899L8.96763 13.5916L6.1758 12.6839ZM21.8231 12.6839L19.0313 13.5916L17.8319 17.2899L19.3743 19.4132L21.6042 19.413C22.693 17.8864 23.3333 16.018 23.3333 14L23.3298 13.7783L21.8231 12.6839ZM14 11.1253L11.2653 13.111L12.3107 16.3333H15.6882L16.7335 13.111L14 11.1253ZM16.6733 5.05516L15.1661 6.15175V9.08825L18.3091 11.3714L20.9213 10.5233L21.5678 8.53627C20.3782 6.89133 18.6653 5.64963 16.6733 5.05516ZM11.3255 5.0555C9.33358 5.65025 7.62085 6.89222 6.43138 8.53741L7.07762 10.5233L9.6898 11.3714L12.8328 9.08825V6.15175L11.3255 5.0555Z"/>
+  </symbol>
+
+  <symbol id="i-glove" viewBox="0 0 12 12">
+    <path fill="currentColor" d="M6.2501 1C6.11205 1 6.0001 1.11193 6.0001 1.25V6H5.0001V2.25C5.0001 2.11193 4.88817 2 4.7501 2C4.61202 2 4.5001 2.11193 4.5001 2.25V7C4.32326 7 3.50012 7 3.50012 7C3.30955 6.1896 2.82118 5.72035 2.2977 5.6608C2.43963 6.0332 2.68058 6.6296 3.08317 7.54975C3.51255 8.5311 3.94564 9.2609 4.50187 9.7493C5.03915 10.221 5.7293 10.5 6.7501 10.5C8.2689 10.5 9.5001 9.26885 9.5001 7.7501V3.5C9.5001 3.36193 9.38815 3.25 9.2501 3.25C9.11205 3.25 9.0001 3.36193 9.0001 3.5V6H8.0001V2C8.0001 1.86193 7.88815 1.75 7.7501 1.75C7.61205 1.75 7.5001 1.86193 7.5001 2V6H6.5001V1.25C6.5001 1.11193 6.38815 1 6.2501 1ZM10.5001 7.7501C10.5001 9.8212 8.82115 11.5 6.7501 11.5C5.52085 11.5 4.58607 11.154 3.84208 10.5008C3.11706 9.86415 2.61264 8.96905 2.16702 7.9506C1.70197 6.88765 1.44502 6.2402 1.30496 5.86175C1.12659 5.37985 1.37308 4.70606 2.04292 4.65923C2.62038 4.61886 3.1103 4.80625 3.5001 5.12935V2.25C3.5001 1.55965 4.05974 1 4.7501 1C4.84261 1 4.93277 1.01005 5.01955 1.02912C5.12385 0.444113 5.6351 0 6.2501 0C6.7801 0 7.23305 0.329847 7.4149 0.795455C7.52155 0.765835 7.634 0.75 7.7501 0.75C8.44045 0.75 9.0001 1.30965 9.0001 2V2.27501C9.0809 2.25861 9.1645 2.25 9.2501 2.25C9.94045 2.25 10.5001 2.80965 10.5001 3.5V7.7501Z"/>
+  </symbol>
+
+  <symbol id="i-swap" viewBox="0 0 12 12">
+    <path fill="currentColor" d="M8.02515 6.0249L10.5 8.4998L8.02515 10.9747L7.318 10.2676L8.586 8.9994L2 8.9998V7.9998L8.586 7.9994L7.318 6.732L8.02515 6.0249ZM3.97487 1.0249L4.68198 1.73201L3.414 2.9994L10 2.99977V3.99977L3.414 3.9994L4.68198 5.26755L3.97487 5.97465L1.5 3.49977L3.97487 1.0249Z"/>
+  </symbol>
+
+  <symbol id="i-watch" viewBox="0 0 20 20">
+    <path fill="currentColor" d="M14.6814 4.97342L15.8926 3.76227L17.0711 4.94077L15.8599 6.15192C16.8863 7.43499 17.5 9.0625 17.5 10.8333C17.5 14.9755 14.1422 18.3333 10 18.3333C5.85787 18.3333 2.5 14.9755 2.5 10.8333C2.5 6.6912 5.85787 3.33333 10 3.33333C11.7708 3.33333 13.3983 3.94706 14.6814 4.97342ZM10 16.6667C13.2217 16.6667 15.8333 14.055 15.8333 10.8333C15.8333 7.61167 13.2217 5 10 5C6.77834 5 4.16667 7.61167 4.16667 10.8333C4.16667 14.055 6.77834 16.6667 10 16.6667ZM9.16667 6.66667H10.8333V11.6667H9.16667V6.66667ZM6.66667 0.833333H13.3333V2.5H6.66667V0.833333Z"/>
+  </symbol>
+
+  <symbol id="i-square" viewBox="0 0 24 24">
+    <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M17 5H7C5.89543 5 5 5.89543 5 7V17C5 18.1046 5.89543 19 7 19H17C18.1046 19 19 18.1046 19 17V7C19 5.89543 18.1046 5 17 5Z"/>
+  </symbol>
+
+</defs></svg>
+
+
+<!-- =========================================================== team select -->
 <section id="setup" hidden>
 
-  <!-- before kick-off the only ink surface is the 56px button in the corner.
-       during the game that button is gone and the ink is this bar, and the
-       whole of the bar is the way back to the game. -->
-  <div class="livebar" id="livebar" role="button" tabindex="0" hidden>
-    <span class="live-clock" id="live-clock">0:00</span>
-    <span class="live-note eyebrow" id="live-note"></span>
-  </div>
+  <header class="head">
+    <h1 class="title dsp">TEAMS</h1>
+    <button class="again" id="again" type="button">
+      <span class="again-word dsp">START AGAIN</span>
+      <svg class="ic ic20" aria-hidden="true"><use href="#i-restart"/></svg>
+    </button>
+  </header>
 
-  <div class="col team-col" data-team="0">
-    <div class="team-head">
-      <span class="team-name" id="label-0"></span>
-      <span class="team-rule"></span>
+  <hr class="rule">
+
+  <div class="squad" data-team="0">
+    <div class="chip">
+      <svg class="ic ic16" aria-hidden="true"><use href="#i-shirt"/></svg>
+      <span class="chip-word eyebrow" id="chip-0">BIBS</span>
     </div>
-    <div class="list" id="list-0"></div>
-    <div class="field">
-      <input class="name-input" id="input-0" data-team="0" type="text"
-             maxlength="10" autocapitalize="words" autocorrect="off" autocomplete="off"
-             spellcheck="false" enterkeyhint="next" placeholder="Add a name"
-             aria-label="Add a name">
-      <button class="add" id="add-0" data-team="0" type="button" aria-label="Add a name">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>
-        </svg>
+    <div class="lineup">
+      <div class="namecol">
+        <p class="eyebrow lineup-label">Lineup</p>
+        <div class="names" id="names-0a"></div>
+      </div>
+      <div class="namecol">
+        <p class="eyebrow lineup-label ghost">Subs</p>
+        <div class="names" id="names-0b"></div>
+      </div>
+    </div>
+    <div class="entry">
+      <input class="field dsp" id="input-0" data-team="0" type="text" maxlength="10"
+             autocapitalize="words" autocorrect="off" autocomplete="off" spellcheck="false"
+             enterkeyhint="done" placeholder="Enter name" aria-label="Enter a name for Bibs">
+      <button class="enter" id="enter-0" data-team="0" type="button" aria-label="Add this name">
+        <svg class="ic ic24" aria-hidden="true"><use href="#i-up"/></svg>
       </button>
     </div>
   </div>
 
-  <div class="col team-col" data-team="1">
-    <div class="team-head">
-      <span class="team-name" id="label-1"></span>
-      <span class="team-rule"></span>
+  <hr class="rule">
+
+  <div class="squad" data-team="1">
+    <div class="chip">
+      <svg class="ic ic16" aria-hidden="true"><use href="#i-shirt-o"/></svg>
+      <span class="chip-word eyebrow" id="chip-1">NON BIBS</span>
     </div>
-    <div class="list" id="list-1"></div>
-    <div class="field">
-      <input class="name-input" id="input-1" data-team="1" type="text"
-             maxlength="10" autocapitalize="words" autocorrect="off" autocomplete="off"
-             spellcheck="false" enterkeyhint="next" placeholder="Add a name"
-             aria-label="Add a name">
-      <button class="add" id="add-1" data-team="1" type="button" aria-label="Add a name">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>
-        </svg>
+    <div class="lineup">
+      <div class="namecol">
+        <p class="eyebrow lineup-label">Lineup</p>
+        <div class="names" id="names-1a"></div>
+      </div>
+      <div class="namecol">
+        <p class="eyebrow lineup-label ghost">Subs</p>
+        <div class="names" id="names-1b"></div>
+      </div>
+    </div>
+    <div class="entry">
+      <input class="field dsp" id="input-1" data-team="1" type="text" maxlength="10"
+             autocapitalize="words" autocorrect="off" autocomplete="off" spellcheck="false"
+             enterkeyhint="done" placeholder="Enter name" aria-label="Enter a name for Non bibs">
+      <button class="enter" id="enter-1" data-team="1" type="button" aria-label="Add this name">
+        <svg class="ic ic24" aria-hidden="true"><use href="#i-up"/></svg>
       </button>
     </div>
   </div>
 
-  <div class="col settings-col">
-
-    <div class="settings-group">
+  <div class="foot">
+    <hr class="rule">
     <div class="settings">
-      <div class="picker" role="group" aria-label="Game">
-        <span class="eyebrow picker-label">Game</span>
-        <div class="picker-row">
-          <button class="step" type="button" data-pick="type" data-dir="-1" aria-label="Fewer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
-          </button>
-          <span class="picker-value" id="type-value">6 a side</span>
-          <button class="step" type="button" data-pick="type" data-dir="1" aria-label="More">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-          </button>
-        </div>
-      </div>
-
-      <div class="picker" role="group" aria-label="Time">
-        <span class="eyebrow picker-label">Time</span>
-        <div class="picker-row">
-          <button class="step" type="button" data-pick="time" data-dir="-1" aria-label="Fewer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
-          </button>
-          <span class="picker-value" id="time-value">2 hours</span>
-          <button class="step" type="button" data-pick="time" data-dir="1" aria-label="More">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-          </button>
-        </div>
-      </div>
-
-      <div class="picker" role="group" aria-label="Rotations">
-        <span class="eyebrow picker-label">Rotations</span>
-        <div class="picker-row">
-          <button class="step" type="button" data-pick="rotations" data-dir="-1" aria-label="Fewer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
-          </button>
-          <span class="picker-value" id="rotations-value">2 each</span>
-          <button class="step" type="button" data-pick="rotations" data-dir="1" aria-label="More">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-                 stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-          </button>
-        </div>
-      </div>
+      <button class="cell" id="cell-aside" data-cell="aside" type="button">
+        <span class="eyebrow cell-label">Aside</span>
+        <span class="cell-value dsp" id="value-aside">6</span>
+      </button>
+      <button class="cell" id="cell-time" data-cell="time" type="button">
+        <span class="eyebrow cell-label">Time</span>
+        <span class="cell-value dsp" id="value-time">2Hrs</span>
+      </button>
+      <button class="cell" id="cell-rotations" data-cell="rotations" type="button">
+        <span class="eyebrow cell-label">Rotations</span>
+        <span class="cell-value dsp" id="value-rotations">2</span>
+      </button>
     </div>
-
-    <!-- the number the three above produce. it is not a setting and it cannot
-         be set: it is their result, so it has no card and no control. -->
-    <div class="readout" id="readout">
-      <span class="readout-label" id="readout-label"></span>
-      <span class="readout-value" id="readout-value"></span>
-    </div>
-
-    <button class="clear" id="clear" type="button" hidden></button>
-    </div>
-
-    <div class="col-spacer"></div>
-
-    <div class="foot">
-      <div class="notice" id="notice" hidden></div>
-      <!-- the sound is checked before the game, not discovered during it. it
-           is also the gesture iOS wants before it will speak. -->
-      <div class="start-row">
-        <button class="test" id="test" type="button"></button>
-        <button class="start" id="start" type="button">Kick off</button>
-      </div>
-    </div>
-
+    <button class="kick" id="kick" type="button">
+      <span class="kick-main">
+        <svg class="ic ic28" aria-hidden="true"><use href="#i-ball"/></svg>
+        <span class="kick-word dsp">Kick off</span>
+      </span>
+      <span class="kick-note eyebrow" id="kick-note">Rotate every: &#8212;</span>
+    </button>
   </div>
 
 </section>
 
-<!-- ----------------------------------------------------------- display -->
-<main id="display" hidden>
 
-  <!-- each team is one column with space between: the title, the two eyebrows
-       and the two names are one group at the top, and the order strip is
-       pinned to the bottom of the row. -->
-  <section class="team" data-team="0">
-    <div class="top">
-      <span class="team-title"></span>
-      <span class="eyebrow lab"></span>
-      <span class="eyebrow lab-sub"></span>
-      <span class="hero"><span class="layer"></span><span class="layer"></span></span>
-      <span class="subname"></span>
-    </div>
-    <div class="bottom">
-      <div class="l3 l3-goal"></div>
-      <div class="l3 l3-sub"></div>
-      <span class="strip"><span class="strip-track"></span></span>
-    </div>
-  </section>
+<!-- =========================================================== game screen -->
+<main id="game" hidden>
 
-  <section class="team" data-team="1">
-    <div class="top">
-      <span class="team-title"></span>
-      <span class="eyebrow lab"></span>
-      <span class="eyebrow lab-sub"></span>
-      <span class="hero"><span class="layer"></span><span class="layer"></span></span>
-      <span class="subname"></span>
+  <div class="timer" id="timer">
+    <!-- the gauge. black is the shift that is left, and it draws back to the
+         left edge as the shift runs out, uncovering the grey underneath. -->
+    <div class="gauge" id="gauge"></div>
+    <p class="eyebrow timer-label" id="timer-label">Next rotation:</p>
+    <p class="count dsp" id="count">0:00</p>
+    <div class="watch">
+      <svg class="ic ic20" aria-hidden="true"><use href="#i-watch"/></svg>
+      <span class="watch-time dsp" id="watch">0:00</span>
     </div>
-    <div class="bottom">
-      <div class="l3 l3-goal"></div>
-      <div class="l3 l3-sub"></div>
-      <span class="strip"><span class="strip-track"></span></span>
-    </div>
-  </section>
-
-  <div class="spine">
-    <div class="clock" id="clock">0:00</div>
-    <div class="spine-foot">
-      <div class="notes eyebrow" id="notes"></div>
-      <p class="sr-only" id="faults" role="status"></p>
-      <div class="spine-icons">
-        <button class="icon-btn" id="home" type="button" aria-label="End the game">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="5" y="5" width="14" height="14" rx="2"/>
-          </svg>
-        </button>
-        <button class="icon-btn" id="edit" type="button" aria-label="Edit setup">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
-            <path d="m15 5 4 4"/>
-          </svg>
-        </button>
-      </div>
+    <div class="endrow">
+      <span class="end-word dsp">End</span>
+      <button class="end-btn" id="end" type="button" aria-label="End the game">
+        <svg class="ic ic24" aria-hidden="true"><use href="#i-square"/></svg>
+      </button>
     </div>
   </div>
+
+  <section class="side" data-team="0">
+    <div class="chip">
+      <svg class="ic ic16" aria-hidden="true"><use href="#i-shirt"/></svg>
+      <span class="chip-word eyebrow">BIBS</span>
+    </div>
+    <div class="side-now">
+      <div class="slot">
+        <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-glove"/></svg><span>Goal</span></p>
+        <p class="keeper dsp" id="keeper-0"></p>
+      </div>
+      <div class="slot" id="subslot-0">
+        <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-swap"/></svg><span id="subs-label-0">Subs</span></p>
+        <div class="subnames" id="subs-0"></div>
+      </div>
+    </div>
+    <div class="side-order" id="order-0"></div>
+  </section>
+
+  <hr class="rule">
+
+  <section class="side" data-team="1">
+    <div class="chip">
+      <svg class="ic ic16" aria-hidden="true"><use href="#i-shirt-o"/></svg>
+      <span class="chip-word eyebrow">NON BIBS</span>
+    </div>
+    <div class="side-now">
+      <div class="slot">
+        <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-glove"/></svg><span>Goal</span></p>
+        <p class="keeper dsp" id="keeper-1"></p>
+      </div>
+      <div class="slot" id="subslot-1">
+        <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-swap"/></svg><span id="subs-label-1">Subs</span></p>
+        <div class="subnames" id="subs-1"></div>
+      </div>
+    </div>
+    <div class="side-order" id="order-1"></div>
+  </section>
 
 </main>
 
-<!-- ------------------------------------------------------------- confirm -->
-<!-- the only thing that stops the screen, and it is here because ending a
-     game cannot be taken back -->
-<div class="confirm" id="confirm" role="dialog" aria-modal="true"
-     aria-labelledby="confirm-text" hidden>
-  <div class="confirm-card">
-    <p class="confirm-text" id="confirm-text"></p>
-    <div class="confirm-row">
-      <button class="start" id="confirm-yes" type="button"></button>
-      <button class="start hairline" id="confirm-no" type="button"></button>
-    </div>
+
+<!-- ================================================================= sheet -->
+<!--
+  One black bar, flush to the bottom edge, no radius and no shadow — the same
+  surface the Kick off bar is. It carries the two toggles a name has, and it
+  carries the one question this app asks.
+-->
+<div class="sheet" id="sheet" hidden>
+  <div class="scrim" id="scrim"></div>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <p class="eyebrow sheet-title" id="sheet-title"></p>
+    <p class="sheet-opts" id="sheet-opts"></p>
   </div>
 </div>
+
+<p class="sr-only" id="faults" role="status"></p>
 
 <script type="module" src="app.js"></script>
 </body>

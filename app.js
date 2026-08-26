@@ -2,111 +2,80 @@
  * app.js — the two screens around rotation.js.
  *
  * rotation.js holds the whole rota and nothing here recomputes any part of it.
- * This file owns the setup screen, the game screen, the sounds, the voice, the
- * wake lock, persistence and the edit route.
+ * This file owns the team select, the game screen, the sheet, the sounds, the
+ * voice, the wake lock and persistence.
  *
- * THE GAME IS A LIST OF EPOCHS
+ * WHAT LEFT, AND WHY IT IS SMALLER
  *
- * A game is a kick-off timestamp and one or two epochs. An epoch is
- * `{ fromMs, index0, setup }` — from this elapsed time, under this setup, and
- * the first change it covers is numbered index0. At kick-off there is one
- * epoch, `{ 0, 0, setup }`. An edit made mid-game writes a second epoch that
- * starts at the next change boundary, which is how an edit lands at the next
- * change and never mid-shift. Everything stays a pure function of
- * (epochs, elapsed), so a dead phone restores and carries on.
+ * Who starts on the pitch is drawn at kick-off, in the engine, and written
+ * into the setup. Entry order decides nothing. That single change deletes
+ * three controls at once: the subs divider had nothing to divide, the drag had
+ * nothing to order, and a tap that set the starting keeper was setting
+ * something the draw sets. With them went the edit route, because the game
+ * screen the design describes has one control on it and it is `END`.
  *
- * THE SETUP SCREEN SHOWS THE NEXT CHANGE
+ * WHAT A NAME CARRIES
  *
- * Mid-game the list is the ring rotated so that the subs at the NEXT change sit
- * below the divider and the keeper at the next change carries the marker. That
- * makes the anchor the edit writes identical in form to the one kick-off
- * writes — `{ changeIndex: 0, keeperIndex: marker, subIndex: gameType }` — so
- * an edit that changes nothing produces exactly the same rota, and the legal
- * window for the marker is the same rule on both screens.
+ * Two flags, both toggles, both set from the sheet:
+ *
+ *   fixedGoalie   in goal all game, never on the bench. Everyone else still
+ *                 rotates through the bench around them.
+ *   late          moved to the end of the rotation, so they are furthest from
+ *                 goal and furthest from the bench — and they still get a turn.
+ *
+ * The engine owns what both mean. This file writes them onto the players and
+ * reads the answer back.
+ *
+ * THE COUNTDOWN IS ONE THING IN TWO PLACES
+ *
+ * Twenty seconds before kick-off and ten before every rotation, and the same
+ * treatment: the gauge empties and the block is the grey underneath, whole.
+ * At a rotation it is not a state arriving — it is the gauge running out,
+ * which is what the block has been saying all shift.
  */
 
-import {
-  createSetup,
-  rotation,
-  kickOff as drawKeepers,
-  setStartKeeper,
-  isLegalStartKeeper,
-  nearestLegalStartKeeper,
-  legalStartKeepers,
-  gameTypeOf,
-  rotationsOf,
-  squadSizeOf,
-  computeIntervalMs,
-  rotationsPerPlayer,
-  MIN_GAME_TYPE,
-  MAX_GAME_TYPE,
-  MIN_ROTATIONS,
-  MAX_ROTATIONS,
-  DEFAULT_GAME_TYPE,
-  DEFAULT_ROTATIONS,
-  DEFAULT_GAME_MINUTES
-} from './rotation.js';
-
+/*
+ * A namespace import, not named ones. The engine is being rewritten beside
+ * this file and a named import of an export that has not landed yet is a link
+ * error that takes the whole app down before a line of it runs. This way a
+ * missing export is `undefined`, and the two places that could be missing one
+ * are the settings cyclers, which fall back.
+ */
+import * as engine from './rotation.js';
 import { buildHorn, buildChime, buildTick, HORN_MS } from './sound.js';
 
 const MS_PER_MINUTE = 60000;
 const NAME_MAX = 10;
+
+/* the last ten seconds of every shift: the warning, and the grey */
 const WINDOW_MS = 10000;
-const COUNTDOWN_S = 10;
+/* and the twenty before the first one */
+const KICKOFF_S = 20;
+
 /* the silence between the horn ending and the first chime */
 const VOICE_GAP_MS = 150;
 
-/* Every string, lifted from brain/copy.md. */
-const COPY = {
-  teamA: 'bibs',
-  teamB: 'non-bibs',
-  addPlaceholder: 'Add a name',
-  divider: 'SUBS',
-  keeperTag: 'GOAL',
-  gameTypeLabel: 'Game',
-  gameTimeLabel: 'Time',
-  rotationsLabel: 'Rotations',
-  /* the readout is one sentence. before kick-off it says the interval the
-     three settings produce; mid-game it says what that frozen interval is
-     worth to the squad as it now stands. */
-  readoutEvery: 'Change every',
-  readoutEach: 'rotations each',
-  readoutNone: '—',
-  start: 'Kick off',
-  clear: 'Clear all',
-  editAria: 'Edit setup',
-  homeAria: 'End the game',
-  endWarning: 'This will end your current game.',
-  yes: 'Yes',
-  no: 'No',
-  keeper: 'GOAL',
-  sub: 'SUB',
-  subs: 'SUBS',
-  subsNone: 'NO SUBS',
-  errorTooSmall: 'Two names minimum.',
-  warnDuplicate: 'Same name twice. Add an initial.',
-  pending: 'Edits land at the next change',
-  noVoice: 'No voice',
-  noLock: 'Screen may sleep',
-  testAria: 'Test the sound',
-  /* the sound test's answer, in the readout's own register. it is read back
-     to somebody who is not holding the phone, so every field says its name.
-     the first line is the path the buzzer takes, the second is the voice. */
-  report: 'AUDIO WAS {a} · NOW {b} · RATE {r} · SESSION {n} · HORN {m}\n' +
-    'VOICES {v} · QUEUED {q} · START {s} · END {e} · ERROR {x}',
-  reportYes: 'YES',
-  reportNo: 'NO',
-  reportNone: 'NONE',
-  chipLabel: 'Next change',
-  closeAria: 'Close setup'
-};
+const TEAM_NAMES = ['Bibs', 'Non bibs'];
 
-const TEAM_NAMES = [COPY.teamA, COPY.teamB];
+const COPY = {
+  goal: 'Goal',
+  sub: 'Sub',
+  subs: 'Subs',
+  nextRotation: 'Next rotation:',
+  kickOffIn: 'Kick off in:',
+  rotateEvery: 'Rotate every:',
+  dash: '—',
+  fixedGoalie: 'Fixed goalie',
+  late: 'Late',
+  endTitle: 'End the game?',
+  endYes: 'End',
+  endNo: 'Keep playing'
+};
 
 /* ------------------------------------------------------------- storage */
 
-const KEY_GAME = 'rota.game';
-const KEY_SQUAD = 'rota.squad';
+const KEY_GAME = 'rota.game2';
+const KEY_SQUAD = 'rota.squad2';
 
 function readJSON(key) {
   try {
@@ -128,25 +97,20 @@ function writeJSON(key, value) {
 function dropKey(key) {
   try {
     localStorage.removeItem(key);
-  } catch (error) {
-    /* ignore */
-  }
+  } catch (error) { /* ignore */ }
 }
 
 /* --------------------------------------------------------------- clock */
 
 /*
  * Debug hook. Inert unless `?t=` is in the URL. Nothing is written to
- * localStorage while it is on and window.rota does not otherwise exist.
+ * localStorage while it is on and `window.rota` does not otherwise exist.
  *
  *   ?t=0 | ?t=330 | ?t=5:30   start the game clock there
  *   &rate=60                  run 60x real time. &rate=0 freezes it
- *   &a=Dom,Dave,Chris         team A squad
- *   &b=Sam,Tom,Alex           team B squad
- *   &g=7                      game type
- *   &game=120                 the game time
- *   &rot=2                    rotations each
- *   &ka=2 &kb=3               force the starting keeper index per team
+ *   &a=Dom,Dave &b=Sam,Tom    the two squads
+ *   &g=7 &game=120 &rot=2     the three settings
+ *   &seed=1                   a deterministic draw for the starting pitch
  *   &count=0                  skip the kick-off countdown
  *   &auto=1                   kick off as soon as the page loads
  */
@@ -180,7 +144,7 @@ const debug = (() => {
     gameType: int('g'),
     gameMinutes: int('game'),
     rotations: int('rot'),
-    keepers: [int('ka'), int('kb')],
+    seed: int('seed'),
     countdown: params.get('count') !== '0',
     auto: params.get('auto') === '1'
   };
@@ -196,49 +160,93 @@ function elapsedMs() {
   return Math.max(0, nowMs() - state.game.kickoff);
 }
 
-function mod(a, b) {
-  return ((a % b) + b) % b;
+/* a deterministic draw, so a screenshot of the game screen is the same twice */
+function randomFor() {
+  if (!debug || !Number.isFinite(debug.seed)) return Math.random;
+  let a = (debug.seed >>> 0) + 0x6D2B79F5;
+  return function mulberry32() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-function prefersReducedMotion() {
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+/* ------------------------------------------------------------- settings */
+
+/*
+ * The three settings and their grids. The wrap belongs to the engine, so this
+ * asks the engine for it and only does the arithmetic itself if the export is
+ * not there — which is the case exactly once, while the two files are being
+ * written beside each other.
+ */
+const GRID = {
+  aside: { min: 4, max: 11, step: 1, def: 6 },
+  time: { min: 30, max: 150, step: 15, def: 120 },
+  rotations: { min: 1, max: 5, step: 1, def: 2 }
+};
+
+const CYCLERS = {
+  aside: ['cycleGameType', 'cycleAside', 'nextGameType'],
+  time: ['cycleGameMinutes', 'cycleTime', 'nextGameMinutes'],
+  rotations: ['cycleRotations', 'nextRotations']
+};
+
+function engineCycler(slot) {
+  for (const name of CYCLERS[slot]) {
+    if (typeof engine[name] === 'function') return engine[name];
+  }
+  return null;
 }
 
-function isPortrait() {
-  return window.matchMedia('(orientation: portrait)').matches;
+function localCycle(slot, value) {
+  const g = GRID[slot];
+  const steps = Math.round((g.max - g.min) / g.step) + 1;
+  const at = Math.round((onGrid(slot, value) - g.min) / g.step);
+  return g.min + (((at + 1) % steps) + steps) % steps * g.step;
+}
+
+function cycle(slot, value) {
+  const fn = engineCycler(slot);
+  if (!fn) return localCycle(slot, value);
+  const answer = Number(fn(value));
+  /* an engine that returns nothing usable is not allowed to empty a setting */
+  return Number.isFinite(answer) ? answer : localCycle(slot, value);
+}
+
+function onGrid(slot, value) {
+  const g = GRID[slot];
+  const n = Number(value);
+  if (!Number.isFinite(n)) return g.def;
+  const at = Math.round((n - g.min) / g.step);
+  return Math.min(g.max, Math.max(g.min, g.min + at * g.step));
 }
 
 /* --------------------------------------------------------------- state */
 
 const draft = {
-  gameType: DEFAULT_GAME_TYPE,
-  gameMinutes: DEFAULT_GAME_MINUTES,
-  rotations: DEFAULT_ROTATIONS,
-  names: [[], []],
-  keeper: [null, null],
-  mode: 'pre',        /* 'pre' before kick-off, 'edit' with a game running */
-  baseChange: 0,      /* the change index the edit picture was built from */
-  signature: '',
-  /* the interval the kick-off froze, and the four settings it was worked out
-     from. Only set in edit mode. See frozenIntervalForDraft(). */
-  frozen: null
+  gameType: GRID.aside.def,
+  gameMinutes: GRID.time.def,
+  rotations: GRID.rotations.def,
+  /* [[{ name, fixedGoalie, late }], [...]] */
+  players: [[], []]
 };
 
 const state = {
-  screen: 'setup',
-  game: null,        /* { kickoff, epochs: [...], gone: [[], []] } */
+  screen: 'setup',          /* 'setup' | 'countdown' | 'game' */
+  game: null,               /* { kickoff, setup } */
+  pendingSetup: null,
   shownChange: null,
   windowFor: null,
   countdownAt: 0,
   countdownLeft: 0,
-  clockText: '',
-  pendingEdit: false,
+  countText: '',
+  watchText: '',
+  labelText: '',
+  counting: false,
   degradedVoice: false,
   degradedLock: false,
-  shownBroken: false,
-  /* the sound test's answer, and the draft it was true for */
-  soundReport: '',
-  soundReportFor: ''
+  sheet: null
 };
 
 const $ = (id) => document.getElementById(id);
@@ -246,112 +254,63 @@ const $ = (id) => document.getElementById(id);
 const el = {
   body: document.body,
   setup: $('setup'),
-  display: $('display'),
-  labels: [$('label-0'), $('label-1')],
-  lists: [$('list-0'), $('list-1')],
+  game: $('game'),
+  again: $('again'),
   inputs: [$('input-0'), $('input-1')],
-  adds: [$('add-0'), $('add-1')],
-  values: {
-    type: $('type-value'),
-    time: $('time-value'),
-    rotations: $('rotations-value')
-  },
-  readout: $('readout'),
-  readoutLabel: $('readout-label'),
-  readoutValue: $('readout-value'),
-  notice: $('notice'),
-  faults: $('faults'),
-  start: $('start'),
-  test: $('test'),
-  clear: $('clear'),
-  livebar: $('livebar'),
-  liveClock: $('live-clock'),
-  liveNote: $('live-note'),
-  clock: $('clock'),
-  notes: $('notes'),
-  edit: $('edit'),
-  home: $('home'),
-  confirm: $('confirm'),
-  confirmText: $('confirm-text'),
-  confirmYes: $('confirm-yes'),
-  confirmNo: $('confirm-no')
+  enters: [$('enter-0'), $('enter-1')],
+  squads: [...document.querySelectorAll('.squad')],
+  cols: [[$('names-0a'), $('names-0b')], [$('names-1a'), $('names-1b')]],
+  values: { aside: $('value-aside'), time: $('value-time'), rotations: $('value-rotations') },
+  cells: [...document.querySelectorAll('.cell')],
+  kick: $('kick'),
+  kickNote: $('kick-note'),
+  timer: $('timer'),
+  gauge: $('gauge'),
+  timerLabel: $('timer-label'),
+  count: $('count'),
+  watch: $('watch'),
+  end: $('end'),
+  keepers: [$('keeper-0'), $('keeper-1')],
+  subs: [$('subs-0'), $('subs-1')],
+  subSlots: [$('subslot-0'), $('subslot-1')],
+  subLabels: [$('subs-label-0'), $('subs-label-1')],
+  orders: [$('order-0'), $('order-1')],
+  sheet: $('sheet'),
+  scrim: $('scrim'),
+  sheetTitle: $('sheet-title'),
+  sheetOpts: $('sheet-opts'),
+  faults: $('faults')
 };
 
-const teamEls = [0, 1].map((t) => {
-  const root = el.display.querySelector(`.team[data-team="${t}"]`);
-  return {
-    root,
-    name: root.querySelector('.team-title'),
-    lab: root.querySelector('.lab'),
-    labSub: root.querySelector('.lab-sub'),
-    hero: root.querySelector('.hero'),
-    subname: root.querySelector('.subname'),
-    line3: root.querySelector('.l3-goal'),
-    l3sub: root.querySelector('.l3-sub'),
-    strip: root.querySelector('.strip'),
-    track: root.querySelector('.strip-track')
-  };
-});
-
-/* ================================================================ sound */
+/* ================================================================ audio */
 
 /*
- * Two sounds, two meanings, never swapped. The horn says the moment is now —
- * kick-off, and every changeover. The chime says names follow. Both are
- * synthesised in sound.js — no files, no network — and the context is created
- * inside a gesture so iOS unlocks it.
+ * THE BUZZER WAS SILENT AND THE VOICE WAS NOT
  *
- * WHY THE VOICE PLAYED AND THE BUZZER DID NOT
+ * On iOS the hardware ring/silent switch mutes Web Audio and does not mute
+ * `speechSynthesis`, so a phone on silent says the names and swallows the
+ * horn. The fix is `navigator.audioSession.type = 'playback'`, set inside the
+ * gesture and before the context is built, because a context takes the session
+ * that is current when it is created.
  *
- * Liam heard the names on his iPhone and heard no klaxon. That asymmetry is
- * the diagnosis. On iOS the hardware ring/silent switch mutes Web Audio and
- * does not mute `speechSynthesis`, because the two sit in different audio
- * sessions. A phone on silent says the names and swallows the horn, which is
- * the fault exactly. Nothing throws, and nothing reports it.
- *
- * A page can ask for the session iOS treats as media rather than as a UI
- * sound. `navigator.audioSession.type = 'playback'` is that request, it is
- * Safari 16.4 and later, and a playback session ignores the switch. It is set
- * inside the gesture and before the context exists, because a context takes
- * the session that is current when it is built.
- *
- * The second silent failure is `resume()`. It returns a promise and the old
- * code dropped it. A context stuck in `suspended` makes no sound and reports
- * no error, which looks the same as a muted phone. The state is now read
- * before the resume, read again when the promise settles, and watched by
- * `statechange` after that. All of it goes in the sound test's answer.
+ * `resume()` returns a promise and dropping it leaves a context stuck in
+ * `suspended`, which makes no sound and reports no error — the failure that
+ * looks exactly like a muted phone.
  */
 
 let ac = null;
 let gestured = false;
 
-/*
- * What the last gesture and the last horn did. Liam is the only person who
- * can hear the answer, so the sound test reads this back to him in words
- * instead of leaving him to guess from silence.
- */
+/* what the last gesture and the last horn did. No agent can hear any of this,
+   so it is written down and the debug hook reads it back. */
 const heard = {
-  before: 'none',   /* AudioContext.state at the gesture, before the resume */
-  after: 'none',    /* and after it. `statechange` keeps it true */
-  rate: 0,          /* the context's sampleRate */
-  session: 'none',  /* navigator.audioSession.type, or that there is none */
-  horn: 'none'      /* whether the horn graph was built and scheduled */
+  before: 'none',
+  after: 'none',
+  rate: 0,
+  session: 'none',
+  horn: 'none'
 };
 
-/*
- * The playback session. Feature-detected: it does not exist before Safari
- * 16.4, and it does not exist on Android, where nothing mutes Web Audio in the
- * first place. The type is read back rather than assumed, so an assignment
- * that does not stick shows in the report instead of passing for a fix.
- *
- * There is no fallback for an iOS without it. The established one is a silent
- * looping media element, which needs a synthesised WAV data URI and holds a
- * media session open for the whole game. This app already needs
- * `navigator.wakeLock`, which shipped in the same Safari 16.4, so a phone with
- * no `audioSession` cannot hold the screen on either. If the report ever comes
- * back `SESSION NONE`, that is one tap to learn it, and then the weight is
- * worth carrying. Until then it is not.
- */
 function claimSession() {
   const session = navigator.audioSession;
   if (!session) {
@@ -364,11 +323,6 @@ function claimSession() {
   heard.session = String(session.type || 'unknown');
 }
 
-/*
- * The context is created inside a gesture and never before. A game restored
- * after a reload has had no gesture yet, so it makes no sound — and the first
- * touch anywhere brings it back.
- */
 function audio() {
   if (ac) return ac;
   if (!gestured) return null;
@@ -382,10 +336,7 @@ function audio() {
   }
   heard.rate = ac.sampleRate || 0;
   heard.after = ac.state;
-  ac.addEventListener('statechange', () => {
-    heard.after = ac ? ac.state : 'none';
-    refreshReport();
-  });
+  ac.addEventListener('statechange', () => { heard.after = ac ? ac.state : 'none'; });
   return ac;
 }
 
@@ -397,22 +348,14 @@ function markGesture() {
   const ctx = audio();
   heard.before = ctx ? ctx.state : 'none';
   resumeAudio();
-  refreshReport();
 }
 
-/*
- * `resume()` is a promise, and the answer only arrives when it settles. A
- * context left in `suspended` is the failure that looks like nothing at all.
- */
 function resumeAudio() {
   if (!ac) return;
   heard.rate = ac.sampleRate || 0;
   heard.after = ac.state;
   if (ac.state === 'running') return;
-  const settle = () => {
-    heard.after = ac ? ac.state : 'none';
-    refreshReport();
-  };
+  const settle = () => { heard.after = ac ? ac.state : 'none'; };
   try {
     const done = ac.resume();
     if (done && typeof done.then === 'function') done.then(settle, settle);
@@ -423,20 +366,14 @@ function resumeAudio() {
 }
 
 /*
- * The horn. The same sound at kick-off and at every changeover, two and a half
- * seconds of stadium horn. It is the third sound in this slot. A whistle was
- * inaudible on a touchline, a two-tone klaxon was loud and read as an
- * emergency, and this is loud and reads as a game: peak 0.940, RMS 0.602,
- * against the klaxon's 0.936 and 0.469. sound.js has the reasoning.
- *
- * Returns its length in milliseconds, so the caller can put the voice after it
- * rather than under it.
+ * The horn. Two and a half seconds of stadium horn, at kick-off and at every
+ * changeover. sound.js carries why it is not a whistle and not a klaxon.
+ * Returns its length so the caller can put the voice after it, not under it.
  */
 function horn() {
   const ctx = audio();
   if (!ctx) {
     heard.horn = 'no context';
-    refreshReport();
     return HORN_MS;
   }
   resumeAudio();
@@ -446,11 +383,9 @@ function horn() {
   } catch (error) {
     heard.horn = 'failed';
   }
-  refreshReport();
   return HORN_MS;
 }
 
-/* 660 then 880. The same tone every time, before each team. */
 const CHIME_MS = 330;
 
 function chime() {
@@ -470,45 +405,19 @@ function tick880() {
 /* ================================================================ voice */
 
 /*
- * THE VOICE WORKS. IT IS STILL WORTH MAKING IT HARDER TO BREAK
- *
- * It has been heard on Liam's phone, so nothing here is a repair. Two things
- * were still risks and both are gone:
- *
- * 1. The unlock spoke a whitespace-only utterance at `volume = 0`. Both
- *    engines have form for wedging on an empty or silent utterance, after
- *    which `speaking` stays true for ever and every later `speak()` queues
- *    behind it and is never heard. The unlock now speaks real text at a real
- *    volume, and cancels itself if it has not finished in a second and a half.
- *
- * 2. `speechSynthesis.cancel()` ran before every single `speak()`. A cancel is
- *    only needed when something is actually in the queue, and the sequence now
- *    moves on at an estimate as well as on `end` — so an unconditional cancel
- *    could cut a line that was still being spoken. It runs once per
- *    announcement, and only when there is a queue to take out.
- *
- * WHAT `speaking` IS WORTH
- *
- * Nothing. Measured in Chrome 151: an utterance can sit with
- * `speechSynthesis.speaking === true` for ever, with `onstart`, `onend` and
- * `onerror` all silent. So the old watchdog — mark the voice broken when
- * `!speaking && !pending` — could not fire on the one failure that matters,
- * and the only honest test of a working voice is whether `start` fired.
- *
- * The sequence no longer depends on `end` either. Every line has a spoken
- * estimate beside it and moves on at whichever arrives first, so a dead engine
- * costs the announcement its timing and never its second team.
+ * `speechSynthesis.speaking` is worth nothing: measured in Chrome 151 it stays
+ * true for ever on a queued utterance that never starts. Only `start` proves a
+ * voice, and the sequence moves on at an estimate as well as on `end`, so a
+ * dead engine costs an announcement its timing and never its second team.
  */
 
-const VOICE_START_MS = 1500;   /* start has to fire inside this or it is lost */
+const VOICE_START_MS = 1500;
 
 let announceToken = 0;
 let chosenVoice = null;
 
-/*
- * en-GB and local first. This is proven on the phone, so it stays: an engine
- * left to pick for itself can land on a US voice halfway through a season.
- */
+/* en-GB and local first. An engine left to pick can land on a US voice
+   halfway through a season. */
 function pickVoice() {
   if (!haveVoice()) return;
   let voices = [];
@@ -540,15 +449,6 @@ function haveVoice() {
   return 'speechSynthesis' in window;
 }
 
-function voiceCount() {
-  if (!haveVoice()) return 0;
-  try {
-    return (speechSynthesis.getVoices() || []).length;
-  } catch (error) {
-    return 0;
-  }
-}
-
 /* Only ever called when there is something in the queue to take out. */
 function clearVoice() {
   if (!haveVoice()) return;
@@ -578,25 +478,14 @@ if ('speechSynthesis' in window) {
 
 /*
  * iOS will not speak later in the session unless it has spoken once inside a
- * user gesture. This is that once.
- *
- * IT USED TO SAY THE APP'S NAME OUT LOUD
- *
- * The unlock spoke `rota` at volume 0.02, and iOS did not honour the volume,
- * so pressing Kick off announced the app before it announced anything about
- * the game. The word is gone, but it could not be replaced by silence: an
- * empty utterance and a whitespace one are the two shapes known to leave the
- * iOS queue stuck with `speaking` true for ever, and a full stop on its own
- * has no phonemes and behaves the same way. The text has to be speakable.
- *
- * So it stays real, and it goes past too fast to be a word: one syllable at
- * the maximum rate is about fifty milliseconds. It also runs at the first
- * touch anywhere on the page, which during a warm-up is a name field and not
- * the Kick off button — so by the time anyone is listening for a horn, the
- * unlock has already happened and the tap is silent.
+ * gesture. This is that once, and it does not say the app's name: the unlock
+ * used to speak `rota` at volume 0.02 and iOS ignored the volume, so Kick off
+ * announced the app. It cannot be silence either — an empty utterance, a
+ * whitespace one and a lone full stop all have no phonemes and are the shapes
+ * that leave the queue stuck. It is `ok` at rate 10, about fifty
+ * milliseconds, spent at the first touch anywhere on the page.
  */
 let voiceUnlocked = false;
-/* every real request for the voice, counted. the unlock's tidy-up reads it. */
 let voiceAsks = 0;
 
 function unlockVoice() {
@@ -613,11 +502,6 @@ function unlockVoice() {
     utterance.onstart = () => { state.degradedVoice = false; };
     speechSynthesis.speak(utterance);
     voiceUnlocked = true;
-    /* and if it does stick, it must not still be there when the names are.
-       the unlock now runs on the first touch anywhere, and the touch that
-       opens the sound test is one of those — so this only clears the queue if
-       nothing has asked for the voice since, or it would cancel the very line
-       it was meant to make possible. */
     const asked = voiceAsks;
     window.setTimeout(() => {
       if (voiceAsks === asked) clearVoice();
@@ -656,13 +540,9 @@ function speak(text, onEnd) {
       finish();
     };
     speechSynthesis.speak(utterance);
-    /* whether `start` fired is the only honest test. it does not end the line:
-       a voice that is late is not a voice that is lost. */
     window.setTimeout(() => {
       if (!started && !done) state.degradedVoice = true;
     }, VOICE_START_MS);
-    /* and the line moves on at the estimate whatever the engine does, so one
-       stuck utterance never swallows the team after it */
     window.setTimeout(finish, sayMs(text));
   } catch (error) {
     state.degradedVoice = true;
@@ -681,24 +561,13 @@ function joinNames(names) {
  *
  *   [chime] Bibs. Goal, Umar. Sub, Kevin.
  *
- * The same words the screen shows — `GOAL` over a name and `SUB` or `SUBS`
- * over the rest — so the two never disagree. It says who is in goal and who is
- * sitting down, never who is leaving, because a state is true for the next ten
- * minutes and a transition is true for a second.
- *
- * A team with no subs drops the clause. `No subs` is never said out loud: it
- * is information nobody can act on.
- *
- * Full stops, not commas, between the three facts. The synthesiser honours a
- * full stop with a real pause and runs a comma straight through, and a name
- * run into the next name is the one thing that cannot happen here. The team
- * comes first so nobody parses a name that is not theirs.
+ * The same words the screen shows, so the two never disagree. It says who is
+ * in goal and who is sitting down, never who is leaving, because a state is
+ * true for the next ten minutes and a transition is true for a second. A team
+ * with no subs drops the clause — `No subs` is information nobody can act on.
  *
  * The name is spoken exactly as it was typed. The screen's uppercase is a
- * `text-transform` and never reaches the engine — and neither does the
- * uppercase in COPY, which is there because the eyebrows are set from it
- * directly. `SUB` read aloud is three letters. The voice says the same words
- * in the case a sentence is written in.
+ * `text-transform` and never reaches the engine.
  */
 function said(word) {
   return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
@@ -706,7 +575,7 @@ function said(word) {
 
 function lineFor(teamIndex, keeper, subs) {
   if (!keeper) return null;
-  const bits = [`${said(TEAM_NAMES[teamIndex])}.`, `Goal, ${keeper.name}.`];
+  const bits = [`${said(TEAM_NAMES[teamIndex])}.`, `${COPY.goal}, ${keeper.name}.`];
   const names = subs.map((player) => player.name);
   if (names.length > 0) {
     bits.push(`${said(names.length > 1 ? COPY.subs : COPY.sub)}, ${joinNames(names)}.`);
@@ -743,1410 +612,357 @@ function announce(lines) {
   next();
 }
 
-/* =========================================================== voice icon */
+/* ================================================================ setup */
 
 /*
- * ONE ICON, TWO STATES
- *
- * The speaker used to carry three states, because there used to be a mute.
- * There is not: Liam sets the volume on the phone, so a control that set it
- * again on the screen was a second answer to a settled question.
- *
- * What is left is the sound test's own face, and it says one thing —
- * whether the voice spoke when it was asked to:
- *
- *   on      the speaker and its two waves
- *   broken  the speaker with no waves at all and a cross where they were
- *
- * Shape first, then colour. It says nothing about the horn: the horn is a
- * graph that either builds or does not, and the report says which.
- *
- * The fault is quiet by construction. `degradedVoice` only turns on when an
- * utterance was asked for and `start` never fired, so a phone that has never
- * been asked never shows it, and one spoken word turns it off again.
+ * Does this engine's `createSetup` take player objects, or only names? Asked
+ * once, of the engine itself, because the answer changed while this file was
+ * being written and a guess either loses the flags or writes `[object Object]`
+ * into a squad list.
  */
-
-const SPEAKER = '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/>';
-const WAVES = '<path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>';
-const CROSS = '<path d="m16.5 9 5 6"/><path d="m21.5 9-5 6"/>';
-
-const ICON_SVG = (body) =>
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  SPEAKER + body + '</svg>';
-
-const ICON_ON = ICON_SVG(WAVES);
-const ICON_BROKEN = ICON_SVG(CROSS);
-
-/* ========================================================= setup screen */
-
-/*
- * The interval freezes at kick-off, so an edit mid-game has to carry the frozen
- * number forward or the countdown would jump the moment somebody's name is
- * typed in. It carries it as long as the two settings the number came from are
- * untouched. Move either of them and this returns undefined, the setup derives
- * again, and the new interval lands at the next change like every other edit —
- * which is a person deciding to change the pace, not a squad changing size.
- */
-function frozenIntervalForDraft() {
-  const was = draft.frozen;
-  if (!was) return undefined;
-  if (draft.rotations !== was.rotations) return undefined;
-  if (draft.gameMinutes !== was.gameMinutes) return undefined;
-  return was.intervalMs;
-}
+const TAKES_OBJECTS = (() => {
+  try {
+    const probe = engine.createSetup({
+      teams: [{ name: 'probe', players: [{ name: 'Ann', late: true }] }]
+    });
+    const player = probe && probe.teams && probe.teams[0] && probe.teams[0].players[0];
+    return Boolean(player && player.name === 'Ann');
+  } catch (error) {
+    return false;
+  }
+})();
 
 function draftSetup() {
-  return createSetup({
+  const teams = [0, 1].map((t) => ({
+    name: TEAM_NAMES[t],
+    players: draft.players[t].map((p) => (TAKES_OBJECTS
+      ? { name: p.name, fixedGoalie: Boolean(p.fixedGoalie), late: Boolean(p.late) }
+      : p.name))
+  }));
+
+  const setup = engine.createSetup({
     gameType: draft.gameType,
     gameMinutes: draft.gameMinutes,
     rotations: draft.rotations,
-    intervalMs: frozenIntervalForDraft(),
-    teams: [
-      { name: TEAM_NAMES[0], players: draft.names[0] },
-      { name: TEAM_NAMES[1], players: draft.names[1] }
-    ]
+    teams
   });
-}
 
-function draftSignature() {
-  return JSON.stringify({
-    g: draft.gameType,
-    m: draft.gameMinutes,
-    r: draft.rotations,
-    n: draft.names,
-    k: draft.keeper
+  /* an engine that took the objects has already applied its own rules to them
+     — one pair of gloves a team, among others — and must not be overwritten */
+  if (TAKES_OBJECTS) return setup;
+
+  /* an engine that took only names gets the flags written on afterwards */
+  (setup.teams || []).forEach((team, t) => {
+    (team.players || []).forEach((player, i) => {
+      const from = draft.players[t][i];
+      player.fixedGoalie = Boolean(from && from.fixedGoalie);
+      player.late = Boolean(from && from.late);
+    });
   });
+
+  return setup;
 }
 
-function xIcon() {
-  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
-    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
-}
-
-function buildRow(teamIndex, index, name, isKeeper) {
-  const row = document.createElement('div');
-  row.className = isKeeper ? 'row keeper' : 'row';
-  row.dataset.team = String(teamIndex);
-  row.dataset.index = String(index);
-
-  const label = document.createElement('span');
-  label.className = 'row-name';
-  label.textContent = name;
-  row.appendChild(label);
-
-  /* the marker is right aligned, so every name keeps the same left edge */
-  if (isKeeper) {
-    const tag = document.createElement('span');
-    tag.className = 'keeper-tag';
-    tag.textContent = COPY.keeperTag;
-    row.appendChild(tag);
+function intervalText() {
+  if (!ready()) return COPY.dash;
+  try {
+    return mmss(engine.computeIntervalMs(draftSetup()));
+  } catch (error) {
+    return COPY.dash;
   }
-
-  const remove = document.createElement('button');
-  remove.type = 'button';
-  remove.className = 'row-x';
-  remove.innerHTML = xIcon();
-  remove.setAttribute('aria-label', 'remove');
-
-  row.appendChild(remove);
-  return row;
 }
 
-function buildDivider() {
-  const node = document.createElement('div');
-  node.className = 'divider';
-  const label = document.createElement('span');
-  label.className = 'divider-label';
-  label.textContent = COPY.divider;
-  const rule = document.createElement('span');
-  rule.className = 'divider-rule';
-  node.appendChild(label);
-  node.appendChild(rule);
-  return node;
+/** Two names a side is the floor. Below it there is no rota to run. */
+function ready() {
+  return draft.players.every((list) => list.length >= 2);
 }
 
-function renderList(teamIndex) {
-  const list = el.lists[teamIndex];
-  const names = draft.names[teamIndex];
-  const keeper = draft.keeper[teamIndex];
-  list.textContent = '';
-  names.forEach((name, i) => {
-    if (names.length > draft.gameType && i === draft.gameType) list.appendChild(buildDivider());
-    list.appendChild(buildRow(teamIndex, i, name, i === keeper));
+function timeWords(minutes) {
+  const m = Math.round(minutes);
+  if (m % 60 === 0) return m === 60 ? '1hr' : `${m / 60}hrs`;
+  if (m < 60) return `${m}min`;
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+}
+
+function icon(id, cls) {
+  return `<svg class="ic ${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
+}
+
+function safe(text) {
+  return String(text).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+/*
+ * Down the first column and then down the second, `ceil(n/2)` and the rest —
+ * which is the 4/4 and the 4/3 the filled frame shows for eight names and for
+ * seven.
+ */
+function renderNames(teamIndex) {
+  const list = draft.players[teamIndex];
+  const half = Math.ceil(list.length / 2);
+  const parts = [list.slice(0, half), list.slice(half)];
+
+  parts.forEach((column, c) => {
+    el.cols[teamIndex][c].innerHTML = column.map((player) => {
+      const i = list.indexOf(player);
+      /* the same glove the game screen marks the next keeper with */
+      const mark = player.fixedGoalie ? icon('i-glove', 'ic12') : '';
+      return (
+        `<div class="nrow">` +
+        `<button class="nm dsp ${player.late ? 'late' : ''}" type="button" ` +
+        `data-name="${i}" data-team="${teamIndex}">${safe(player.name)}</button>` +
+        mark +
+        `<button class="x" type="button" data-drop="${i}" data-team="${teamIndex}" ` +
+        `aria-label="Remove ${safe(player.name)}">${icon('i-x', 'ic23')}</button>` +
+        `</div>`
+      );
+    }).join('');
   });
-}
-
-function armAdd(teamIndex) {
-  el.adds[teamIndex].classList.toggle('armed', el.inputs[teamIndex].value.trim().length > 0);
-}
-
-function duplicateIn(names) {
-  const seen = new Set();
-  for (const name of names) {
-    const key = name.trim().toLowerCase();
-    if (!key) continue;
-    if (seen.has(key)) return true;
-    seen.add(key);
-  }
-  return false;
-}
-
-/* a numeral, then the unit spelled the way it is said out loud. whole hours
-   drop the minutes — `120 min` makes a person do maths. */
-function durationWords(minutes) {
-  const m = Math.max(0, Math.floor(minutes));
-  if (m < 60) return `${m} minutes`;
-  const hours = Math.floor(m / 60);
-  const rest = m % 60;
-  const word = hours === 1 ? 'hour' : 'hours';
-  return rest === 0 ? `${hours} ${word}` : `${hours} ${word} ${rest}`;
 }
 
 function renderSetup() {
+  const total = draft.players[0].length + draft.players[1].length;
+  el.again.classList.toggle('gone', total === 0);
+
   for (let t = 0; t < 2; t += 1) {
-    el.labels[t].textContent = TEAM_NAMES[t];
-    renderList(t);
-    armAdd(t);
+    renderNames(t);
+    el.squads[t].classList.toggle('filled', draft.players[t].length > 0);
+    el.enters[t].classList.toggle('ready', el.inputs[t].value.trim().length > 0);
   }
 
-  renderPickers();
+  el.values.aside.textContent = String(draft.gameType);
+  el.values.time.textContent = timeWords(draft.gameMinutes);
+  el.values.rotations.textContent = String(draft.rotations);
 
-  const sizes = draft.names.map((names) => names.length);
-  const valid = sizes.every((n) => n >= 2);
-  const anyTyped = sizes.some((n) => n > 0);
-  const duplicate = draft.names.some(duplicateIn);
-
-  let notice = '';
-  if (!valid && anyTyped) notice = COPY.errorTooSmall;
-  else if (duplicate) notice = COPY.warnDuplicate;
-  el.notice.textContent = notice;
-  el.notice.hidden = notice === '';
-
-  /* the ink moves: a corner button before kick-off, the top bar during */
-  const editing = draft.mode === 'edit';
-  el.start.hidden = editing;
-  /* the test belongs to the warm-up. mid-game the sound has already proved
-     itself or not, and there is nothing left on this screen to prove it with. */
-  el.test.hidden = editing;
-  renderTest();
-  el.livebar.hidden = !editing;
-  el.setup.classList.toggle('live', editing);
-  el.start.classList.toggle('hairline', !valid);
-
-  /* Clear all empties both lists. It exists because the squad is remembered
-     between games, and a remembered squad with no way out is a trap. It never
-     shows mid-game — ending the game is the stop square, and the two must not
-     be confused. */
-  el.clear.textContent = COPY.clear;
-  el.clear.hidden = editing || !anyTyped;
-
-  const dirty = editing && (state.pendingEdit ||
-    (draft.signature !== '' && draftSignature() !== draft.signature));
-  el.liveNote.textContent = dirty ? COPY.pending : '';
-}
-
-/* =========================================================== sound test */
-
-/*
- * One tap speaks a line and sounds the horn, so the sound is checked before
- * the game rather than discovered during it. It does real work besides: iOS
- * will not speak later in a session unless it has spoken once inside a user
- * gesture, and this is a gesture that speaks. That is why the line goes first
- * and the horn second — the `speak()` has to happen in the same tick as the
- * tap, and it is also the order a changeover uses.
- *
- * The answer is written into the readout, because a person reading it out to
- * somebody else needs the words, and because a sound test that says nothing
- * when it fails is the thing being fixed.
- */
-
-/*
- * A real line, from the names already on the screen, because the point is to
- * hear whether the engine can say these names. It is a sample and not a
- * claim: nothing has been drawn yet, so it takes the first legal start.
- */
-function sampleLine() {
-  for (let t = 0; t < 2; t += 1) {
-    const names = draft.names[t];
-    if (names.length === 0) continue;
-    const at = draft.keeper[t] == null ? Math.min(1, names.length - 1) : draft.keeper[t];
-    const subs = names.slice(draft.gameType).map((name) => ({ name }));
-    return lineFor(t, { name: names[at] }, subs);
-  }
-  /* an empty screen still has to prove the voice, and it invents nobody */
-  return `${said(TEAM_NAMES[0])}. ${said(TEAM_NAMES[1])}.`;
-}
-
-function reportText(seen) {
-  const yn = (value) => (value ? COPY.reportYes : COPY.reportNo);
-  const up = (value) => String(value || COPY.reportNone).toUpperCase();
-  return COPY.report
-    .replace('{a}', up(heard.before))
-    .replace('{b}', up(heard.after))
-    .replace('{r}', heard.rate ? String(Math.round(heard.rate)) : COPY.reportNone)
-    .replace('{n}', up(heard.session))
-    .replace('{m}', up(heard.horn))
-    .replace('{v}', String(seen.voices))
-    .replace('{q}', yn(seen.queued))
-    .replace('{s}', yn(seen.started))
-    .replace('{e}', yn(seen.ended))
-    .replace('{x}', seen.error ? String(seen.error).toUpperCase() : COPY.reportNone);
-}
-
-/*
- * The audio half of the answer arrives late. A resume settles, a state
- * changes, and the horn is scheduled seconds after the tap. So the line is
- * repainted where it already stands, and it is never put back on a screen that
- * has moved past it.
- */
-let lastSeen = null;
-
-function refreshReport() {
-  if (!lastSeen) return;
-  if (!state.soundReport) return;
-  if (state.soundReportFor !== draftSignature()) return;
-  showReport(lastSeen);
-}
-
-function showReport(seen) {
-  lastSeen = seen;
-  state.soundReport = reportText(seen);
-  state.soundReportFor = draftSignature();
-  renderReadout();
-  /* the icon is the answer for anyone who is not reading the line */
-  renderTest();
-}
-
-/*
- * The voice, instrumented. It does not go through `speak()`: that one is
- * built to keep an announcement moving, and this one is built to say what
- * happened.
- */
-function testVoice(then) {
-  voiceAsks += 1;
-  const seen = { voices: voiceCount(), queued: false, started: false, ended: false, error: null };
-  let moved = false;
-  const move = () => {
-    if (moved) return;
-    moved = true;
-    then();
-  };
-  showReport(seen);
-
-  if (!haveVoice()) {
-    seen.error = 'unsupported';
-    state.degradedVoice = true;
-    showReport(seen);
-    move();
-    return;
-  }
-
-  const text = sampleLine();
-  try {
-    clearVoice();
-    speechSynthesis.resume();
-    const utterance = utteranceFor(text);
-    utterance.onstart = () => {
-      seen.started = true;
-      state.degradedVoice = false;
-      showReport(seen);
-    };
-    utterance.onend = () => {
-      seen.ended = true;
-      showReport(seen);
-      move();
-    };
-    utterance.onerror = (event) => {
-      seen.error = (event && event.error) || 'unknown';
-      state.degradedVoice = true;
-      showReport(seen);
-      move();
-    };
-    speechSynthesis.speak(utterance);
-    seen.queued = speechSynthesis.speaking || speechSynthesis.pending;
-    showReport(seen);
-    /* `speaking` proves nothing and `start` proves everything */
-    window.setTimeout(() => {
-      if (seen.started) return;
-      state.degradedVoice = true;
-      showReport(seen);
-    }, VOICE_START_MS);
-    window.setTimeout(move, sayMs(text));
-  } catch (error) {
-    seen.error = 'threw';
-    state.degradedVoice = true;
-    showReport(seen);
-    move();
-  }
-}
-
-function runSoundTest() {
-  /* the last run's answer is not this run's answer */
-  heard.horn = 'none';
-  markGesture();
-  testVoice(() => { horn(); });
-}
-
-function renderTest() {
-  const broken = state.degradedVoice;
-  el.test.innerHTML = broken ? ICON_BROKEN : ICON_ON;
-  el.test.classList.toggle('broken', broken);
-  el.test.setAttribute('aria-label', broken ? COPY.noVoice : COPY.testAria);
-  state.shownBroken = broken;
-}
-
-el.test.addEventListener('click', (event) => {
-  event.preventDefault();
-  runSoundTest();
-});
-
-/* --------------------------------------------------------- the marker */
-
-/*
- * One rule on both screens: the marked row may only sit on an index the engine
- * calls a legal start. A tap on any name makes them the keeper, and if their
- * row is not on a legal index the row moves to the nearest one first. No row is
- * ever refused and the move is what tells the person what happened.
- */
-function legalTargetFor(teamIndex, index) {
-  const setup = draftSetup();
-  if (legalStartKeepers(setup, teamIndex).length === 0) return -1;
-  const recorded = setStartKeeper(setup, teamIndex, index);
-  const anchor = recorded.teams[teamIndex].anchor;
-  return anchor ? anchor.keeperIndex : nearestLegalStartKeeper(setup, teamIndex, index);
-}
-
-function chooseKeeper(teamIndex, index) {
-  const target = legalTargetFor(teamIndex, index);
-  if (target < 0) return;
-  if (target === index) {
-    draft.keeper[teamIndex] = index;
-    renderSetup();
-    return;
-  }
-  moveRow(teamIndex, index, target, 'landing');
-  draft.keeper[teamIndex] = target;
-  renderSetup();
-}
-
-/* After anything that changes the list, the marker must still be legal. */
-function reseatKeeper(teamIndex) {
-  const index = draft.keeper[teamIndex];
-  if (index == null) return;
-  const names = draft.names[teamIndex];
-  if (index < 0 || index >= names.length) {
-    draft.keeper[teamIndex] = null;
-    return;
-  }
-  const setup = draftSetup();
-  if (isLegalStartKeeper(setup, teamIndex, index)) return;
-  const target = legalTargetFor(teamIndex, index);
-  if (target < 0) {
-    draft.keeper[teamIndex] = null;
-    return;
-  }
-  moveRow(teamIndex, index, target, 'landing');
-  draft.keeper[teamIndex] = target;
-}
-
-/* --------------------------------------------------- moving a row about */
-
-function rowNodes(teamIndex) {
-  return [...el.lists[teamIndex].children];
-}
-
-function captureRects(nodes) {
-  return nodes.map((node) => node.getBoundingClientRect());
-}
-
-/* Move one name and let everything else shift around it, on a transform. */
-function moveRow(teamIndex, from, to, cls) {
-  const names = draft.names[teamIndex];
-  if (from === to || from < 0 || from >= names.length) return;
-  const nodes = rowNodes(teamIndex);
-  const before = new Map();
-  nodes.forEach((node) => before.set(node.dataset.index ?? `d${node.className}`, node.getBoundingClientRect()));
-
-  const [name] = names.splice(from, 1);
-  names.splice(to, 0, name);
-  const keeper = draft.keeper[teamIndex];
-  if (keeper != null) draft.keeper[teamIndex] = shiftIndex(keeper, from, to);
-  renderList(teamIndex);
-
-  if (prefersReducedMotion()) return;
-  const after = rowNodes(teamIndex);
-  const map = new Map();
-  const order = names.map((_, i) => i);
-  /* old index -> new index */
-  order.forEach(() => {});
-  const oldOf = (newIndex) => {
-    if (newIndex === to) return from;
-    let j = newIndex < to ? newIndex : newIndex - 1;
-    return j < from ? j : j + 1;
-  };
-  after.forEach((node) => {
-    if (!node.classList.contains('row')) return;
-    const newIndex = Number(node.dataset.index);
-    const key = String(oldOf(newIndex));
-    map.set(node, before.get(key));
-  });
-  after.forEach((node) => {
-    const rect = map.get(node);
-    if (!rect) return;
-    const now = node.getBoundingClientRect();
-    const dy = rect.top - now.top;
-    if (Math.abs(dy) < 0.5) return;
-    node.style.transform = `translateY(${dy}px)`;
-  });
-  requestAnimationFrame(() => {
-    after.forEach((node) => {
-      if (!node.style.transform) return;
-      node.classList.add(cls || 'shifting');
-      node.style.transform = '';
-    });
-    window.setTimeout(() => {
-      after.forEach((node) => node.classList.remove('shifting', 'landing', 'settling'));
-    }, 320);
-  });
-}
-
-function shiftIndex(index, from, to) {
-  if (index === from) return to;
-  let j = index > from ? index - 1 : index;
-  return j >= to ? j + 1 : j;
+  el.kick.disabled = !ready();
+  el.kickNote.textContent = `${COPY.rotateEvery} ${intervalText()}`;
 }
 
 /* -------------------------------------------------------------- naming */
 
 function addName(teamIndex, raw) {
-  const name = String(raw).trim().slice(0, NAME_MAX);
+  const name = String(raw).trim().replace(/\s+/g, ' ').slice(0, NAME_MAX);
   if (!name) return false;
-  const names = draft.names[teamIndex];
-  if (draft.mode === 'edit' && names.length >= draft.gameType) {
-    /* a late arrival joins the front of the bench and comes on at the next
-       change. nobody on the pitch moves. */
-    names.splice(draft.gameType, 0, name);
-    const keeper = draft.keeper[teamIndex];
-    if (keeper != null && keeper >= draft.gameType) draft.keeper[teamIndex] = keeper + 1;
-  } else {
-    names.push(name);
-  }
-  renderSetup();
-  reseatKeeper(teamIndex);
-  renderSetup();
-  scrollToName(teamIndex, name);
+  const taken = draft.players[teamIndex]
+    .some((p) => p.name.toLowerCase() === name.toLowerCase());
+  if (taken) return false;
+  draft.players[teamIndex].push({ name, fixedGoalie: false, late: false });
   return true;
-}
-
-function scrollToName(teamIndex, name) {
-  const list = el.lists[teamIndex];
-  const index = draft.names[teamIndex].indexOf(name);
-  const row = list.querySelector(`.row[data-index="${index}"]`);
-  if (!row) return;
-  if (isPortrait()) return;
-  row.scrollIntoView({ block: 'nearest' });
-}
-
-function removeName(teamIndex, index) {
-  const names = draft.names[teamIndex];
-  if (index < 0 || index >= names.length) return;
-  names.splice(index, 1);
-  const keeper = draft.keeper[teamIndex];
-  if (keeper != null) {
-    if (keeper === index) draft.keeper[teamIndex] = draft.mode === 'edit' ? Math.min(keeper, names.length - 1) : null;
-    else if (keeper > index) draft.keeper[teamIndex] = keeper - 1;
-  }
-  renderSetup();
-  reseatKeeper(teamIndex);
-  renderSetup();
 }
 
 function commitField(teamIndex) {
   const input = el.inputs[teamIndex];
-  const value = input.value;
+  const added = addName(teamIndex, input.value);
   input.value = '';
-  armAdd(teamIndex);
-  return addName(teamIndex, value);
+  renderSetup();
+  if (added) saveSquad();
+  input.focus();
 }
 
-for (let t = 0; t < 2; t += 1) {
-  const input = el.inputs[t];
-  input.addEventListener('input', () => armAdd(t));
+el.inputs.forEach((input, t) => {
+  input.addEventListener('input', () => {
+    el.enters[t].classList.toggle('ready', input.value.trim().length > 0);
+  });
   input.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
     commitField(t);
-    input.focus();
   });
-  el.adds[t].addEventListener('click', (event) => {
-    event.preventDefault();
-    commitField(t);
-    input.focus();
-  });
-  /* a half-typed name must survive the blur a tap elsewhere causes */
-  input.addEventListener('blur', () => {
-    if (!input.value.trim()) return;
-    window.setTimeout(() => {
-      if (!input.value.trim()) return;
-      commitField(t);
-    }, 0);
-  });
-}
+});
 
-/* ---------------------------------------------------------------- drag */
+el.enters.forEach((button, t) => {
+  button.addEventListener('click', () => commitField(t));
+});
 
 /*
- * A DRAG IS ARMED BY A HOLD, NEVER BY A MOVE
- *
- * The row used to carry `touch-action: none` and become a drag after 6px of
- * movement. That took the scroll away from the list: a squad of nine cannot be
- * scrolled at all if every finger that lands on a name is holding one, and on
- * a phone every finger lands on a name.
- *
- * So the finger has to stay still to take the row. `HOLD_MS` of stillness arms
- * it, the row lifts under the finger and the phone buzzes, and only from that
- * moment is the scroll suppressed. Move before then and the drag is abandoned
- * and the page scrolls exactly as it would over any other list.
- *
- * `touch-action: pan-y` on the row is what lets the browser scroll before the
- * hold lands. It cannot be changed once a gesture is under way, so the armed
- * drag stops the page with `preventDefault()` on a non-passive `touchmove` —
- * which works precisely because a finger that has been still for 400ms has not
- * started a scroll for the browser to have committed to.
- *
- * A tap is still a tap: released before the hold, with nothing moved, it picks
- * the starting keeper. An armed drag that never moves is a drag that changed
- * nothing, never a tap — the row moved under the finger, and a person who saw
- * that happen did not tap.
+ * One listener for both squads. A tap on a name opens its sheet, a tap on the
+ * cross takes it out, and neither reaches for a node that a re-render has
+ * already replaced.
  */
-
-const HOLD_MS = 400;   /* stillness that arms the drag */
-const HOLD_SLOP = 8;   /* movement inside the hold that abandons it */
-
-let drag = null;
-
-function cancelHold() {
-  if (!drag || !drag.holdTimer) return;
-  window.clearTimeout(drag.holdTimer);
-  drag.holdTimer = 0;
-}
-
-function beginDrag(event) {
-  const row = event.target.closest('.row');
-  if (!row) return;
-  if (event.target.closest('.row-x')) return;
-  if (event.pointerType === 'mouse' && event.button !== 0) return;
-  const teamIndex = Number(row.dataset.team);
-  const index = Number(row.dataset.index);
-  drag = {
-    row,
-    teamIndex,
-    index,
-    target: index,
-    startY: event.clientY,
-    startX: event.clientX,
-    lastY: event.clientY,
-    active: false,
-    holdTimer: 0,
-    pointerId: event.pointerId
-  };
-  /* a mouse has no scroll to protect and no patience to spend */
-  if (event.pointerType === 'mouse') return;
-  drag.holdTimer = window.setTimeout(arm, HOLD_MS);
-}
-
-/*
- * The row is taken. This is the one moment the person has to feel, because
- * everything after it behaves differently — so the row lifts, grows and takes
- * a shadow on a transition rather than appearing already lifted, and the phone
- * buzzes if it has anything to buzz with.
- */
-function arm() {
-  if (!drag || drag.active) return;
-  drag.holdTimer = 0;
-  startDragging();
-  try { drag.row.setPointerCapture(drag.pointerId); } catch (error) { /* ignore */ }
-  if (typeof navigator.vibrate === 'function') {
-    try { navigator.vibrate(12); } catch (error) { /* ignore */ }
-  }
-}
-
-function startDragging() {
-  const list = el.lists[drag.teamIndex];
-  const rect = drag.row.getBoundingClientRect();
-  drag.offsetY = drag.lastY - rect.top;
-  drag.gap = document.createElement('div');
-  drag.gap.className = 'gap';
-  drag.gap.style.height = `${rect.height}px`;
-  list.insertBefore(drag.gap, drag.row);
-  drag.row.style.width = `${rect.width}px`;
-  drag.row.style.height = `${rect.height}px`;
-  drag.row.style.left = `${rect.left}px`;
-  drag.row.style.top = `${rect.top}px`;
-  /* only now, and never before: the scroll belonged to the page until here */
-  drag.row.style.touchAction = 'none';
-  drag.row.classList.add('dragging');
-  drag.active = true;
-}
-
-function dragTargetIndex(event) {
-  const list = el.lists[drag.teamIndex];
-  const rows = [...list.querySelectorAll('.row')].filter((node) => node !== drag.row);
-  const y = event.clientY - drag.offsetY + drag.row.offsetHeight / 2;
-  for (let i = 0; i < rows.length; i += 1) {
-    const rect = rows[i].getBoundingClientRect();
-    if (y < rect.top + rect.height / 2) return i;
-  }
-  return rows.length;
-}
-
-function layoutDrag(target) {
-  const list = el.lists[drag.teamIndex];
-  const others = [...list.querySelectorAll('.row')].filter((node) => node !== drag.row);
-  const divider = list.querySelector('.divider');
-  const nodes = [...list.children].filter((node) => node !== drag.row);
-  const before = captureRects(nodes);
-
-  const slots = others.slice();
-  slots.splice(target, 0, drag.gap);
-  const total = slots.length;
-  const ordered = [];
-  slots.forEach((node, i) => {
-    if (divider && total > draft.gameType && i === draft.gameType) ordered.push(divider);
-    ordered.push(node);
-  });
-  if (divider && !ordered.includes(divider)) divider.remove();
-  ordered.forEach((node) => list.appendChild(node));
-
-  if (prefersReducedMotion()) return;
-  nodes.forEach((node, i) => {
-    if (!node.isConnected) return;
-    const now = node.getBoundingClientRect();
-    const dy = before[i].top - now.top;
-    if (Math.abs(dy) < 0.5) return;
-    node.classList.remove('shifting');
-    node.style.transform = `translateY(${dy}px)`;
-  });
-  requestAnimationFrame(() => {
-    nodes.forEach((node) => {
-      if (!node.style.transform) return;
-      node.classList.add('shifting');
-      node.style.transform = '';
-    });
-  });
-}
-
-function onPointerMove(event) {
-  if (!drag) return;
-  drag.lastY = event.clientY;
-  if (!drag.active) {
-    const moved = Math.abs(event.clientY - drag.startY) > HOLD_SLOP ||
-      Math.abs(event.clientX - drag.startX) > HOLD_SLOP;
-    if (!moved) return;
-    /* a mouse has no hold to wait for. a finger that moved wanted the page. */
-    if (event.pointerType === 'mouse') {
-      try { drag.row.setPointerCapture(drag.pointerId); } catch (error) { /* ignore */ }
-      startDragging();
-    } else {
-      cancelHold();
-      drag = null;
-      return;
-    }
-  }
-  event.preventDefault();
-  drag.row.style.top = `${event.clientY - drag.offsetY}px`;
-  autoScroll(event);
-  const target = dragTargetIndex(event);
-  if (target !== drag.target) {
-    drag.target = target;
-    layoutDrag(target);
-  }
-}
-
-function autoScroll(event) {
-  const list = el.lists[drag.teamIndex];
-  if (list.scrollHeight <= list.clientHeight) return;
-  const rect = list.getBoundingClientRect();
-  if (event.clientY < rect.top + 28) list.scrollTop -= 12;
-  else if (event.clientY > rect.bottom - 28) list.scrollTop += 12;
-}
-
-function endDrag(event, commit) {
-  if (!drag) return;
-  const current = drag;
-  cancelHold();
-  drag = null;
-  try { current.row.releasePointerCapture(current.pointerId); } catch (error) { /* ignore */ }
-
-  /* released before the hold landed, and nothing moved: that is a tap */
-  if (!current.active) {
-    if (commit && draft.mode !== 'edit') chooseKeeper(current.teamIndex, current.index);
+document.addEventListener('click', (event) => {
+  const drop = event.target.closest('[data-drop]');
+  if (drop) {
+    const t = Number(drop.dataset.team);
+    draft.players[t].splice(Number(drop.dataset.drop), 1);
+    renderSetup();
+    saveSquad();
     return;
   }
+  const name = event.target.closest('[data-name]');
+  if (name) openPlayerSheet(Number(name.dataset.team), Number(name.dataset.name));
+});
 
-  current.row.classList.remove('dragging');
-  current.row.style.cssText = '';
-  if (current.gap) current.gap.remove();
+/* ------------------------------------------------------------ settings */
 
-  if (commit && current.target !== current.index) {
-    const names = draft.names[current.teamIndex];
-    const [name] = names.splice(current.index, 1);
-    names.splice(current.target, 0, name);
-    const keeper = draft.keeper[current.teamIndex];
-    if (keeper != null) draft.keeper[current.teamIndex] = shiftIndex(keeper, current.index, current.target);
-  }
-  renderSetup();
-  reseatKeeper(current.teamIndex);
-  renderSetup();
-}
-
-for (let t = 0; t < 2; t += 1) {
-  const list = el.lists[t];
-  list.addEventListener('pointerdown', beginDrag);
-  list.addEventListener('pointermove', onPointerMove);
-  /* `touch-action` is fixed for the life of a gesture, so an armed drag has to
-     take the scroll back by hand. Non-passive, or preventDefault does nothing. */
-  list.addEventListener('touchmove', (event) => {
-    if (drag && drag.active) event.preventDefault();
-  }, { passive: false });
-  list.addEventListener('pointerup', (event) => endDrag(event, true));
-  list.addEventListener('pointercancel', (event) => endDrag(event, false));
-  list.addEventListener('click', (event) => {
-    const x = event.target.closest('.row-x');
-    if (!x) return;
-    const row = x.closest('.row');
-    removeName(t, Number(row.dataset.index));
+el.cells.forEach((cell) => {
+  cell.addEventListener('click', () => {
+    const slot = cell.dataset.cell;
+    if (slot === 'aside') draft.gameType = onGrid('aside', cycle('aside', draft.gameType));
+    if (slot === 'time') draft.gameMinutes = onGrid('time', cycle('time', draft.gameMinutes));
+    if (slot === 'rotations') draft.rotations = onGrid('rotations', cycle('rotations', draft.rotations));
+    renderSetup();
+    saveSquad();
   });
-  list.addEventListener('contextmenu', (event) => event.preventDefault());
-}
+});
 
-/* ------------------------------------------------------------ pickers */
+/* ------------------------------------------------------- start again */
+
+/* both lists emptied and the remembered squad forgotten. It is the only thing
+   on this screen that takes something away, and it can only run before a game. */
+el.again.addEventListener('click', () => {
+  draft.players = [[], []];
+  if (!debug) dropKey(KEY_SQUAD);
+  renderSetup();
+  el.inputs[0].focus();
+});
+
+/* ================================================================ sheet */
 
 /*
- * One component, three slots. [-] value [+], 44px targets, and a press and hold
- * that repeats after 400ms at 8 a second. A bound makes the glyph --dim and
- * inert rather than disabled — there is no dead control here.
- *
- * Three pickers, three slots, and the interval is not one of them. It is not a
- * setting: it is what Game, Time and Rotations produce, and the readout under
- * the three says so. `onGrid()` snaps a stored value onto a picker's range.
+ * One black bar for two jobs. It is opened with a title and a row of words,
+ * each word its own control, and it closes on the scrim, on Escape and on
+ * anything that acts.
  */
+function openSheet(title, options) {
+  state.sheet = options;
+  el.sheetTitle.textContent = title;
+  el.sheetOpts.innerHTML = options.map((option, i) => (
+    (i > 0 ? `<span class="dot dsp" aria-hidden="true">&middot;</span>` : '') +
+    `<button class="opt dsp ${option.on ? 'on' : ''}" type="button" data-opt="${i}" ` +
+    `aria-pressed="${option.toggle ? String(Boolean(option.on)) : 'undefined'}">${safe(option.label)}</button>`
+  )).join('');
+  el.sheet.hidden = false;
+}
 
-const PICKERS = {
-  type: {
-    label: COPY.gameTypeLabel,
-    min: MIN_GAME_TYPE,
-    max: MAX_GAME_TYPE,
-    step: 1,
-    get: () => draft.gameType,
-    put(value) {
-      draft.gameType = value;
-      renderSetup();
-      /* the divider moves, so the marker may no longer sit on a legal index */
-      for (let t = 0; t < 2; t += 1) reseatKeeper(t);
-      renderSetup();
+function closeSheet() {
+  state.sheet = null;
+  el.sheet.hidden = true;
+}
+
+el.sheetOpts.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-opt]');
+  if (!button || !state.sheet) return;
+  const option = state.sheet[Number(button.dataset.opt)];
+  if (option && option.act) option.act();
+});
+
+el.scrim.addEventListener('click', closeSheet);
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !el.sheet.hidden) closeSheet();
+});
+
+/*
+ * A NAME CARRIES TWO FLAGS
+ *
+ *   KEVIN
+ *   FIXED GOALIE · LATE
+ *
+ * An eyebrow over a 32px line, 8px between them and 20px of padding round —
+ * which is a settings cell, in white on black, left aligned. There is no
+ * switch and no tick: the word is the control and how loud it is is its state.
+ */
+function openPlayerSheet(teamIndex, index) {
+  const player = draft.players[teamIndex][index];
+  if (!player) return;
+  const refresh = () => {
+    renderSetup();
+    saveSquad();
+    openPlayerSheet(teamIndex, index);
+  };
+  openSheet(player.name, [
+    {
+      label: COPY.fixedGoalie,
+      on: Boolean(player.fixedGoalie),
+      toggle: true,
+      act() {
+        const turningOn = !player.fixedGoalie;
+        /* one pair of gloves a team. Turning one on takes the other off. */
+        if (turningOn) draft.players[teamIndex].forEach((p) => { p.fixedGoalie = false; });
+        player.fixedGoalie = turningOn;
+        /* a fixed goalie is never on the bench, so being late means nothing */
+        if (turningOn) player.late = false;
+        refresh();
+      }
     },
-    text: (n) => `${n} a side`
-  },
-  /* `Time` is half of the interval sum now, so it drives the readout under it */
-  time: {
-    label: COPY.gameTimeLabel,
-    min: 30,
-    max: 180,
-    step: 15,
-    get: () => draft.gameMinutes,
-    put(value) { draft.gameMinutes = value; renderSetup(); },
-    text: durationWords
-  },
-  rotations: {
-    label: COPY.rotationsLabel,
-    min: MIN_ROTATIONS,
-    max: MAX_ROTATIONS,
-    step: 1,
-    get: () => draft.rotations,
-    put(value) { draft.rotations = value; renderSetup(); },
-    text: (n) => `${n} each`
-  }
-};
-
-const SLOTS = ['type', 'time', 'rotations'];
-
-function pickerFor(slot) {
-  return PICKERS[slot];
-}
-
-const stepButtons = [...document.querySelectorAll('.step')];
-
-/*
- * COPY is the only place a string is written. Everything index.html carries as
- * text is set from it once, at boot, so no string can drift between the two
- * files and nothing in the table is left unused.
- */
-function applyStaticCopy() {
-  for (const input of el.inputs) {
-    input.placeholder = COPY.addPlaceholder;
-    input.setAttribute('aria-label', COPY.addPlaceholder);
-  }
-  for (const add of el.adds) add.setAttribute('aria-label', COPY.addPlaceholder);
-  el.start.textContent = COPY.start;
-  el.edit.setAttribute('aria-label', COPY.editAria);
-  el.livebar.setAttribute('aria-label', COPY.closeAria);
-  el.home.setAttribute('aria-label', COPY.homeAria);
-  el.confirmText.textContent = COPY.endWarning;
-  el.confirmYes.textContent = COPY.yes;
-  el.confirmNo.textContent = COPY.no;
-  /* the bar and the spine both hold one number, and it is the same number */
-  el.clock.setAttribute('aria-label', COPY.chipLabel);
-  el.liveClock.setAttribute('aria-label', COPY.chipLabel);
-}
-
-applyStaticCopy();
-
-function renderPickers() {
-  for (const slot of SLOTS) {
-    const picker = pickerFor(slot);
-    const card = el.values[slot].closest('.picker');
-    card.setAttribute('aria-label', picker.label);
-    card.querySelector('.picker-label').textContent = picker.label;
-    const value = picker.get();
-    el.values[slot].textContent = picker.text(value);
-    for (const button of stepButtons) {
-      if (button.dataset.pick !== slot) continue;
-      const next = value + Number(button.dataset.dir) * picker.step;
-      button.classList.toggle('bound', next < picker.min || next > picker.max);
-    }
-  }
-  renderReadout();
-}
-
-/*
- * THE ROW ANSWERS THE QUESTION THAT IS LIVE
- *
- * Before kick-off: `CHANGE EVERY 8:30`, the number the three cards produce. It
- * is not a setting and it cannot be set, and it moves as names are typed.
- *
- * Mid-game: `1.8 ROTATIONS EACH`. The interval froze at kick-off, so repeating
- * the frozen clock back would be repeating something the person already set.
- * What they cannot see is what it is now worth: he asked for twice each with
- * seven, an eighth turned up, and 8:30 quietly became 1.8 rotations each. The
- * engine has always known that number and nothing showed it.
- *
- * Under two names in a squad there is no number worth showing, so it shows an
- * em-dash, which is also when the notice below says two names minimum.
- */
-function renderReadout() {
-  /* the sound test borrows the row, until anything on the screen changes */
-  if (state.soundReport && state.soundReportFor !== draftSignature()) {
-    state.soundReport = '';
-    state.soundReportFor = '';
-  }
-  if (state.soundReport) {
-    el.readout.classList.add('report');
-    el.readout.classList.remove('flip');
-    el.readoutLabel.textContent = '';
-    el.readoutValue.textContent = state.soundReport;
-    return;
-  }
-  el.readout.classList.remove('report');
-
-  const setup = draftSetup();
-  const known = squadSizeOf(setup) >= 2;
-  const live = draft.mode === 'edit';
-  const worth = live && known ? rotationsPerPlayer(setup) : null;
-
-  let value = COPY.readoutNone;
-  if (live) {
-    if (worth != null) value = worth.toFixed(1);
-  } else if (known) {
-    value = formatCountdown(computeIntervalMs(setup));
-  }
-
-  el.readoutLabel.textContent = live ? COPY.readoutEach : COPY.readoutEvery;
-  el.readoutValue.textContent = value;
-  el.readout.classList.toggle('flip', live);
-}
-
-let holdWait = 0;
-let holdRepeat = 0;
-
-function stopHold() {
-  window.clearTimeout(holdWait);
-  window.clearInterval(holdRepeat);
-  holdWait = 0;
-  holdRepeat = 0;
-}
-
-function bump(key, dir) {
-  const picker = pickerFor(key);
-  const next = picker.get() + dir * picker.step;
-  if (next < picker.min || next > picker.max) return false;
-  picker.put(next);
-  return true;
-}
-
-for (const button of stepButtons) {
-  const key = button.dataset.pick;
-  const dir = Number(button.dataset.dir);
-  button.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-    stopHold();
-    if (!bump(key, dir)) return;
-    try { button.setPointerCapture(event.pointerId); } catch (error) { /* ignore */ }
-    holdWait = window.setTimeout(() => {
-      holdRepeat = window.setInterval(() => {
-        if (!bump(key, dir)) stopHold();
-      }, 125);
-    }, 400);
-  });
-  button.addEventListener('pointerup', stopHold);
-  button.addEventListener('pointercancel', stopHold);
-  button.addEventListener('contextmenu', (event) => event.preventDefault());
-}
-
-window.addEventListener('blur', stopHold);
-
-/* ==================================================== the game, painted */
-
-const DRIFT = [[0, 0], [2, 1], [0, 2], [-2, 1]];
-let driftStep = 0;
-
-function advanceDrift() {
-  driftStep = (driftStep + 1) % DRIFT.length;
-  applyDrift();
-}
-
-function applyDrift() {
-  const [x, y] = DRIFT[driftStep];
-  document.documentElement.style.setProperty('--drift-x', `${x}px`);
-  document.documentElement.style.setProperty('--drift-y', `${y}px`);
-}
-
-/* one step of the scale, in pixels, whatever unit it is written in */
-function scalePx(name) {
-  const root = getComputedStyle(document.documentElement);
-  const raw = String(root.getPropertyValue(name) || '').trim();
-  const n = parseFloat(raw) || 0;
-  return raw.endsWith('rem') ? n * (parseFloat(root.fontSize) || 16) : n;
-}
-
-/*
- * A name wider than its column is scaled down rather than wrapped or cut off.
- * --fit is the width it has over the width it wants, and it multiplies the
- * step the name is set in. Every name that fits is left at 1, so the scale
- * still sets the size and the shrink is only ever the last resort.
- */
-function fitLine(node) {
-  node.style.setProperty('--fit', '1');
-  const room = node.getBoundingClientRect().width;
-  if (room <= 0) return;
-  const want = () => {
-    /* max-content is the width the line wants. it is put back in the same
-       tick, so nothing is ever painted at it. */
-    node.style.width = 'max-content';
-    const need = node.getBoundingClientRect().width;
-    node.style.width = '';
-    return need;
-  };
-  const need = want();
-  if (need <= room) return;
-  const fit = room / need;
-  node.style.setProperty('--fit', String(fit));
-  /* type does not scale perfectly linearly, so a line of three names can
-     still be a pixel or two over after one pass. one correction closes it. */
-  const got = want();
-  if (got > room) node.style.setProperty('--fit', String(fit * (room / got)));
-}
-
-/*
- * --shrink is lead over the size the name is actually painted at, and --fall
- * is the travel that puts the shrunk name on line three. Both are per layer,
- * because two names in the same slot can be fitted differently, and both are
- * measured, because the two orientations space the lines apart differently.
- * transform and opacity only — never animate font-size.
- */
-function applyShrink() {
-  const lead = scalePx('--t-lead');
-  for (const parts of teamEls) {
-    const line3 = parts.line3.getBoundingClientRect();
-    for (const layer of layers(parts)) {
-      /* a layer mid-walk is scaled, so its box is not a box to measure from */
-      if (getComputedStyle(layer).transform !== 'none') continue;
-      fitLine(layer);
-      const size = parseFloat(getComputedStyle(layer).fontSize) || 0;
-      const shrink = size > 0 ? Math.min(1, lead / size) : 0.45;
-      layer.style.setProperty('--shrink', String(shrink));
-      const box = layer.getBoundingClientRect();
-      if (box.height > 0 && line3.height > 0) {
-        const fall = line3.top - (box.top + box.height * (1 - shrink));
-        layer.style.setProperty('--fall', `${Math.round(fall)}px`);
+    {
+      label: COPY.late,
+      on: Boolean(player.late),
+      toggle: true,
+      act() {
+        player.late = !player.late;
+        if (player.late) player.fixedGoalie = false;
+        refresh();
       }
     }
-    fitLine(parts.subname);
-    fitLine(parts.l3sub);
-  }
+  ]);
 }
 
-function layers(parts) {
-  return [...parts.hero.querySelectorAll('.layer')];
-}
+/* ================================================================= game */
 
-function restingLayer(parts) {
-  const all = layers(parts);
-  return all.find((node) => node.classList.contains('on')) || all[0];
-}
-
-function spareLayer(parts) {
-  const all = layers(parts);
-  const live = restingLayer(parts);
-  return all.find((node) => node !== live) || all[1];
-}
-
-function setHero(node, name, arrow) {
-  node.textContent = '';
-  if (arrow) {
-    const glyph = document.createElement('span');
-    glyph.className = 'arrow';
-    glyph.textContent = arrow;
-    node.appendChild(glyph);
-  }
-  node.appendChild(document.createTextNode(name || ''));
-  fitLine(node);
-}
-
-function nameNode(name, arrow, tone) {
-  const nm = document.createElement('span');
-  nm.className = tone ? `nm ${tone}` : 'nm';
-  if (arrow) {
-    const glyph = document.createElement('span');
-    glyph.className = 'arrow';
-    glyph.textContent = arrow;
-    nm.appendChild(glyph);
-  }
-  nm.appendChild(document.createTextNode(name));
-  return nm;
-}
-
-function fillNames(node, players, arrowOf, toneOf) {
-  node.textContent = '';
-  for (const player of players) {
-    node.appendChild(nameNode(player.name, arrowOf(player), toneOf(player)));
-  }
-  fitLine(node);
-}
-
-/* the eyebrow agrees with the count and never changes inside a window */
-function subEyebrow(parts, count) {
-  parts.labSub.textContent = count === 0 ? COPY.subsNone : (count > 1 ? COPY.subs : COPY.sub);
-}
-
-function buildStrip(track, team, gone) {
-  track.textContent = '';
-  const order = team.order;
-  const n = order.length;
-  if (n === 0) return;
-  let first = true;
-  const emit = (text, struck) => {
-    if (!first) {
-      const sep = document.createElement('span');
-      sep.className = 'sep';
-      sep.textContent = '·';
-      track.appendChild(sep);
-    }
-    first = false;
-    const item = document.createElement('span');
-    item.className = struck ? 'gone' : 'name';
-    item.textContent = text;
-    track.appendChild(item);
-  };
-  const leading = gone.filter((entry) => !entry.after);
-  for (const entry of leading) emit(entry.name, true);
-  for (let i = 0; i < n; i += 1) {
-    const player = order[(team.keeperIndex + i) % n];
-    emit(player.name, false);
-    for (const entry of gone) {
-      if (entry.after === player.name) emit(entry.name, true);
-    }
-  }
-}
-
-function paintTeam(t, team, mode) {
-  const parts = teamEls[t];
-  /* from COPY and not from the setup, so a game restored under an older
-     wording of the two teams still reads the way the screen reads now */
-  parts.name.textContent = TEAM_NAMES[t];
-  parts.lab.textContent = COPY.keeper;
-  const gone = (state.game && state.game.gone[t]) || [];
-  buildStrip(parts.track, team, gone);
-
-  if (mode === 'window') {
-    /* the name line holds whoever occupies the slot after the change, line
-       three whoever is leaving it. the arrow describes the player. */
-    subEyebrow(parts, team.nextSubs.length);
-    const off = new Set(team.goingOff.map((p) => p.id));
-    fillNames(
-      parts.subname,
-      team.nextSubs,
-      (p) => (off.has(p.id) ? '\u2193' : ''),
-      (p) => (off.has(p.id) ? 'off' : '')
-    );
-    fillNames(parts.l3sub, team.comingOn, () => '\u2191', () => 'on');
-    return;
-  }
-
-  subEyebrow(parts, team.subs.length);
-  fillNames(parts.subname, team.subs, () => '', () => '');
-  parts.l3sub.textContent = '';
-}
-
-/* Everything at rest, with no motion of any kind. */
-function paintRest(r) {
-  r.teams.forEach((team, t) => {
-    const parts = teamEls[t];
-    paintTeam(t, team, 'rest');
-    const live = restingLayer(parts);
-    const spare = spareLayer(parts);
-    spare.className = 'layer';
-    spare.textContent = '';
-    live.className = 'layer on';
-    live.style.cssText = '';
-    setHero(live, team.keeper ? team.keeper.name : '', '');
-    parts.subname.classList.remove('swapping', 'go', 'fading');
-    parts.l3sub.classList.remove('swapping', 'go', 'fading');
-    parts.strip.classList.remove('gone-quiet');
-    parts.strip.style.display = '';
-  });
-  /* the walk leaves its numbers on the layer and clearing the style above
-     takes them with it, so rest is also where they are taken again */
-  applyShrink();
-}
-
-/* ==================================================== the changeover */
-
-let windowTimers = [];
-
-function clearWindowTimers() {
-  for (const id of windowTimers) window.clearTimeout(id);
-  windowTimers = [];
-}
-
-function later(ms, fn) {
-  windowTimers.push(window.setTimeout(fn, ms));
-}
-
-/*
- * The window is the last ten seconds of the shift. A warning beats a report.
- */
-function openWindow(r, options) {
-  /* only a window walked in on is shown arrived. reduced motion still runs the
-     timeline — the css turns each step into a 200ms crossfade in place. */
-  const late = !options.animate;
-  clearWindowTimers();
-
-  /* the loud sound first, then the names. a klaxon under a spoken name buries
-     it, and the thing that makes anyone look up has to come before the thing
-     they are meant to hear. */
-  if (options.speak) {
-    const wait = horn();
-    later(wait + VOICE_GAP_MS, () => announce(linesForChange(r)));
-  }
-
-  el.body.classList.add('call');
-  el.body.style.setProperty('--ground-ms', '200ms');
-  if (state.screen !== 'display') return;
-
-  advanceDrift();
-
-  /* stage both layers: the keeper now, and the keeper about to go in. the
-     class and the style are cleared first, because setting the name is what
-     measures the fit and clearing the style would throw it away. */
-  r.teams.forEach((team, t) => {
-    const parts = teamEls[t];
-    const out = restingLayer(parts);
-    const into = spareLayer(parts);
-    out.className = 'layer on';
-    out.style.cssText = '';
-    setHero(out, team.keeper ? team.keeper.name : '', '\u2193');
-    into.className = 'layer walk-in';
-    into.style.cssText = '';
-    setHero(into, team.nextKeeper ? team.nextKeeper.name : '', '\u2191');
-    parts.hero.dataset.out = out === layers(parts)[0] ? '0' : '1';
-  });
-
-  /* the outgoing name is the one that travels, and the arrow it has just been
-     given is part of the width the fall is measured from */
-  applyShrink();
-
-  const heroPair = (parts) => {
-    const all = layers(parts);
-    const first = parts.hero.dataset.out === '0';
-    return { out: all[first ? 0 : 1], into: all[first ? 1 : 0] };
-  };
-
-  /* a window entered late — a jump, or a cold restore — is true, so it is
-     shown, but it is shown arrived rather than arriving. */
-  if (late) {
-    r.teams.forEach((team, t) => {
-      const parts = teamEls[t];
-      const { out, into } = heroPair(parts);
-      parts.root.classList.add('instant');
-      out.classList.add('walk-out', 'landed');
-      into.classList.add('go');
-      paintTeam(t, team, 'window');
-      parts.subname.classList.add('swapping', 'go');
-      parts.l3sub.classList.add('swapping', 'go');
-      parts.strip.classList.add('gone-quiet');
-      parts.strip.style.display = 'none';
-      void parts.root.offsetWidth;
-      parts.root.classList.remove('instant');
-    });
-    return;
-  }
-
-  /* t 0 - 140  hold. the stillness is what makes the move read as a consequence */
-  later(140, () => {
-    r.teams.forEach((team, t) => {
-      const parts = teamEls[t];
-      const { out, into } = heroPair(parts);
-      out.classList.add('walk-out');
-      into.classList.add('go');
-      parts.strip.classList.add('gone-quiet');
-      later(180, () => { parts.strip.style.display = 'none'; });
-      later(500, () => out.classList.add('landed'));
-    });
-  });
-
-  /* t 200  the sub slot, at lead */
-  later(200, () => {
-    r.teams.forEach((team, t) => {
-      const parts = teamEls[t];
-      paintTeam(t, team, 'window');
-      parts.subname.classList.add('swapping');
-      parts.l3sub.classList.add('swapping');
-      void parts.subname.offsetWidth;
-      parts.subname.classList.add('go');
-      parts.l3sub.classList.add('go');
-    });
-  });
-}
-
-/* t 10s = T. The change is now. No travel on the way back. */
-function closeWindow(r) {
-  clearWindowTimers();
-  el.body.style.setProperty('--ground-ms', '300ms');
-  el.body.classList.remove('call');
-  if (state.screen !== 'display') {
-    paintRest(r);
-    return;
-  }
-
-  r.teams.forEach((team, t) => {
-    const parts = teamEls[t];
-    const all = layers(parts);
-    const out = all.find((node) => node.classList.contains('walk-out'));
-    const into = all.find((node) => node.classList.contains('walk-in'));
-
-    if (into) {
-      into.classList.add('settle', 'on');
-      window.setTimeout(() => {
-        into.className = 'layer on';
-        into.style.cssText = '';
-        setHero(into, team.keeper ? team.keeper.name : '', '');
-      }, 260);
-    }
-    if (out) {
-      out.classList.add('leaving');
-      window.setTimeout(() => {
-        out.className = 'layer';
-        out.style.cssText = '';
-        out.textContent = '';
-      }, 260);
-    }
-    if (!into && !out) {
-      const live = restingLayer(parts);
-      setHero(live, team.keeper ? team.keeper.name : '', '');
-      live.className = 'layer on';
-    }
-
-    parts.subname.classList.add('fading');
-    parts.l3sub.classList.add('fading');
-    window.setTimeout(() => {
-      subEyebrow(parts, team.subs.length);
-      fillNames(parts.subname, team.subs, () => '', () => '');
-      parts.l3sub.textContent = '';
-      parts.subname.classList.remove('swapping', 'go', 'fading');
-      parts.l3sub.classList.remove('swapping', 'go', 'fading');
-    }, 250);
-
-    buildStrip(parts.track, team, (state.game && state.game.gone[t]) || []);
-    parts.strip.style.display = '';
-    parts.strip.classList.add('gone-quiet');
-    requestAnimationFrame(() => parts.strip.classList.remove('gone-quiet'));
-  });
-}
-
-/* ================================================================ epochs */
-
-function liveEpoch(elapsed) {
-  const epochs = state.game.epochs;
-  let live = epochs[0];
-  for (const epoch of epochs) if (elapsed >= epoch.fromMs) live = epoch;
-  return live;
-}
-
-function pendingEpoch(elapsed) {
-  return state.game.epochs.find((epoch) => epoch.fromMs > elapsed) || null;
-}
-
-function view(elapsed) {
-  const epoch = liveEpoch(elapsed);
-  const r = rotation(epoch.setup, Math.max(0, elapsed - epoch.fromMs));
-  return { epoch, r, k: epoch.index0 + r.changeIndex };
-}
-
-function prune(elapsed) {
-  const epochs = state.game.epochs;
-  while (epochs.length > 1 && elapsed >= epochs[1].fromMs) epochs.shift();
-}
-
-/* ================================================================= clock */
-
-function formatCountdown(ms) {
+function mmss(ms) {
   const total = Math.max(0, Math.ceil(ms / 1000));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-function setClock(text, pop) {
-  if (text === state.clockText) return;
-  state.clockText = text;
-  el.clock.textContent = text;
-  if (!pop || prefersReducedMotion()) return;
-  el.clock.classList.remove('pop');
-  void el.clock.offsetWidth;
-  el.clock.classList.add('pop');
+function elapsedWords(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
 /*
- * The spine says one thing and it is not a fault. `No voice` was a text label
- * doing an icon's job, and the speaker icon does that job now; `Screen may
- * sleep` names a fault that announces itself the moment the screen goes dark.
- * Both keep their words, in the one place words are still worth having.
+ * The right-hand column: the whole squad in rotation order, with a glove on
+ * whoever is next in goal and the arrows on whoever is next off. Everything
+ * that column needs comes out of the engine — there is no arithmetic here.
  */
-function setNotes() {
-  const notes = state.pendingEdit ? COPY.pending : '';
-  if (el.notes.textContent !== notes) el.notes.textContent = notes;
+function orderRows(team) {
+  const keeperId = team.nextKeeper ? team.nextKeeper.id : null;
+  const subIds = new Set((team.nextSubs || []).map((p) => p.id));
+  return (team.order || []).map((player) => {
+    const mark = player.id === keeperId ? 'i-glove' : subIds.has(player.id) ? 'i-swap' : null;
+    const glyph = mark ? icon(mark, 'ic12') : icon('i-swap', 'ic12 blank');
+    return `<div class="orow">${glyph}<span class="on">${safe(player.name)}</span></div>`;
+  }).join('');
+}
 
-  const faults = [];
-  if (state.degradedVoice) faults.push(COPY.noVoice);
-  if (state.degradedLock) faults.push(COPY.noLock);
-  const said = faults.join('. ');
-  if (el.faults.textContent !== said) el.faults.textContent = said;
+function paint(r) {
+  (r.teams || []).forEach((team, t) => {
+    el.keepers[t].textContent = team.keeper ? team.keeper.name : '';
 
-  /* the icon is rebuilt only when the answer changes, not 4 times a second */
-  if (state.degradedVoice !== state.shownBroken) renderTest();
+    const subs = team.subs || [];
+    el.subSlots[t].classList.toggle('empty', subs.length === 0);
+    el.subLabels[t].textContent = subs.length === 1 ? COPY.sub : COPY.subs;
+    el.subs[t].classList.toggle('solo', subs.length === 1);
+    el.subs[t].innerHTML = subs
+      .map((player) => `<p class="sn dsp">${safe(player.name)}</p>`)
+      .join('');
+
+    el.orders[t].innerHTML = orderRows(team);
+  });
+}
+
+function setCount(text) {
+  if (text === state.countText) return;
+  state.countText = text;
+  el.count.textContent = text;
+}
+
+function setLabel(text) {
+  if (text === state.labelText) return;
+  state.labelText = text;
+  el.timerLabel.textContent = text;
+}
+
+function setCounting(on) {
+  if (on === state.counting) return;
+  state.counting = on;
+  el.game.classList.toggle('counting', on);
+}
+
+function setGauge(fraction) {
+  el.gauge.style.setProperty('--shift', String(Math.min(1, Math.max(0, fraction))));
 }
 
 /* ================================================================== tick */
@@ -2155,51 +971,47 @@ let rafId = 0;
 let intervalId = 0;
 
 function tick() {
-  /* the kick-off countdown runs before there is a game to count from */
   if (state.screen === 'countdown') {
     runCountdown();
     return;
   }
-  if (!state.game) return;
+  if (state.screen !== 'game' || !state.game) return;
+
   const elapsed = elapsedMs();
-  prune(elapsed);
-  const { r, k } = view(elapsed);
+  const r = engine.rotation(state.game.setup, elapsed);
   const inWindow = r.msToNextChange <= WINDOW_MS;
 
   /* the crossing, not the tick */
-  if (k !== state.shownChange) {
-    const stepped = state.shownChange !== null && k - state.shownChange === 1;
-    if (state.windowFor === k && stepped) {
-      closeWindow(r);
-    } else {
-      clearWindowTimers();
-      el.body.classList.remove('call');
-      if (state.screen === 'display') paintRest(r);
-    }
-    state.shownChange = k;
+  if (r.changeIndex !== state.shownChange) {
+    state.shownChange = r.changeIndex;
     state.windowFor = null;
-    if (state.pendingEdit && !pendingEpoch(elapsed)) state.pendingEdit = false;
-    if (state.screen === 'setup' && draft.mode === 'edit') refreshEditList();
+    paint(r);
   }
 
-  if (inWindow && state.windowFor !== k + 1) {
-    state.windowFor = k + 1;
-    /* a window entered late was missed, not announced. everything else is a
-       real warning and must be spoken. */
-    const late = r.msToNextChange < WINDOW_MS - 900;
-    openWindow(r, { animate: !late, speak: !late });
+  if (inWindow && state.windowFor !== r.changeIndex + 1) {
+    state.windowFor = r.changeIndex + 1;
+    /* a window walked in on late — a jump, or a phone that woke up in it — was
+       missed, not announced. Everything else is a real warning. */
+    if (r.msToNextChange >= WINDOW_MS - 900) {
+      const wait = horn();
+      window.setTimeout(() => announce(linesForChange(r)), wait + VOICE_GAP_MS);
+    }
   }
 
-  if (state.screen === 'setup') {
-    el.liveClock.textContent = formatCountdown(r.msToNextChange);
-    return;
+  setCounting(inWindow);
+  setLabel(COPY.nextRotation);
+  setGauge(inWindow ? 0 : r.msToNextChange / r.intervalMs);
+  setCount(inWindow
+    ? String(Math.max(1, Math.ceil(r.msToNextChange / 1000)))
+    : mmss(r.msToNextChange));
+
+  const watch = elapsedWords(elapsed);
+  if (watch !== state.watchText) {
+    state.watchText = watch;
+    el.watch.textContent = watch;
   }
-  if (state.screen !== 'display') return;
 
-  if (inWindow) setClock(String(Math.max(1, Math.ceil(r.msToNextChange / 1000))), false);
-  else setClock(formatCountdown(r.msToNextChange), false);
-
-  setNotes();
+  setFaults();
 }
 
 function loop() {
@@ -2212,7 +1024,6 @@ function startLoop() {
   if (!intervalId) intervalId = window.setInterval(tick, 250);
 }
 
-/* there is no clock to read on the setup screen with no game behind it */
 function stopLoop() {
   if (rafId) cancelAnimationFrame(rafId);
   if (intervalId) window.clearInterval(intervalId);
@@ -2220,6 +1031,8 @@ function stopLoop() {
   intervalId = 0;
 }
 
+/* the clock is `Date.now() - kickoff` and nothing else, so a phone that slept
+   through four changes comes back on the right one */
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   resumeAudio();
@@ -2227,42 +1040,28 @@ document.addEventListener('visibilitychange', () => {
   takeWakeLock();
 });
 
-window.addEventListener('resize', () => {
-  applyShrink();
-});
+function setFaults() {
+  const faults = [];
+  if (state.degradedVoice) faults.push('No voice');
+  if (state.degradedLock) faults.push('Screen may sleep');
+  const said = faults.join('. ');
+  if (el.faults.textContent !== said) el.faults.textContent = said;
+}
 
 /* ============================================================= kick off */
 
 function showSetup() {
   state.screen = 'setup';
   el.setup.hidden = false;
-  el.display.hidden = true;
-  el.body.classList.remove('call');
+  el.game.hidden = true;
+  setCounting(false);
   renderSetup();
 }
 
-function showDisplay() {
-  state.screen = 'display';
+function showGame() {
   el.setup.hidden = true;
-  el.display.hidden = false;
-  el.edit.hidden = false;
+  el.game.hidden = false;
   takeWakeLock();
-}
-
-function buildKickOffSetup() {
-  let setup = draftSetup();
-  for (let t = 0; t < 2; t += 1) {
-    if (draft.keeper[t] == null) continue;
-    setup = setStartKeeper(setup, t, draft.keeper[t]);
-  }
-  if (debug) {
-    for (let t = 0; t < 2; t += 1) {
-      const forced = debug.keepers[t];
-      if (Number.isFinite(forced)) setup = setStartKeeper(setup, t, forced);
-    }
-  }
-  /* the one impure moment: the first keeper is drawn, once, and written down */
-  return drawKeepers(setup);
 }
 
 function saveSquad() {
@@ -2271,60 +1070,42 @@ function saveSquad() {
     gameType: draft.gameType,
     gameMinutes: draft.gameMinutes,
     rotations: draft.rotations,
-    names: draft.names
+    players: draft.players
   });
 }
 
-/* empties both lists and forgets the remembered squad. Never mid-game: the
-   button is hidden then, so this cannot cost a running rota. */
-el.clear.addEventListener('click', () => {
-  if (draft.mode === 'edit') return;
-  draft.names = [[], []];
-  draft.keeper = [null, null];
-  if (!debug) dropKey(KEY_SQUAD);
-  renderSetup();
-  el.inputs[0].focus();
-});
-
-el.start.addEventListener('click', () => {
-  const sizes = draft.names.map((names) => names.length);
-  if (sizes.some((n) => n < 2)) {
-    const shortest = sizes[0] <= sizes[1] ? 0 : 1;
-    el.inputs[shortest].focus();
-    renderSetup();
-    return;
-  }
-  /* the gesture iOS needs for the audio context. the voice was unlocked at
-     the first touch of the session, and a second one here would be a word
-     spoken over the kick-off. */
+el.kick.addEventListener('click', () => {
+  if (!ready()) return;
+  /* the gesture iOS needs for the audio context. The voice was unlocked at the
+     first touch of the session, and a second one here would be a word spoken
+     over the kick-off. */
   markGesture();
   if (!voiceUnlocked) unlockVoice();
-  state.soundReport = '';
   saveSquad();
   beginKickOff();
 });
 
 function beginKickOff() {
-  const setup = buildKickOffSetup();
+  const setup = engine.kickOff(draftSetup(), randomFor());
   state.pendingSetup = setup;
-  driftStep = 0;
-  applyDrift();
 
-  const r = rotation(setup, 0);
-  el.setup.hidden = true;
-  el.display.hidden = false;
-  el.edit.hidden = true;
-  el.body.classList.remove('call');
-  paintRest(r);
-  el.notes.textContent = '';
+  const r = engine.rotation(setup, 0);
+  showGame();
+  paint(r);
+  el.watch.textContent = '0:00';
+  state.watchText = '0:00';
 
   if (debug && !debug.countdown) {
     finishKickOff();
     return;
   }
+
   state.screen = 'countdown';
   state.countdownAt = Date.now();
-  state.countdownLeft = COUNTDOWN_S + 1;
+  state.countdownLeft = KICKOFF_S + 1;
+  setCounting(true);
+  setLabel(COPY.kickOffIn);
+  setGauge(0);
   takeWakeLock();
   startLoop();
   runCountdown();
@@ -2332,26 +1113,15 @@ function beginKickOff() {
 
 function runCountdown() {
   const gone = Date.now() - state.countdownAt;
-  const left = COUNTDOWN_S - Math.floor(gone / 1000);
+  const left = KICKOFF_S - Math.floor(gone / 1000);
   if (left <= 0) {
     finishKickOff();
     return;
   }
   if (left === state.countdownLeft) return;
   state.countdownLeft = left;
-  setClock(String(left), true);
+  setCount(String(left));
   if (left <= 5) tick880();
-}
-
-function abortKickOff() {
-  if (state.screen !== 'countdown') return;
-  el.edit.hidden = false;
-  state.screen = 'setup';
-  state.pendingSetup = null;
-  state.clockText = '';
-  el.display.hidden = true;
-  el.setup.hidden = false;
-  renderSetup();
 }
 
 function finishKickOff() {
@@ -2359,26 +1129,18 @@ function finishKickOff() {
   state.pendingSetup = null;
   state.game = {
     kickoff: nowMs() - (debug ? debug.offsetMs : 0),
-    epochs: [{ fromMs: 0, index0: 0, setup }],
-    gone: [[], []]
+    setup
   };
+  state.screen = 'game';
   state.shownChange = null;
   state.windowFor = null;
-  state.pendingEdit = false;
-  state.clockText = '';
-  showDisplay();
+  state.countText = '';
+  setCounting(false);
+  showGame();
   saveGame();
 
   const wait = horn();
-  el.body.style.setProperty('--ground-ms', '500ms');
-  el.body.classList.add('call');
-  window.setTimeout(() => {
-    /* a kick-off straight into a change window must not take its ground back */
-    if (!state.windowFor) el.body.classList.remove('call');
-    el.body.style.setProperty('--ground-ms', '200ms');
-  }, 220);
-
-  const r = rotation(setup, Math.max(0, elapsedMs()));
+  const r = engine.rotation(setup, Math.max(0, elapsedMs()));
   /* the same order as a changeover: the horn finishes, then the names */
   window.setTimeout(() => announce(linesForKickOff(r)), wait + VOICE_GAP_MS);
 
@@ -2386,221 +1148,36 @@ function finishKickOff() {
   tick();
 }
 
-/* =========================================================== edit route */
-
-/*
- * The pencil returns to the setup screen with the game still running. The list
- * is the ring rotated so the next change is what the screen describes, so the
- * anchor an edit writes has exactly the same shape as the one kick-off writes.
- */
-
-function subPointerAt(team, changeIndex, n, gameType) {
-  const anchor = team.anchor;
-  if (anchor && Number.isFinite(Number(anchor.subIndex))) {
-    const step = changeIndex - Math.floor(Number(anchor.changeIndex) || 0);
-    return mod(Math.floor(Number(anchor.subIndex)) + step, n);
-  }
-  return mod(gameType + changeIndex, n);
-}
-
-function openEdit() {
-  if (!state.game) return;
-  const elapsed = elapsedMs();
-  prune(elapsed);
-  const { epoch, r, k } = view(elapsed);
-  const pending = pendingEpoch(elapsed);
-
-  const live = pending ? pending.setup : epoch.setup;
-  draft.gameType = gameTypeOf(live);
-  draft.gameMinutes = onGrid('time', Math.round(live.gameMinutes));
-  draft.rotations = onGrid('rotations', rotationsOf(live));
-  /* the interval the kick-off froze, with the settings it came from beside it */
-  draft.frozen = Number.isFinite(Number(live.intervalMs)) ? {
-    intervalMs: Number(live.intervalMs),
-    rotations: draft.rotations,
-    gameMinutes: draft.gameMinutes
-  } : null;
-  draft.mode = 'edit';
-  draft.signature = '';
-  draft.baseChange = k;
-  draft.names = [[], []];
-  draft.keeper = [null, null];
-
-  for (let t = 0; t < 2; t += 1) {
-    if (pending) {
-      const team = pending.setup.teams[t];
-      draft.names[t] = team.players.map((p) => p.name);
-      draft.keeper[t] = team.anchor ? team.anchor.keeperIndex : null;
-      continue;
-    }
-    const team = r.teams[t];
-    const n = team.order.length;
-    if (n === 0) continue;
-    const g = draft.gameType;
-    const raw = epoch.setup.teams[t];
-    let rot;
-    let marker;
-    if (n >= g) {
-      const sIdx = subPointerAt(raw, r.changeIndex, n, g);
-      rot = mod(sIdx + 1 - g, n);
-      marker = mod(team.keeperIndex + 1 - rot, n);
-    } else {
-      const legal = legalStartKeepers(epoch.setup, t);
-      marker = legal.length > 0 ? legal[0] : 0;
-      rot = mod(team.keeperIndex + 1 - marker, n);
-    }
-    draft.names[t] = [];
-    for (let i = 0; i < n; i += 1) draft.names[t].push(team.order[mod(rot + i, n)].name);
-    draft.keeper[t] = marker;
-  }
-
-  state.screen = 'setup';
-  el.display.hidden = true;
-  el.setup.hidden = false;
-  renderSetup();
-  for (let t = 0; t < 2; t += 1) reseatKeeper(t);
-  renderSetup();
-  /* the signature is taken after the reseat, so opening the screen and closing
-     it again can never read as an edit */
-  draft.signature = draftSignature();
-  renderSetup();
-  const first = view(elapsedMs());
-  el.liveClock.textContent = formatCountdown(first.r.msToNextChange);
-}
-
-/*
- * A change fires while setup is open. The list is the picture of the next
- * change, so it has to be rebuilt — but never under a person's hands. A
- * half-typed name, a live drag or an edit already made all hold it back.
- */
-function refreshEditList() {
-  if (drag) return;
-  if (draft.signature === '' || draftSignature() !== draft.signature) return;
-  if (el.inputs.some((input) => input.value.trim() !== '')) return;
-  openEdit();
-}
-
-function commitEdit() {
-  const elapsed = elapsedMs();
-  const { epoch, r, k } = view(elapsed);
-  const changed = draftSignature() !== draft.signature;
-
-  if (changed) {
-    const setup = buildEditSetup(k);
-    if (setup) {
-      const boundary = epoch.fromMs + (r.changeIndex + 1) * r.intervalMs;
-      const epochs = state.game.epochs.filter((one) => one.fromMs <= elapsed);
-      epochs.push({ fromMs: boundary, index0: k + 1, setup });
-      state.game.epochs = epochs;
-      state.pendingEdit = true;
-      recordGone(setup);
-      saveGame();
-      saveSquad();
-    }  }
-
-  draft.mode = 'pre';
-  draft.signature = '';
-  draft.frozen = null;
-  state.screen = 'display';
-  el.setup.hidden = true;
-  el.display.hidden = false;
-  el.edit.hidden = false;
-  clearWindowTimers();
-  const after = view(elapsedMs());
-  state.shownChange = after.k;
-  if (after.r.msToNextChange <= WINDOW_MS) {
-    state.windowFor = after.k + 1;
-    paintRest(after.r);
-    openWindow(after.r, { animate: false, speak: false });
-  } else {
-    state.windowFor = null;
-    el.body.classList.remove('call');
-    paintRest(after.r);
-  }
-  setNotes();
-  takeWakeLock();
-}
-
-function buildEditSetup(k) {
-  const sizes = draft.names.map((names) => names.length);
-  if (sizes.some((n) => n < 1)) return null;
-  let setup = draftSetup();
-  const step = Math.max(0, k - draft.baseChange);
-  for (let t = 0; t < 2; t += 1) {
-    const n = draft.names[t].length;
-    if (n === 0) continue;
-    const wanted = draft.keeper[t] == null ? 0 : draft.keeper[t];
-    setup = setStartKeeper(setup, t, wanted);
-    const anchor = setup.teams[t].anchor;
-    if (anchor && step > 0) {
-      /* both pointers move together, so the offset — and the two rules — hold */
-      anchor.keeperIndex = mod(anchor.keeperIndex + step, n);
-      anchor.subIndex = mod(anchor.subIndex + step, n);
-    }
-  }
-  return setup;
-}
-
-/* Names that have left keep their place in the strip, struck through. */
-function recordGone(next) {
-  const epochs = state.game.epochs;
-  const previous = epochs.length > 1 ? epochs[epochs.length - 2].setup : null;
-  if (!previous) return;
-  for (let t = 0; t < 2; t += 1) {
-    const was = previous.teams[t].players.map((p) => p.name);
-    const now = new Set(next.teams[t].players.map((p) => p.name));
-    const live = new Set(now);
-    was.forEach((name, i) => {
-      if (live.has(name)) return;
-      let after = null;
-      for (let j = i - 1; j >= 0; j -= 1) {
-        if (now.has(was[j])) { after = was[j]; break; }
-      }
-      const already = state.game.gone[t].some((entry) => entry.name === name && entry.after === after);
-      if (!already) state.game.gone[t].push({ name, after });
-    });
-    state.game.gone[t] = state.game.gone[t].filter((entry) => !now.has(entry.name));
-  }
-}
-
-el.edit.addEventListener('click', (event) => {
-  event.stopPropagation();
-  if (state.screen === 'countdown') { abortKickOff(); return; }
-  openEdit();
-});
-
-/*
- * The whole bar is the way back, so there is nothing small to hit with a cold
- * thumb and no x to look for. Nothing else sits inside it.
- */
-el.livebar.addEventListener('click', commitEdit);
-el.livebar.addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter' && event.key !== ' ') return;
-  event.preventDefault();
-  commitEdit();
-});
-
 /* =========================================================== going home */
 
 /*
- * The way back out of a game and into a new one. It is the only control in
- * the app that undoes something, so it is the only one that asks a question
- * first: a game is a kick-off time and nothing else remembers it, and the
- * clock does not stop while the question is on the screen.
+ * The way out of a game and into a new one. It is the only control in the app
+ * that undoes something, so it is the only one that asks a question first —
+ * and the clock does not stop while the question is on the screen.
  */
+el.end.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (state.screen === 'countdown') {
+    abortKickOff();
+    return;
+  }
+  if (!state.game) return;
+  openSheet(COPY.endTitle, [
+    { label: COPY.endYes, on: true, act: goHome },
+    { label: COPY.endNo, on: false, act: closeSheet }
+  ]);
+});
 
-function openConfirm() {
-  el.confirm.hidden = false;
-  el.confirmNo.focus();
-}
-
-function closeConfirm() {
-  el.confirm.hidden = true;
+function abortKickOff() {
+  if (state.screen !== 'countdown') return;
+  state.pendingSetup = null;
+  state.countText = '';
+  stopLoop();
+  showSetup();
 }
 
 function goHome() {
-  closeConfirm();
-  clearWindowTimers();
+  closeSheet();
   stopLoop();
   announceToken += 1;
   try { speechSynthesis.cancel(); } catch (error) { /* ignore */ }
@@ -2611,50 +1188,26 @@ function goHome() {
   releaseWakeLock();
   state.shownChange = null;
   state.windowFor = null;
-  state.pendingEdit = false;
   state.degradedLock = false;
-  state.clockText = '';
+  state.countText = '';
+  state.watchText = '';
   dropKey(KEY_GAME);
 
-  draft.mode = 'pre';
-  draft.signature = '';
-  draft.frozen = null;
-  draft.keeper = [null, null];
-  /* the setup screen comes back the way a cold boot leaves it: the squad from
-     last time, ready to be a new game */
-  loadSquadIntoDraft(debug ? null : readJSON(KEY_SQUAD));
+  /* the team select comes back the way a cold boot leaves it: last week's
+     squad, ready to be a new game */
+  loadSquad(debug ? null : readJSON(KEY_SQUAD));
   showSetup();
 }
-
-el.home.addEventListener('click', (event) => {
-  event.stopPropagation();
-  if (state.screen === 'countdown') { abortKickOff(); return; }
-  if (!state.game) return;
-  openConfirm();
-});
-
-el.confirmYes.addEventListener('click', goHome);
-el.confirmNo.addEventListener('click', closeConfirm);
-
-/* a tap on the display re-takes the lock and re-tests the voice, no label */
-el.display.addEventListener('click', () => {
-  if (state.screen === 'countdown') { abortKickOff(); return; }
-  markGesture();
-  takeWakeLock();
-  if (state.degradedVoice) unlockVoice();
-});
 
 /*
  * Any first touch, anywhere, is enough to bring a restored game back to life.
  * Every later touch is a free second chance for a context that never reached
- * `running` — a phone call or a lock screen leaves one `interrupted`, and an
- * interrupted context is silent and says nothing about it.
+ * `running` — a call or a lock screen leaves one `interrupted`, and an
+ * interrupted context is silent about being silent.
  */
 document.addEventListener('pointerdown', () => {
   const first = !gestured;
   if (first || (ac && ac.state !== 'running')) markGesture();
-  /* the first touch of the session is also the cheapest place to spend the
-     unlock, because nobody is waiting on a sound yet */
   if (!voiceUnlocked) unlockVoice();
   else if (first && state.game && state.degradedVoice) unlockVoice();
 }, { capture: true });
@@ -2696,57 +1249,45 @@ function saveGame() {
   writeJSON(KEY_GAME, state.game);
 }
 
-function onGrid(key, value) {
-  const picker = PICKERS[key];
-  const steps = Math.round((value - picker.min) / picker.step);
-  const snapped = picker.min + steps * picker.step;
-  return Math.min(picker.max, Math.max(picker.min, snapped));
-}
-
-function loadSquadIntoDraft(squad) {
-  if (!squad || !Array.isArray(squad.names)) return;
-  const names = [0, 1].map((t) => (Array.isArray(squad.names[t]) ? squad.names[t].slice() : []));
-  if (names[0].length === 0 && names[1].length === 0) return;
-  draft.names = names;
-  /* a squad stored under an older range has to land on the picker's grid */
-  if (Number.isFinite(squad.gameType)) draft.gameType = onGrid('type', squad.gameType);
+function loadSquad(squad) {
+  if (!squad) return;
+  const stored = Array.isArray(squad.players) ? squad.players : null;
+  if (stored) {
+    draft.players = [0, 1].map((t) => (Array.isArray(stored[t]) ? stored[t] : [])
+      .map((p) => ({
+        name: String(p && p.name ? p.name : p).slice(0, NAME_MAX),
+        fixedGoalie: Boolean(p && p.fixedGoalie),
+        late: Boolean(p && p.late)
+      }))
+      .filter((p) => p.name.length > 0));
+  }
+  if (Number.isFinite(squad.gameType)) draft.gameType = onGrid('aside', squad.gameType);
   if (Number.isFinite(squad.gameMinutes)) draft.gameMinutes = onGrid('time', squad.gameMinutes);
   if (Number.isFinite(squad.rotations)) draft.rotations = onGrid('rotations', squad.rotations);
-  /* a squad saved by the build that had the manual override carries an
-     `intervalMode` and a `subMinutes`. Both are read and ignored. */
 }
 
 function restoreGame() {
   const game = readJSON(KEY_GAME);
-  if (!game || !Number.isFinite(game.kickoff) || !Array.isArray(game.epochs)) return false;
-  if (game.epochs.length === 0 || !game.epochs[0].setup) return false;
+  if (!game || !Number.isFinite(game.kickoff) || !game.setup) return false;
   const elapsed = Date.now() - game.kickoff;
-  const setup = game.epochs[0].setup;
-  const limit = (Number(setup.gameMinutes) || DEFAULT_GAME_MINUTES) * MS_PER_MINUTE + 60 * MS_PER_MINUTE;
+  const minutes = Number(game.setup.gameMinutes) || GRID.time.def;
+  const limit = (minutes + 60) * MS_PER_MINUTE;
   if (elapsed < 0 || elapsed > limit) {
     dropKey(KEY_GAME);
     return false;
   }
-  state.game = {
-    kickoff: game.kickoff,
-    epochs: game.epochs,
-    gone: Array.isArray(game.gone) ? game.gone : [[], []]
-  };
+
+  state.game = { kickoff: game.kickoff, setup: game.setup };
   if (debug) state.game.kickoff = nowMs() - debug.offsetMs;
+  state.screen = 'game';
 
   const now = elapsedMs();
-  prune(now);
-  const { r, k } = view(now);
-  applyDrift();
+  const r = engine.rotation(state.game.setup, now);
   /* no dialog, and no voice for changes missed while the phone was dead */
-  state.shownChange = k;
-  state.pendingEdit = Boolean(pendingEpoch(now));
-  showDisplay();
-  paintRest(r);
-  if (r.msToNextChange <= WINDOW_MS) {
-    state.windowFor = k + 1;
-    openWindow(r, { animate: false, speak: false });
-  }
+  state.shownChange = r.changeIndex;
+  if (r.msToNextChange <= WINDOW_MS) state.windowFor = r.changeIndex + 1;
+  showGame();
+  paint(r);
   startLoop();
   tick();
   return true;
@@ -2758,8 +1299,10 @@ if (debug) {
   window.rota = {
     state,
     draft,
-    rotation,
-    view: () => view(elapsedMs()),
+    engine,
+    heard,
+    rotation: engine.rotation,
+    view: () => (state.game ? engine.rotation(state.game.setup, elapsedMs()) : null),
     getElapsed: () => elapsedMs(),
     setElapsed(ms) {
       if (!state.game) return 0;
@@ -2773,7 +1316,8 @@ if (debug) {
       debug.rate = Math.max(0, Number(n) || 0);
       return debug.rate;
     },
-    kickOff: () => el.start.click(),
+    kickOff: () => el.kick.click(),
+    sheet: (t, i) => openPlayerSheet(t, i),
     tick
   };
 }
@@ -2782,18 +1326,24 @@ if (debug) {
 
 function boot() {
   if (debug) {
-    if (Number.isFinite(debug.gameType)) draft.gameType = debug.gameType;
-    if (Number.isFinite(debug.gameMinutes)) draft.gameMinutes = debug.gameMinutes;
-    if (Number.isFinite(debug.rotations)) draft.rotations = debug.rotations;
+    if (Number.isFinite(debug.gameType)) draft.gameType = onGrid('aside', debug.gameType);
+    if (Number.isFinite(debug.gameMinutes)) draft.gameMinutes = onGrid('time', debug.gameMinutes);
+    if (Number.isFinite(debug.rotations)) draft.rotations = onGrid('rotations', debug.rotations);
     for (let t = 0; t < 2; t += 1) {
-      if (debug.squads[t]) draft.names[t] = debug.squads[t].slice(0, 24);
+      if (!debug.squads[t]) continue;
+      draft.players[t] = debug.squads[t].slice(0, 24)
+        .map((name) => ({ name: name.slice(0, NAME_MAX), fixedGoalie: false, late: false }));
     }
+  } else {
+    loadSquad(readJSON(KEY_SQUAD));
   }
-  loadSquadIntoDraft(debug ? null : readJSON(KEY_SQUAD));
+
+  renderSetup();
   if (!restoreGame()) showSetup();
   el.body.classList.remove('boot');
+
   if (debug && debug.auto && !state.game) {
-    window.setTimeout(() => el.start.click(), 0);
+    window.setTimeout(() => el.kick.click(), 0);
   }
 }
 

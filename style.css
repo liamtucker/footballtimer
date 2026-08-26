@@ -1,1127 +1,758 @@
 /*
- * style.css — two screens, variation A.
+ * style.css — the design, and only the design.
  *
- * Every measurement here is from brain/design.md and is verified at 844x390
- * landscape and 390x844 portrait. Tokens first, then setup, then the game.
+ * Every number in this file was read out of the Figma file, node 78:655. It is
+ * not eyeballed and it is not rounded. Where a value looks odd — a negative
+ * gap, a 14.4px line height, a 0.72px track — it is odd in the file too.
+ *
+ * THE SYSTEM IN ONE PARAGRAPH
+ *
+ * Two colours: #171717 and white, with #444 as the one grey. Two type sizes
+ * that matter: an eyebrow at 12px in Barlow SemiBold, and everything else in
+ * Barlow Condensed Bold at 21, 28, 32, 50 or 150. No radius anywhere, no
+ * shadow anywhere, one hairline at 10% and one at 20%. Black surfaces are
+ * flush to an edge — the team chip to the right, the Kick off bar and the
+ * sheet to the bottom — and nothing floats.
+ *
+ * WHY THE TYPE HAS NEGATIVE MARGINS
+ *
+ * Figma trims the display type to its cap height: `text-box-trim: trim-both`
+ * with `text-box-edge: cap alphabetic`. Every vertical measurement in the file
+ * is therefore cap-to-baseline and not line-box-to-line-box, and a stylesheet
+ * that ignores that is wrong by 0.3em on every single gap.
+ *
+ * Barlow and Barlow Condensed share their metrics: 1000 units to the em, cap
+ * height 700, ascent 1000, descent 200. With `line-height: 1` the glyph box is
+ * 1.2em and the line box is 1em, so the half-leading is -0.1em a side, the
+ * baseline sits 0.9em down and the cap top sits 0.2em down. Pulling 0.2em off
+ * the top and 0.1em off the bottom leaves a margin box exactly 0.7em tall,
+ * measured cap to baseline. That is what `.dsp` does, and it is why 50px type
+ * occupies 35px, 32px occupies 22.4px and 150px occupies 105px — the three
+ * numbers the Figma file reports.
+ *
+ * It is done with margins rather than `text-box`, which lands in Safari 18.4
+ * and would leave every earlier iPhone a third of a line out.
  */
 
+/* ------------------------------------------------------------------ fonts */
+
+/* self-hosted, and precached by the service worker. a pitch has no signal, so
+   the webfont has to already be on the phone — but the design is set in Barlow
+   and a system stack is not the design. */
+
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(fonts/barlow-600-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(fonts/barlow-600-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(fonts/barlow-condensed-700-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(fonts/barlow-condensed-700-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ----------------------------------------------------------------- tokens */
+
 :root {
-  --ground: #F2F2F0;
-  --ground-call: #FFFFFF;
-  --surface: #FFFFFF;
-  --ink: #121214;
-  --ink-3: #6E6E76;
-  --dim: #BFBFC4;
-  --hair: #DCDCDA;
-  --on: #0F6B2F;
-  --off: #A5261A;
-  --curve: cubic-bezier(0.2, 0, 0, 1);
-  --elev-1: 0 8px 24px rgba(0, 0, 0, .12);
+  --ink: #171717;
+  --grey: #444444;
+  --paper: #ffffff;
+  --paper-game: #fcfcfc;
 
-  /* ------------------------------------------------------------ the scale */
-  /* Five steps, each 1.5x the last. One media query drops the top three one
-     rung on a narrow phone. Every font-size in this file is one of these. */
-  --t-hero: 3.75rem;      /* 60 - the name in goal, read at 2m */
-  --t-count: 2.5rem;      /* 40 - the countdown */
-  --t-lead: 1.6875rem;    /* 27 - the sub, and any name leaving a slot */
-  --t-body: 1.125rem;     /* 18 - setup rows, fields, settings, the strip */
-  --t-eyebrow: 0.75rem;   /* 12 - every label, and the team heading */
-  /* the arrow rides its own name, so it is a ratio and not a step */
-  --arrow: .42em;
+  /* the two hairlines. 10% between blocks, 20% between settings cells. */
+  --hair: rgba(23, 23, 23, .1);
+  --hair-hard: rgba(23, 23, 23, .2);
 
-  /* ------------------------------------------------------ the space scale */
-  /* Five steps, the same shape as the type scale and the same ratio, 1.5,
-     rounded to even pixels. Each one has a job, and every margin, padding and
-     gap on the game screen is one of these five. */
-  --s-tie: 4px;      /* ties a label to the thing it names */
-  --s-pack: 6px;     /* packs the inside of one control */
-  --s-part: 10px;    /* parts one group from the next inside a region */
-  --s-edge: 16px;    /* holds two peers apart: a region from its neighbour's
-                        rule, a name from the name beside it */
-  --s-gutter: 24px;  /* the page edge, and the gutter between two columns */
+  /* the four named sizes in the file, plus the two that are not named */
+  --eyebrow: 12px;
+  --lead: 21px;
+  --count: 28px;
+  --hero: 50px;
+  --name: 32px;
+  --clock: 150px;
 
-  --drift-x: 0px;
-  --drift-y: 0px;
-  /* --t-lead over --t-hero, and the travel that lands it on line three */
-  --shrink: 0.45;
-  --fall: 38px;
+  /* the one opacity ramp: a dimmed word, a dimmed surface, a placeholder */
+  --dim: .5;
+  --off: .45;
+  --faint: .3;
+  --ghost: .2;
 
-  --ground-ms: 200ms;
+  --cond: 'Barlow Condensed', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
+  --sans: 'Barlow', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
 }
 
-/* the whole screen drops one rung on a narrow phone. the bottom two steps are
-   a legibility floor and hold. this is the only type media query. */
-@media (max-width: 800px) {
-  :root {
-    --t-hero: 2.5rem;     /* 40 */
-    --t-count: 1.6875rem; /* 27 */
-    --t-lead: 1.125rem;   /* 18 */
-  }
-}
+/* ------------------------------------------------------------------ reset */
 
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow: hidden;
+html {
+  -webkit-text-size-adjust: 100%;
+  background: var(--paper);
 }
 
 body {
-  background: var(--ground);
-  color: var(--ink);
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-weight: 500;
-  -webkit-text-size-adjust: 100%;
-  -webkit-tap-highlight-color: transparent;
-  transition: background-color var(--ground-ms) var(--curve);
-}
-
-body.boot * { transition: none !important; animation: none !important; }
-body.call { background: var(--ground-call); }
-
-button, input, select {
-  font: inherit;
-  color: inherit;
   margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
 }
+
+body.boot { visibility: hidden; }
+
+[hidden] { display: none !important; }
+
+p, h1 { margin: 0; }
 
 button {
+  font: inherit;
+  color: inherit;
   background: none;
   border: 0;
   padding: 0;
+  margin: 0;
+  text-align: inherit;
   cursor: pointer;
+  touch-action: manipulation;
+}
+
+input {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
   -webkit-appearance: none;
   appearance: none;
 }
 
-[hidden] { display: none !important; }
+input:focus { outline: none; }
 
-/*
- * Everything is uppercase, so the app never has to care how a name was typed.
- * Case therefore separates nothing, and three other registers do all of it.
- * A name is 700, hero or lead, in --ink. A label is 700, eyebrow, tracked
- * .1em, in --ink-3, and sits directly above what it names. A team title is
- * 500, eyebrow, tracked .28em, in --ink-3 — the same size as a label, lighter
- * than one, and set so wide that no name is ever set that way.
- */
-.eyebrow,
-.divider-label,
-.keeper-tag {
-  font-size: var(--t-eyebrow);
-  font-weight: 700;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  line-height: 1.2;
-}
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 
-/*
- * A fault that has an icon does not also get a word. This is where the words
- * live instead — for a reader that cannot see the icon, and for nothing else.
- */
 .sr-only {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
   overflow: hidden;
-  clip: rect(0 0 0 0);
   clip-path: inset(50%);
   white-space: nowrap;
-  border: 0;
 }
 
-/* the messages are not labels — they are sentences, and they keep their case */
-.notice {
-  font-size: var(--t-body);
-  font-weight: 500;
-  color: var(--ink-3);
-  line-height: 1.2;
-}
-
-/* ===================================================================== setup */
-
-#setup {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 13rem;
-  grid-template-rows: minmax(0, 1fr);
-  gap: var(--s-edge);
-  padding: max(var(--s-part), env(safe-area-inset-top))
-           max(var(--s-gutter), env(safe-area-inset-right))
-           max(var(--s-part), env(safe-area-inset-bottom))
-           max(var(--s-gutter), env(safe-area-inset-left));
-  overflow: hidden;
-}
-
-.col {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
+/* ------------------------------------------------------------------- type */
 
 /*
- * On setup a team heads a list rather than a row of live facts, so it keeps
- * the section-head shape: the word, then a rule to the edge of the column it
- * opens. Nothing here competes with it, which is why the game screen's title
- * is quieter than this one and this one does not have to change.
+ * The eyebrow. Barlow SemiBold at 12 over a 14.4px line — 1.2, and never
+ * rounded to 14 or 15, because every stacked measurement in the file is built
+ * on the .4. The track changes by role and is written at each use.
  */
-.team-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--s-part);
-  margin-bottom: var(--s-pack);
-}
-
-.team-name {
-  flex: none;
-  font-size: var(--t-eyebrow);
-  font-weight: 700;
-  letter-spacing: .1em;
-  line-height: 1.2;
+.eyebrow {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: var(--eyebrow);
+  line-height: 14.4px;
+  letter-spacing: .96px;
   text-transform: uppercase;
-  color: var(--ink);
 }
 
-.team-rule {
-  flex: 1 1 auto;
+/* The display face, trimmed to cap height. See the header. */
+.dsp {
+  font-family: var(--cond);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -.5px;
+  text-transform: uppercase;
+  margin-block: -.2em -.1em;
+}
+
+/* ------------------------------------------------------------------ icons */
+
+.ic { display: block; flex: none; fill: currentColor; }
+.ic12 { width: 12px; height: 12px; }
+.ic16 { width: 16px; height: 16px; }
+.ic20 { width: 20px; height: 20px; }
+.ic24 { width: 24px; height: 24px; }
+.ic23 { width: 23px; height: 23px; }
+.ic28 { width: 28px; height: 28px; }
+
+/* --------------------------------------------------------------- hairline */
+
+/*
+ * Zero height in the flow and one pixel drawn above the boundary, which is
+ * what a Figma line at `h-0` with `inset-[-1px_0_0_0]` is.
+ */
+.rule {
+  flex: none;
+  height: 0;
+  margin: 0;
+  border: 0;
+  overflow: visible;
+  position: relative;
+}
+
+.rule::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: -1px;
   height: 1px;
   background: var(--hair);
 }
 
-/* ------------------------------------------------------------------ list */
-
-.list {
-  flex: 0 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  -webkit-overflow-scrolling: touch;
-  position: relative;
-  scrollbar-width: none;
-}
-.list::-webkit-scrollbar { display: none; }
+/* ------------------------------------------------------------------- chip */
 
 /*
- * 36px landscape, 52px portrait. Six on the pitch, the SUBS divider and the
- * first sub under it all have to be on screen at 844x390 without a scroll,
- * because the only reason the line exists is to say who is a sub.
+ * The one black shape that is not a bar. It is flush to the right edge and to
+ * the top of the block it names, so it reads as a tab on the block rather than
+ * as a label floating over it.
  */
-.row {
-  height: 36px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--s-pack);
-  border-radius: 12px;
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--hair);
-  padding: 0 var(--s-pack) 0 var(--s-edge);
-  margin-bottom: var(--s-tie);
-  font-size: var(--t-body);
-  font-weight: 500;
-  color: var(--ink);
-  /* the page keeps the scroll until a hold takes the row. app.js sets this to
-     none at the moment it arms, and never before. */
-  touch-action: pan-y;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-  position: relative;
-  will-change: transform;
-}
-/* a trailing margin inside a scroll box is dead space, and at 390px tall it
-   is the difference between seeing the first sub and not */
-.list > :last-child { margin-bottom: 0; }
-
-/* every name renders uppercase, on both screens, so the app never has to
-   care how anyone typed it. the stored value is left exactly as typed and the
-   voice still speaks a normal name. */
-.row-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-transform: uppercase;
-}
-
-.keeper-tag {
-  color: rgba(255, 255, 255, .6);
-  flex: none;
-}
-
-.row.keeper {
-  background: var(--ink);
-  color: #FFFFFF;
-  box-shadow: none;
-}
-
-.row-x {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  color: var(--dim);
-  border-radius: 8px;
-}
-.row-x svg { width: 16px; height: 16px; display: block; }
-.row.keeper .row-x { color: rgba(255, 255, 255, .55); }
-
-/*
- * The arm. It is the one state change a person has to feel, so the row does
- * not appear already lifted — it lifts, on a transition, under a finger that
- * has been still. Nothing else on this screen moves without being pushed.
- */
-.row.dragging {
-  position: fixed;
-  z-index: 40;
-  margin: 0;
-  box-shadow: var(--elev-1);
-  transform: scale(1.045);
-  transition: transform 140ms var(--curve), box-shadow 140ms var(--curve);
-}
-
-.row.settling { transition: transform 200ms var(--curve); }
-.row.shifting { transition: transform 200ms var(--curve); }
-.row.landing { transition: transform 250ms var(--curve); }
-
-.gap { flex: none; margin-bottom: var(--s-tie); }
-
-/* the divider carries its own label and nothing labels the region above it */
-.divider {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--s-pack);
-  padding-top: var(--s-tie);
-  margin-bottom: var(--s-tie);
-  pointer-events: none;
-}
-.divider-label { flex: none; }
-.divider-rule {
-  flex: 1 1 auto;
-  height: 1px;
-  background: var(--dim);
-}
-
-/* ----------------------------------------------------------------- field */
-
-.field {
-  flex: none;
-  margin-top: var(--s-pack);
-  height: 44px;
-  display: flex;
-  align-items: center;
-  gap: var(--s-pack);
-  background: #FFFFFF;
-  border: 2px solid var(--ink);
-  border-radius: 12px;
-  padding: 0 5px 0 12px;
-}
-
-.name-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 100%;
-  border: 0;
-  outline: 0;
-  background: none;
-  font-size: var(--t-body);
-  font-weight: 700;
-  color: var(--ink);
-  border-radius: 0;
-  text-transform: uppercase;
-  -webkit-appearance: none;
-  appearance: none;
-}
-/* the placeholder is a sentence, not a name, and keeps its case */
-.name-input::placeholder {
-  color: var(--ink-3);
-  font-weight: 500;
-  text-transform: none;
-}
-
-.add {
-  flex: none;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  background: transparent;
-  border: 1.5px solid var(--dim);
-  color: var(--ink-3);
-  transition: background-color 150ms var(--curve), border-color 150ms var(--curve),
-              color 150ms var(--curve);
-}
-.add svg { width: 20px; height: 20px; display: block; }
-.add.armed {
-  background: var(--on);
-  border-color: var(--on);
-  color: #FFFFFF;
-}
-
-/* --------------------------------------------------------- the pickers */
-
-/*
- * One component, three instances, no native select. Two 44px targets and a
- * number is the most a cold thumb can be asked for, it needs no overlay and no
- * dismiss, and it is identical in both orientations.
- */
-
-/*
- * Every gap in the settings column is --s-pack. The column is one control group
- * and 390px of landscape phone has to hold three 72px cards, the readout they
- * produce, Clear all and Kick off. Packing them is the honest answer, and it
- * takes the last literal out of this column.
- */
-.settings { display: flex; flex-direction: column; gap: var(--s-pack); }
-
-.picker {
-  height: 72px;
-  flex: none;
-  border-radius: 12px;
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--hair);
-  padding-top: var(--s-pack);
-  display: flex;
-  flex-direction: column;
-}
-.picker-label { padding-left: 14px; flex: none; }
-
-.picker-row {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.step {
-  flex: none;
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  color: var(--ink);
-  touch-action: none;
-}
-.step svg { width: 20px; height: 20px; display: block; }
-/* inert at a bound. no disabled control, no dead primary */
-.step.bound { color: var(--dim); }
-
-.picker-value {
-  flex: 1 1 auto;
-  min-width: 0;
-  text-align: center;
-  font-size: var(--t-body);
-  font-weight: 700;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-/*
- * The derived number. It sits under the rule the three pickers stand on, so it
- * reads as their result and not as a fourth setting. There is nothing to tap:
- * the interval cannot be set by hand, it is only ever produced.
- *
- * One register for the whole line, because it is a sentence and not a label
- * beside a value. Weight and colour carry the number out of the words.
- */
-.readout {
-  width: 100%;
-  height: 44px;
-  flex: none;
-  margin-top: var(--s-pack);
-  padding: 0 var(--s-part);
-  border: 0;
-  /* the same rule the SUBS divider draws, and it means the same thing here:
-     what is under this line is not another one of the things above it */
-  border-top: 1px solid var(--dim);
-  border-radius: 0;
-  background: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s-pack);
-}
-
-/* mid-game the number leads and the words follow: `1.8 ROTATIONS EACH` */
-.readout.flip .readout-label { order: 2; }
-
-/*
- * The row borrows itself to the sound test's answer. It is the settings
- * column's result line and this is a result, it sits next to the control that
- * produced it, and it goes away the moment anything on the screen changes.
- *
- * The answer is two lines of plain words now, not one, because Liam is the
- * only person who can hear whether it worked and he has to be able to read it
- * back. So the row grows to hold it rather than clipping it. It is the one
- * place in this app where words beat a shape, and the only row that is allowed
- * to change size.
- *
- * It grows into the slack above it and no further. Landscape has about thirty
- * pixels of slack and the answer wants a hundred and twenty, so the last rule
- * is the one that matters: the row shrinks and scrolls before it moves Kick
- * off. A control that has walked off the bottom of the screen is worse than a
- * line that has to be scrolled to finish reading.
- */
-.readout.report {
-  height: auto;
-  min-height: 44px;
-  flex: 0 1 auto;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: var(--s-pack);
-}
-
-.readout.report .readout-value {
-  letter-spacing: 0;
-  white-space: pre-line;
-  text-align: center;
-  line-height: 1.35;
-}
-
-.readout-label,
-.readout-value {
-  font-size: var(--t-eyebrow);
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-/* the same pairing as the team title against GOAL: 500 at .28em beside 700
-   at .1em. one size, two weights, and the number comes forward. */
-.readout-label { font-weight: 500; letter-spacing: .28em; color: var(--ink-3); }
-.readout-value {
-  font-weight: 700;
-  letter-spacing: .1em;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-
-/* the three cards, the readout and Clear all are one group, so that portrait
-   can move them as one and leave Kick off behind at the bottom of the page.
-   the group may shrink, but only the readout inside it gives: the three cards
-   are 72px each and a squashed card is not a card. */
-.settings-group { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
-.settings-group > .settings { flex: none; }
-
-.col-spacer { flex: 1 1 auto; min-height: 0; }
-/*
- * While the sound test's answer is on the screen, two things above it give up
- * their height so the answer can be read whole and Kick off does not move: the
- * spacer, and then Clear all. Landscape is 390px tall and the answer wants 78
- * of them, and Clear all is the least urgent control on the screen against the
- * most urgent line. It comes back the moment anything changes, which is also
- * the moment the answer goes.
- *
- * Where `:has` is missing the answer scrolls inside its own row instead. That
- * is the same trade one step worse, and it is why the row scrolls at all.
- */
-.settings-col:has(.readout.report) .col-spacer { flex: 0 1 auto; }
-.settings-col:has(.readout.report) .clear { display: none; }
-
-.foot { flex: none; display: flex; flex-direction: column; gap: var(--s-pack); }
-
-/*
- * The sound test sits beside Kick off because that is when it is used: the
- * last thing before the game, in the same reach as the thing that starts it.
- * It is a control, so it takes a control's edge and a control's 56px target —
- * the same button as Kick off without the fill, because it is not the thing
- * that happens on this screen.
- */
-.start-row { display: flex; gap: var(--s-pack); }
-.start-row .start { flex: 1 1 auto; }
-
-.test {
-  flex: none;
-  width: 56px;
-  height: 56px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--ink);
-}
-.test svg { width: 24px; height: 24px; display: block; }
-.test:active { background: rgba(18, 18, 20, .06); }
-.test.broken { color: var(--off); box-shadow: inset 0 0 0 1px var(--off); }
-
-.notice { color: var(--ink-3); }
-
-/* a text control, deliberately not a button shape. Clearing is not the thing
-   that happens on this screen — kicking off is — so it must never read as a
-   second primary. */
-.clear {
-  align-self: center;
-  margin: var(--s-pack) 0 0;
-  background: none;
-  border: 0;
-  padding: var(--s-pack) var(--s-part);
-  color: var(--ink-3);
-  font-size: var(--t-eyebrow);
-  font-weight: 500;
-  letter-spacing: .28em;
-  text-transform: uppercase;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
-.clear[hidden] { display: none; }
-
-/* the same button as the confirm's two, so the ink means the same thing in
-   both places: this is the thing that happens */
-.start {
-  height: 56px;
-  border-radius: 12px;
-  background: var(--ink);
-  color: #FFFFFF;
-  font-size: var(--t-body);
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-}
-.start.hairline {
-  background: transparent;
-  color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--ink);
-}
-
-/* ------------------------------------------------------- the live bar */
-
-/*
- * The ink moves. Before kick-off the only ink surface is a 56px button in the
- * bottom-right corner. During the game that button is gone and the ink is a
- * full-bleed bar across the top. Size, position, colour and content all
- * invert, so the two states cannot be mistaken at a glance, and the whole bar
- * is the way back.
- */
-
-.livebar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 30;
-  height: calc(56px + env(safe-area-inset-top));
-  padding: env(safe-area-inset-top) max(14px, env(safe-area-inset-right)) 0
-           max(24px, env(safe-area-inset-left));
-  background: var(--ink);
-  color: #FFFFFF;
-  display: flex;
-  align-items: center;
-  gap: var(--s-edge);
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.live-clock {
-  flex: none;
-  font-size: var(--t-count);
-  font-weight: 700;
-  letter-spacing: -.02em;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
-}
-
-.live-note {
-  flex: 1 1 auto;
-  min-width: 0;
-  color: rgba(255, 255, 255, .6);
-}
-.live-note:empty { display: none; }
-
-#setup.live { padding-top: calc(68px + env(safe-area-inset-top)); }
-
-/* ======================================================== setup, portrait */
-
-@media (orientation: portrait) {
-  /* the page scrolls, not the body box, so the lists never have to */
-  html, body { height: auto; min-height: 100%; overflow: visible; }
-
-  #setup {
-    position: static;
-    min-height: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 28px;
-    padding: var(--s-edge) var(--s-edge)
-             max(var(--s-edge), env(safe-area-inset-bottom));
-    padding-left: max(var(--s-edge), env(safe-area-inset-left));
-    padding-right: max(var(--s-edge), env(safe-area-inset-right));
-    overflow: visible;
-  }
-
-  /*
-   * Nothing on this screen is pinned over the content. Adding names IS the
-   * screen, and a button fixed to the bottom of the viewport sat on top of the
-   * field the names are typed into. So the settings column stops being a
-   * column: its two halves become items of the page, the settings go to the
-   * top — the game type sets where the divider falls, and you pick it before
-   * you type a name — and Kick off goes to the very bottom, under both lists,
-   * where it is scrolled to and never scrolled past.
-   */
-  .settings-col { display: contents; }
-  .settings-group { order: -1; }
-  .foot { order: 99; }
-
-  .col { min-height: auto; }
-  .list { overflow: visible; flex: none; }
-  .row { height: 52px; }
-  .field { height: 56px; }
-  .add { width: 40px; height: 40px; }
-  .col-spacer { display: none; }
-
-  .livebar { height: calc(64px + env(safe-area-inset-top)); }
-  #setup.live { padding-top: calc(80px + env(safe-area-inset-top)); }
-
-}
-
-/* ================================================================== game */
-
-#display {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  /* 9.5rem is what three 44px targets and the rule beside them need */
-  grid-template-columns: minmax(0, 1fr) 9.5rem;
-  grid-template-rows: 1fr 1fr;
-  column-gap: var(--s-gutter);
-  padding: max(var(--s-edge), env(safe-area-inset-top))
-           max(var(--s-gutter), env(safe-area-inset-right))
-           max(var(--s-edge), env(safe-area-inset-bottom))
-           max(var(--s-gutter), env(safe-area-inset-left));
-  transform: translate(var(--drift-x), var(--drift-y));
-  transition: transform 600ms var(--curve);
-  overflow: hidden;
-}
-
-/*
- * A team is one column with space between. The title, the two eyebrows and
- * the two names are one group at the top; the order strip is pinned to the
- * bottom of the row. The row therefore uses its whole height and the void in
- * the middle is not dead — it is the runway the outgoing keeper walks down.
- *
- * One hairline sits between the two teams and there is none anywhere else in
- * the section. It is the only thing that can say where one team ends, because
- * space cannot: the strip has to be further from its own name than the two
- * teams are from each other for the pin to mean anything.
- */
-.team {
-  grid-column: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-width: 0;
-  overflow: clip;
-}
-.team[data-team="0"] {
-  grid-row: 1;
-  padding-bottom: var(--s-part);
-}
-.team[data-team="1"] {
-  grid-row: 2;
-  border-top: 1px solid var(--hair);
-  padding-top: var(--s-edge);
-}
-
-/*
- * The two role columns are fixed fractions and never content width, so the
- * sub column starts at the same left edge whatever the name in goal is. The
- * ratio is hero over lead, so each column holds a name of the same length at
- * the step that column is set in. The top group and the bottom line share the
- * template, so line three sits under the column it belongs to.
- */
-.top, .bottom {
-  display: grid;
-  grid-template-columns: minmax(0, 2.25fr) minmax(0, 1fr);
-  column-gap: var(--s-gutter);
-  min-width: 0;
-}
-
-/* --------------------------------------------------------- the team title */
-
-/*
- * It has one job: say which row this is. It must never be mistaken for a
- * player name and must never compete with the keeper, so it is the quietest
- * thing in the section — lighter than the GOAL eyebrow beside which it sits,
- * and stretched to .28em, which is a texture no name is ever given. No
- * container, no rule, no fill: it is quieter and structurally different
- * rather than another shape with a word in it.
- */
-.team-title {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  margin-bottom: var(--s-part);
-  font-size: var(--t-eyebrow);
-  font-weight: 500;
-  letter-spacing: .28em;
-  text-transform: uppercase;
-  line-height: 1.2;
-  color: var(--ink-3);
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-/* ------------------------------------------------- the labels and the names */
-
-/* the labels share a row and the names share the row beneath, so the two
-   columns line up by construction rather than by luck */
-.lab, .lab-sub {
-  grid-row: 2;
-  margin-bottom: var(--s-tie);
-  min-width: 0;
-}
-.lab { grid-column: 1; }
-.lab-sub { grid-column: 2; }
-
-/* the names sit on one bottom edge, whatever step each of them is set in */
-.hero, .subname {
-  grid-row: 3;
-  align-self: end;
-}
-
-.hero {
-  grid-column: 1;
-  position: relative;
-  width: 100%;
-  min-width: 0;
-  height: calc(var(--t-hero) * 0.94);
-}
-/*
- * --fit is measured in app.js and multiplies the step the name is set in. It
- * is 1 for every name that fits its column, so the scale still sets the size
- * and only a name with nowhere to go is ever smaller than its step.
- */
-.hero .layer {
+.chip {
   position: absolute;
-  left: 0;
+  right: 0;
   top: 0;
-  width: 100%;
-  font-size: calc(var(--t-hero) * var(--fit, 1));
-  font-weight: 700;
-  line-height: .94;
-  letter-spacing: -.02em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  color: var(--ink);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--ink);
+  color: #fff;
+}
+
+.chip-word { letter-spacing: 1.2px; }
+
+/* ================================================================== setup */
+
+#setup {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+/* ------------------------------------------------------------------- head */
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 48px 20px 24px;
+}
+
+.title { font-size: var(--hero); }
+
+.again {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: var(--dim);
+  transition: opacity 120ms linear;
+}
+
+.again-word { font-size: var(--lead); }
+
+/* with nothing typed there is nothing to start again from */
+.again.gone {
   opacity: 0;
-  transform-origin: left bottom;
   pointer-events: none;
 }
-.hero .layer.on { opacity: 1; }
 
-.subname {
-  grid-column: 2;
-  display: flex;
-  align-items: baseline;
-  /* the gap is part of the line being fitted, so it takes --fit the same way
-     the step does. a gap that did not shrink would push the last name out */
-  gap: calc(var(--s-edge) * var(--fit, 1));
-  white-space: nowrap;
-  min-width: 0;
-  min-height: calc(var(--t-lead) * 0.94);
-}
-.subname:empty { min-height: 0; }
-
-.nm {
-  font-size: calc(var(--t-lead) * var(--fit, 1));
-  font-weight: 700;
-  letter-spacing: -.01em;
-  line-height: .94;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-.nm.on { color: var(--on); }
-.nm.off { color: var(--off); }
-
-.arrow {
-  font-size: var(--arrow);
-  vertical-align: .16em;
-  letter-spacing: 0;
-  margin-right: .1em;
-}
-
-/* ---------------------------------------------------------- line three */
+/* ------------------------------------------------------------------ squad */
 
 /*
- * The bottom of the row, in both states. At rest the strip spans it. In the
- * window each column holds the name that is leaving that slot — the keeper
- * arrives here under his own transform. Its height is lead x 1.2, which is
- * the height of the largest thing that ever sits on it, so it is derived from
- * the type scale rather than picked.
+ * `1 0 auto` is the two states of the frame in one line. Empty, the two squads
+ * split the leftover height between them and the screen is exactly one page.
+ * Full, they take the height their names need and the page grows past the
+ * viewport — which is what the filled frame does at 909px against an 844px
+ * phone.
  */
-.l3, .strip {
-  grid-row: 1;
-  height: calc(var(--t-lead) * 1.2);
+.squad {
+  position: relative;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
 }
-.l3-goal { grid-column: 1; min-width: 0; }
-.l3-sub { grid-column: 2; min-width: 0; }
-.l3 {
+
+/* the 16px only exists once there is a list to separate from the field */
+.squad.filled { gap: 16px; }
+
+.lineup {
   display: flex;
   align-items: flex-start;
-  gap: calc(var(--s-edge) * var(--fit, 1));
-  white-space: nowrap;
-  overflow: hidden;
+  gap: 40px;
+  padding: 40px 20px 10px;
 }
 
-.strip {
-  grid-column: 1 / -1;
-  display: block;
-  font-size: var(--t-body);
-  font-weight: 500;
-  color: var(--ink-3);
-  text-transform: uppercase;
-  letter-spacing: 0;
-  line-height: calc(var(--t-lead) * 1.2);
-  white-space: nowrap;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to right, #000 86%, transparent);
-  mask-image: linear-gradient(to right, #000 86%, transparent);
-  transition: opacity 250ms var(--curve);
-}
-.strip .sep { color: var(--dim); margin: 0 .34em; }
-.strip .gone { color: var(--dim); text-decoration: line-through; }
-
-/* ------------------------------------------------------------ the spine */
-
-.spine {
-  grid-column: 2;
-  grid-row: 1 / 3;
-  border-left: 1px solid var(--hair);
-  padding-left: var(--s-edge);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+.namecol {
+  flex: 1 1 0;
   min-width: 0;
-}
-
-.clock {
-  font-size: var(--t-count);
-  font-weight: 700;
-  letter-spacing: -.02em;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-  margin: auto 0;
-}
-.clock.pop { animation: pop 180ms var(--curve); }
-@keyframes pop {
-  from { transform: scale(1.08); }
-  to { transform: scale(1); }
-}
-
-.spine-foot {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: var(--s-tie);
-  max-width: 100%;
+  gap: 16px;
+  overflow: hidden;
 }
-.notes { text-align: right; max-width: 100%; }
-.notes:empty { display: none; }
 
-.spine-icons {
+.lineup-label { opacity: var(--dim); }
+
+/*
+ * The second column's label is in the file and it is set to zero opacity. It
+ * is not `SUBS` any more — nobody picks the bench, the pitch is drawn at
+ * kick-off — so it holds the column's width and says nothing.
+ */
+.lineup-label.ghost {
+  opacity: 0;
+  letter-spacing: 1.2px;
+}
+
+.names {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+/* an empty column must not open the 16px above it */
+.names:empty { display: none; }
+
+.nrow {
   display: flex;
   align-items: center;
-  margin-right: calc(var(--s-part) * -1);
-  margin-bottom: calc(var(--s-part) * -1);
+  gap: 8px;
+  max-width: 100%;
 }
 
-.icon-btn {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  color: var(--ink-3);
-  flex: none;
+.nm {
+  font-size: var(--name);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
 }
-.icon-btn svg { width: 24px; height: 24px; display: block; }
-
-/* --------------------------------------------------------- the confirm */
 
 /*
- * The only thing in the app that stops the screen, and the only question it
- * ever asks. The clock behind it does not pause for it.
+ * A NAME SAYS WHAT IT CARRIES
+ *
+ * A fixed goalie takes the same glove the game screen puts beside whoever is
+ * next in — the mark and its meaning are the one pair in this app, so it is
+ * the same glyph in both places. Late is the opposite of a mark: the name goes
+ * quiet, because late is a place at the back of the queue.
  */
+.nm.late { opacity: var(--faint); }
 
-.confirm {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: grid;
-  place-items: center;
-  padding: max(var(--s-gutter), env(safe-area-inset-top))
-           max(var(--s-gutter), env(safe-area-inset-right))
-           max(var(--s-gutter), env(safe-area-inset-bottom))
-           max(var(--s-gutter), env(safe-area-inset-left));
-  background: rgba(18, 18, 20, .55);
+.nrow .ic12 { opacity: var(--dim); }
+
+.x {
+  position: relative;
+  flex: none;
+  width: 23px;
+  height: 23px;
+  opacity: var(--faint);
 }
 
-.confirm-card {
-  width: 100%;
-  max-width: 26rem;
-  background: var(--surface);
-  border-radius: 12px;
-  box-shadow: var(--elev-1);
+/* 23px is the drawing. 43px is the thumb. */
+.x::after { content: ''; position: absolute; inset: -10px; }
+
+/* ------------------------------------------------------------------ entry */
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 20px;
+}
+
+.field {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--name);
+}
+
+.field::placeholder { color: var(--ink); opacity: var(--ghost); }
+
+.enter {
+  position: relative;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  opacity: var(--ghost);
+  transition: opacity 120ms linear;
+}
+
+/* the arrow is the placeholder's opacity until there is something to send */
+.enter.ready { opacity: 1; }
+
+.enter::after { content: ''; position: absolute; inset: -12px; }
+
+/* ------------------------------------------------------------------- foot */
+
+.foot { flex: none; }
+
+.settings { display: flex; }
+
+.cell {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--s-edge);
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0;
+  text-align: center;
 }
 
-.confirm-text {
-  margin: 0;
-  font-size: var(--t-body);
-  font-weight: 500;
-  line-height: 1.2;
-  color: var(--ink);
+.cell + .cell { border-left: 1px solid var(--hair-hard); }
+
+.cell-label {
+  opacity: var(--dim);
+  letter-spacing: 1.2px;
+  width: 100%;
 }
 
-.confirm-row { display: flex; gap: 8px; }
-.confirm-row > .start { flex: 1 1 0; }
-
-
-/* ------------------------------------------------------- game, portrait */
-
-@media (orientation: portrait) {
-  /*
-   * Portrait has far more height than the two teams need, and stretching each
-   * row to a third of it would put 200px between a name and its own strip.
-   * So the rows are content height, the pin inside a row becomes one gutter,
-   * and the surplus is spread evenly between the three blocks and the two
-   * edges. The air ends up around the groups instead of inside them, which is
-   * the same rule the landscape spacing runs on.
-   */
-  #display {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
-    align-content: space-evenly;
-    padding: max(var(--s-edge), env(safe-area-inset-top))
-             max(var(--s-edge), env(safe-area-inset-right))
-             max(var(--s-edge), env(safe-area-inset-bottom))
-             max(var(--s-edge), env(safe-area-inset-left));
-  }
-
-  /* the two role columns hold in portrait: the names shrink to fit them, and
-     one layout in both orientations is one thing to read, not two */
-  .team[data-team="0"] { grid-row: 1; padding-bottom: 0; }
-  .bottom { margin-top: var(--s-gutter); }
-  /* the spine band is the seam in portrait, so the row carries no rule */
-  .team[data-team="1"] {
-    grid-row: 3;
-    border-top: 0;
-    padding-top: 0;
-  }
-
-  /* both teams change on the same clock, so the clock is the seam */
-  .spine {
-    grid-column: 1;
-    grid-row: 2;
-    border-left: 0;
-    padding-left: 0;
-    border-top: 1px solid var(--hair);
-    border-bottom: 1px solid var(--hair);
-    padding: var(--s-part) 0;
-    flex-direction: row;
-    align-items: center;
-  }
-  .clock { margin: 0 auto 0 0; }
-  .spine-foot { flex-direction: row; align-items: center; gap: var(--s-part); }
-  .notes { max-width: 40vw; }
-  .spine-icons { margin: 0 calc(var(--s-part) * -1) 0 0; }
+.cell-value {
+  font-size: var(--name);
+  width: 100%;
 }
 
-/* ========================================================== the movement */
+/* ---------------------------------------------------------------- kick off */
 
 /*
- * The changeover. transform and opacity only — never font-size.
- * `--fall` and `--shrink` put the outgoing name on line 3 exactly.
+ * Full bleed, flush to the bottom, and it wraps: the ball and the words are
+ * one line, the interval is the next. The interval is not a second label on
+ * the button — it is the answer the three settings above produce, and it lives
+ * here because this is where the settings stop being adjustable.
  */
-
-.hero .layer.walk-out {
-  opacity: 1;
-  color: var(--off);
-  transform: translateY(var(--fall)) scale(var(--shrink));
-  transition: transform 500ms var(--curve), color 500ms var(--curve);
-}
-.hero .layer.walk-out .arrow {
-  opacity: 0;
-  transition: opacity 180ms var(--curve) 320ms;
-}
-.hero .layer.walk-out.landed .arrow { opacity: 1; }
-
-.hero .layer.walk-out.leaving {
-  opacity: 0;
-  transition: opacity 250ms var(--curve);
+.kick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 32px 20px calc(32px + env(safe-area-inset-bottom));
+  background: var(--ink);
+  color: #fff;
 }
 
-.hero .layer.walk-in {
-  opacity: 0;
-  color: var(--on);
-  transform: translateY(28px);
-}
-.hero .layer.walk-in.go {
-  opacity: 1;
-  transform: translateY(0);
-  transition: transform 460ms var(--curve), opacity 460ms var(--curve);
-}
-.hero .layer.walk-in.settle {
-  color: var(--ink);
-  transition: color 250ms var(--curve);
-}
-.hero .layer.walk-in.settle .arrow {
-  opacity: 0;
-  transition: opacity 250ms var(--curve);
+.kick-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: opacity 120ms linear;
 }
 
-.strip.gone-quiet { opacity: 0; }
+.kick-word { font-size: var(--count); }
 
-.swapping { opacity: 0; transform: translateY(6px); }
-.swapping.go {
-  opacity: 1;
-  transform: translateY(0);
-  transition: opacity 400ms var(--curve), transform 400ms var(--curve);
+.kick:disabled { cursor: default; }
+.kick:disabled .kick-main { opacity: var(--off); }
+
+.kick-note {
+  width: 100%;
+  text-align: center;
+  opacity: var(--dim);
 }
-.fading { opacity: 0; transition: opacity 250ms var(--curve); }
 
-/* A window entered late is shown arrived, with no transition to get there. */
-.team.instant .hero .layer,
-.team.instant .subname,
-.team.instant .l3,
-.team.instant .strip,
-.team.instant .hero .layer .arrow { transition: none !important; }
+/* =================================================================== game */
 
-/* ====================================================== reduced motion */
+#game {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--paper-game);
+}
+
+/* ------------------------------------------------------------------ timer */
+
+.timer {
+  position: relative;
+  flex: none;
+  height: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 0 20px 20px;
+  background: var(--grey);
+  overflow: hidden;
+}
+
+/*
+ * THE GAUGE
+ *
+ * The black is not the block's background. It is a bar pinned to the left edge
+ * and scaled to the share of the shift that is still to run, over a #444
+ * ground — so the black draws back to the left as the shift empties and the
+ * grey behind it is what is left. In the design frame it is 284 of 390 with
+ * 6:09 of 8:30 on the clock: 369/510 is 0.724, and 0.724 of 390 is 282.
+ *
+ * It is a `scaleX` and not a width so the change is a composited transform,
+ * which is what lets it move every frame beside a 150px clock.
+ */
+.gauge {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  background: var(--ink);
+  transform-origin: left center;
+  transform: scaleX(var(--shift, 1));
+}
+
+/* the two centred lines sit over the gauge. The corners are already
+   positioned and must stay that way. */
+.timer-label, .count { position: relative; }
+
+.timer-label {
+  width: 100%;
+  text-align: center;
+  color: #fff;
+  letter-spacing: .72px;
+}
+
+.count {
+  width: 100%;
+  text-align: center;
+  color: #fff;
+  font-size: var(--clock);
+  letter-spacing: 0;
+}
+
+/*
+ * THE COUNTDOWN
+ *
+ * Twenty seconds before kick-off and ten before every rotation, and the same
+ * treatment for both: the gauge goes to nothing and the block is the grey
+ * underneath it, whole. Liam's words were "grey like it's inactive kind of
+ * style but still enough contrast to read" — white on #444 is 7.6:1, so it is
+ * the quiet state and it is still four times the floor for large type.
+ *
+ * At a rotation the grey is not a new colour arriving. It is the gauge
+ * finishing, which is the same thing the block has been saying for ten minutes.
+ */
+#game.counting .gauge { transform: scaleX(0); }
+
+.watch {
+  position: absolute;
+  left: 24px;
+  bottom: 29px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+}
+
+.watch-time { font-size: var(--lead); }
+
+/*
+ * The word and the square are centred on each other and the square's 44px box
+ * overhangs the word by 4px, which is what puts the word's right edge at 342
+ * and the drawn square 18px off the screen edge. The negative margin is the
+ * file's own geometry, not a nudge.
+ */
+.endrow {
+  position: absolute;
+  right: 8px;
+  bottom: 15px;
+  display: flex;
+  align-items: center;
+  color: #fff;
+}
+
+.end-word { font-size: var(--lead); }
+
+.end-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin-left: -4px;
+  display: grid;
+  place-items: center;
+}
+
+/* ------------------------------------------------------------------- side */
+
+.side {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  padding: 40px 24px;
+  overflow: hidden;
+}
+
+/* the home indicator lives under the last block, not under the words */
+.side:last-of-type { padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+
+.side-now {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.slot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.slot-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: var(--dim);
+}
+
+.keeper { font-size: var(--hero); }
+
+.subnames {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sn { font-size: var(--name); }
+
+/*
+ * ONE SUB IS READ FROM THE SAME DISTANCE AS THE KEEPER
+ *
+ * Two names at 32 is a list and a list wants a smaller size than a headline.
+ * One name is not a list — it is a second answer, and it is on the phone for
+ * the same reason the first one is. So a lone sub takes the keeper's 50.
+ */
+.subnames.solo .sn { font-size: var(--hero); }
+
+/* a team with nobody on the bench says nothing about the bench */
+.slot.empty { display: none; }
+
+/* ------------------------------------------------------------------ order */
+
+.side-order {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.orow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  opacity: var(--dim);
+}
+
+.orow .on {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: var(--eyebrow);
+  line-height: 1.4;
+  letter-spacing: .48px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* the column keeps its 12px gutter whether a row is marked or not */
+.orow .ic12.blank { visibility: hidden; }
+
+/* ================================================================== sheet */
+
+/*
+ * One surface, two jobs: the two toggles a name carries, and the one question
+ * this app asks. It is the Kick off bar in a different place — flush to the
+ * bottom, full bleed, no radius, no shadow — and it is built from a settings
+ * cell's own parts: an eyebrow, 8px, and a 32px line under it.
+ */
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(23, 23, 23, .5);
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  background: var(--ink);
+  color: #fff;
+}
+
+.sheet-title {
+  opacity: var(--dim);
+  letter-spacing: 1.2px;
+}
+
+.sheet-opts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/*
+ * A toggle is on at full ink and off at the same 45% the Kick off button uses
+ * when it cannot be pressed. There is no switch and no tick: the word is the
+ * control, and how loud it is is its state.
+ */
+.opt {
+  font-size: var(--name);
+  opacity: var(--off);
+  transition: opacity 120ms linear;
+}
+
+.opt.on { opacity: 1; }
+
+.dot {
+  font-size: var(--name);
+  opacity: var(--faint);
+}
+
+/* ---------------------------------------------------------------- motion */
 
 @media (prefers-reduced-motion: reduce) {
-  #display { transition: none; }
-  .clock.pop { animation: none; }
-
-  .hero .layer.walk-out {
-    transform: none;
-    opacity: 0;
-    transition: opacity 200ms linear, color 200ms linear;
-  }
-  .hero .layer.walk-out .arrow { opacity: 1; transition: none; }
-  .hero .layer.walk-in { transform: none; }
-  .hero .layer.walk-in.go { transform: none; transition: opacity 200ms linear; }
-
-  .swapping { transform: none; }
-  .swapping.go { transform: none; transition: opacity 200ms linear; }
-
-  .row.settling, .row.shifting, .row.landing { transition: none; }
-  .row.dragging { transition: none; }
-  .strip { transition: none; }
+  * { transition-duration: 0ms !important; }
 }

@@ -1,6 +1,6 @@
 /* sw.js — offline first. No signal at the pitch is the normal case. */
 
-const CACHE = 'rota-v10';
+const CACHE = 'rota-v11';
 
 const FILES = [
   './',
@@ -9,10 +9,15 @@ const FILES = [
   'app.js',
   'rotation.js',
   'sound.js',
-  'test.js',
   'manifest.webmanifest',
   'icon-180.png',
-  'icon-512.png'
+  'icon-512.png',
+  /* the design is set in Barlow. A pitch has no signal, so the faces have to
+     already be on the phone or the whole thing falls back to Arial Narrow. */
+  'fonts/barlow-600-latin.woff2',
+  'fonts/barlow-600-latin-ext.woff2',
+  'fonts/barlow-condensed-700-latin.woff2',
+  'fonts/barlow-condensed-700-latin-ext.woff2'
 ];
 
 self.addEventListener('install', (event) => {
