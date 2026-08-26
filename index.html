@@ -222,16 +222,28 @@
 </main>
 
 
-<!-- ================================================================= sheet -->
+<!-- ================================================================= modal -->
 <!--
-  One black bar, flush to the bottom edge, no radius and no shadow — the same
-  surface the Kick off bar is. It carries the two toggles a name has, and it
+  One black band, centred in the viewport and flush to the left and right
+  edges, no radius and no shadow. It carries the two toggles a name has, and it
   carries the one question this app asks.
+
+  A bar pinned to the bottom can lean on a tap outside to get out of it. A band
+  in the middle of the screen cannot — a tap outside is where the eye already
+  is, and nothing tells you it does anything. So the band carries the close,
+  on the title's own line, in the same 23px cross the squad list removes a name
+  with. The scrim still dismisses; the cross is in addition, not instead.
 -->
 <div class="sheet" id="sheet" hidden>
   <div class="scrim" id="scrim"></div>
-  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
-    <p class="eyebrow sheet-title" id="sheet-title"></p>
+  <div class="panel" id="panel" role="dialog" aria-modal="true"
+       aria-labelledby="sheet-title" tabindex="-1">
+    <div class="sheet-head">
+      <p class="eyebrow sheet-title" id="sheet-title"></p>
+      <button class="sheet-close" id="sheet-close" type="button" aria-label="Close">
+        <svg class="ic ic23" aria-hidden="true"><use href="#i-x"/></svg>
+      </button>
+    </div>
     <p class="sheet-opts" id="sheet-opts"></p>
   </div>
 </div>

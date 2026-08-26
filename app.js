@@ -2,7 +2,7 @@
  * app.js — the two screens around rotation.js.
  *
  * rotation.js holds the whole rota and nothing here recomputes any part of it.
- * This file owns the team select, the game screen, the sheet, the sounds, the
+ * This file owns the team select, the game screen, the modal, the sounds, the
  * voice, the wake lock and persistence.
  *
  * WHAT LEFT, AND WHY IT IS SMALLER
@@ -16,7 +16,7 @@
  *
  * WHAT A NAME CARRIES
  *
- * Two flags, both toggles, both set from the sheet:
+ * Two flags, both toggles, both set from the modal:
  *
  *   fixedGoalie   in goal all game, never on the bench. Everyone else still
  *                 rotates through the bench around them.
@@ -277,6 +277,8 @@ const el = {
   orders: [$('order-0'), $('order-1')],
   sheet: $('sheet'),
   scrim: $('scrim'),
+  panel: $('panel'),
+  sheetClose: $('sheet-close'),
   sheetTitle: $('sheet-title'),
   sheetOpts: $('sheet-opts'),
   faults: $('faults')
@@ -683,11 +685,22 @@ function renderNames(teamIndex) {
   parts.forEach((column, c) => {
     el.cols[teamIndex][c].innerHTML = column.map((player) => {
       const i = list.indexOf(player);
-      /* the same glove the game screen marks the next keeper with */
-      const mark = player.fixedGoalie ? icon('i-glove', 'ic12') : '';
+      /*
+       * One mark for both flags — a 23px block of ink with the glyph knocked
+       * out of it — because both say the same thing about the rotation and
+       * only then differ in which. The glove is the one the game screen marks
+       * the next keeper with. The name itself is never dimmed.
+       */
+      const flag = player.fixedGoalie ? ['i-glove', COPY.fixedGoalie]
+        : player.late ? ['i-watch', COPY.late]
+        : null;
+      const mark = flag
+        ? `<span class="flag">${icon(flag[0], 'ic16')}` +
+          `<span class="sr-only">${safe(flag[1])}</span></span>`
+        : '';
       return (
         `<div class="nrow">` +
-        `<button class="nm dsp ${player.late ? 'late' : ''}" type="button" ` +
+        `<button class="nm dsp" type="button" ` +
         `data-name="${i}" data-team="${teamIndex}">${safe(player.name)}</button>` +
         mark +
         `<button class="x" type="button" data-drop="${i}" data-team="${teamIndex}" ` +
@@ -798,19 +811,28 @@ el.again.addEventListener('click', () => {
 /* ================================================================ sheet */
 
 /*
- * One black bar for two jobs. It is opened with a title and a row of words,
- * each word its own control, and it closes on the scrim, on Escape and on
- * anything that acts.
+ * One black band for two jobs. It is opened with a title and a row of words,
+ * each word its own control, and it closes on the cross, on the scrim, on
+ * Escape and on anything that acts.
+ *
+ * `on` means the control is filled. A toggle sets it because it is on. The
+ * confirm sets it on `END` because that is the answer the question is asking
+ * for, and one filled control against one outlined one is the only way this
+ * palette can say which of two buttons is the primary.
  */
 function openSheet(title, options) {
   state.sheet = options;
   el.sheetTitle.textContent = title;
   el.sheetOpts.innerHTML = options.map((option, i) => (
-    (i > 0 ? `<span class="dot dsp" aria-hidden="true">&middot;</span>` : '') +
-    `<button class="opt dsp ${option.on ? 'on' : ''}" type="button" data-opt="${i}" ` +
-    `aria-pressed="${option.toggle ? String(Boolean(option.on)) : 'undefined'}">${safe(option.label)}</button>`
+    `<button class="opt${option.on ? ' on' : ''}" type="button" data-opt="${i}"` +
+    (option.toggle ? ` aria-pressed="${String(Boolean(option.on))}"` : '') +
+    `><span class="dsp">${safe(option.label)}</span></button>`
   )).join('');
   el.sheet.hidden = false;
+  /* the band is in the middle of the screen and nothing else on it is live, so
+     the reading order starts inside it. `preventScroll` because iOS will jump
+     the page to a thing it has just focused. */
+  try { el.panel.focus({ preventScroll: true }); } catch (error) { el.panel.focus(); }
 }
 
 function closeSheet() {
@@ -825,6 +847,7 @@ el.sheetOpts.addEventListener('click', (event) => {
   if (option && option.act) option.act();
 });
 
+el.sheetClose.addEventListener('click', closeSheet);
 el.scrim.addEventListener('click', closeSheet);
 
 document.addEventListener('keydown', (event) => {
@@ -835,11 +858,12 @@ document.addEventListener('keydown', (event) => {
  * A NAME CARRIES TWO FLAGS
  *
  *   KEVIN
- *   FIXED GOALIE · LATE
+ *   [FIXED GOALIE] [LATE]
  *
- * An eyebrow over a 32px line, 8px between them and 20px of padding round —
- * which is a settings cell, in white on black, left aligned. There is no
- * switch and no tick: the word is the control and how loud it is is its state.
+ * An eyebrow over a row of controls, 12px between them and 20px of padding
+ * round. There is still no switch and no tick — the word is the control — but
+ * the state is now the shape it sits in and not how loud it is: a white fill
+ * on, an outline off, and the one grey while a finger is on it.
  */
 function openPlayerSheet(teamIndex, index) {
   const player = draft.players[teamIndex][index];

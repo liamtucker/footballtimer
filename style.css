@@ -11,8 +11,12 @@
  * that matter: an eyebrow at 12px in Barlow SemiBold, and everything else in
  * Barlow Condensed Bold at 21, 28, 32, 50 or 150. No radius anywhere, no
  * shadow anywhere, one hairline at 10% and one at 20%. Black surfaces are
- * flush to an edge — the team chip to the right, the Kick off bar and the
- * sheet to the bottom — and nothing floats.
+ * flush to an edge — the team chip to the right, the Kick off bar to the
+ * bottom, the modal to the left and the right — and nothing floats.
+ *
+ * Where a control has a state, the state is a difference in kind and never a
+ * difference in strength: a fill against the ground means on, an outline means
+ * off, and the one grey means a finger is on it right now.
  *
  * WHY THE TYPE HAS NEGATIVE MARGINS
  *
@@ -368,14 +372,38 @@ input:focus { outline: none; }
 /*
  * A NAME SAYS WHAT IT CARRIES
  *
- * A fixed goalie takes the same glove the game screen puts beside whoever is
- * next in — the mark and its meaning are the one pair in this app, so it is
- * the same glyph in both places. Late is the opposite of a mark: the name goes
- * quiet, because late is a place at the back of the queue.
+ * Both flags are marked the same way, because they are the same fact — this
+ * name is not in the ordinary rotation — and only then do they differ in which
+ * one. The mark is a 23px block of ink with the glyph knocked out of it in
+ * white: the glove for a fixed goalie, the same one the game screen puts
+ * beside whoever is next in, and the clock for late. The glyph is 16px inside
+ * the 23px block, because at 12px in a block this size the drawing is a smudge
+ * and the block would say a name is flagged without saying which.
+ *
+ * It is the modal's ON state on the other ground. In the modal the surface is
+ * black, so on is a white fill; here the page is white, so on is a black fill.
+ * One rule on both surfaces: inverted against the ground means on.
+ *
+ * The old marking was a glove at 50% and, for late, the name itself at 30%.
+ * 30% ink on white composites to #b9b9b9 and is 1.96:1 — a name you cannot
+ * read is not a state, and telling two states apart by how loud they are only
+ * works when both are on the screen at once. The block is 17.93:1 and it is
+ * the loudest thing in a column of black-on-white names.
+ *
+ * The name itself is never dimmed now, so every name in the squad reads at
+ * full ink whatever it carries.
  */
-.nm.late { opacity: var(--faint); }
-
-.nrow .ic12 { opacity: var(--dim); }
+.flag {
+  flex: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  background: var(--ink);
+  color: var(--paper);
+}
 
 .x {
   position: relative;
@@ -705,11 +733,17 @@ input:focus { outline: none; }
   flex-direction: column;
 }
 
+/*
+ * The roster is the quiet half of this column and the marks are the loud half,
+ * so the 50% sits on the name and not on the row. A glove or a pair of arrows
+ * is the one thing in here anybody looks for, and at 50% on #fcfcfc a 12px
+ * glyph is 3.36:1. At full ink it is 17.47:1, and the list around it stays as
+ * quiet as the frame draws it.
+ */
 .orow {
   display: flex;
   align-items: center;
   gap: 8px;
-  opacity: var(--dim);
 }
 
 .orow .on {
@@ -721,18 +755,24 @@ input:focus { outline: none; }
   text-transform: uppercase;
   white-space: nowrap;
   overflow: hidden;
+  opacity: var(--dim);
 }
 
 /* the column keeps its 12px gutter whether a row is marked or not */
 .orow .ic12.blank { visibility: hidden; }
 
-/* ================================================================== sheet */
+/* ================================================================== modal */
 
 /*
  * One surface, two jobs: the two toggles a name carries, and the one question
- * this app asks. It is the Kick off bar in a different place — flush to the
- * bottom, full bleed, no radius, no shadow — and it is built from a settings
- * cell's own parts: an eyebrow, 8px, and a 32px line under it.
+ * this app asks. It is a black band centred in the viewport and flush to the
+ * left and right edges — full bleed, no radius, no shadow, which is what every
+ * other black surface in this app is. Centring it is the only change of
+ * position; the geometry is unchanged, and that is why it needs no border.
+ *
+ * The ground it sits on is the scrim at 50% ink, which composites to #8b8b8b
+ * over the page. The band is #171717 against it — 5.26:1 — so the surface is
+ * read before anything on it is.
  */
 .sheet {
   position: fixed;
@@ -740,7 +780,7 @@ input:focus { outline: none; }
   z-index: 20;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: center;
 }
 
 .scrim {
@@ -753,16 +793,42 @@ input:focus { outline: none; }
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
+  gap: 12px;
+  padding: 20px;
   background: var(--ink);
-  color: #fff;
+  color: var(--paper);
+}
+
+.panel:focus { outline: none; }
+
+/*
+ * The title and the way out are one line, not two elements. The cross is
+ * trimmed to the eyebrow's 14.4px line the same way the display type is
+ * trimmed to its cap height — (14.4 - 23) / 2 — so the 23px drawing overhangs
+ * the row instead of setting its height, and the 20px padding stays true.
+ */
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .sheet-title {
   opacity: var(--dim);
   letter-spacing: 1.2px;
 }
+
+.sheet-close {
+  position: relative;
+  flex: none;
+  padding: 4px;
+  margin: -8.3px -4px;
+  transition: background-color 120ms linear;
+}
+
+/* 23px is the drawing. 43px is the thumb. */
+.sheet-close::after { content: ''; position: absolute; inset: -6px; }
 
 .sheet-opts {
   display: flex;
@@ -772,22 +838,71 @@ input:focus { outline: none; }
 }
 
 /*
- * A toggle is on at full ink and off at the same 45% the Kick off button uses
- * when it cannot be pressed. There is no switch and no tick: the word is the
- * control, and how loud it is is its state.
+ * ON IS A DIFFERENCE IN KIND, NOT IN STRENGTH
+ *
+ * The old toggle was full ink on and 45% off. That is one word twice at two
+ * volumes, and you can only read it by comparing it with the other one. This
+ * is the same word in two different shapes:
+ *
+ *   on   a white block with the word cut out of it        17.93:1
+ *   off  the black ground with a white rule round it      17.93:1
+ *
+ * Both are white-on-black or black-on-white at full ink, so neither is faint
+ * and neither depends on the other being on the screen. The geometry is
+ * identical in both states — 2px of rule either way — so nothing moves when
+ * one is pressed.
+ *
+ * The rule is the same on both surfaces of the app: inverted against the
+ * ground means on. In here the ground is black, so on is a white fill. In the
+ * squad list the ground is white, so on is a black fill.
+ *
+ * 12px from every outer edge to the cap: 2px of rule and 10px of padding, on
+ * all four sides. 46.4px tall, which clears the 44px thumb.
  */
 .opt {
-  font-size: var(--name);
-  opacity: var(--off);
-  transition: opacity 120ms linear;
+  display: inline-flex;
+  align-items: center;
+  border: 2px solid var(--paper);
+  padding: 10px;
+  color: var(--paper);
+  background: transparent;
+  transition: background-color 120ms linear, color 120ms linear;
 }
 
-.opt.on { opacity: 1; }
-
-.dot {
+/*
+ * The display face carries a -.5px track, and CSS takes that half pixel off
+ * after the last character where the padding then starts. Given back, so the
+ * word sits 10px from both rules and not 10 and 9.5.
+ */
+.opt > .dsp {
   font-size: var(--name);
-  opacity: var(--faint);
+  margin-right: .5px;
 }
+
+.opt.on {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/*
+ * PRESSED IS THE THIRD SHAPE, AND IT IS THE ONE GREY
+ *
+ * Selected and pressed are two different facts, so they cannot be the same
+ * picture. Pressed is the app's one grey filling the control, white on
+ * #444444 at 9.74:1 — the same pairing the countdown block uses. It is neither
+ * the white fill nor the empty outline, it reads the same whichever state is
+ * underneath it, and it is instant, because a press that fades is a press that
+ * did not land.
+ */
+.opt:active,
+.opt.on:active {
+  background: var(--grey);
+  border-color: var(--grey);
+  color: var(--paper);
+  transition: none;
+}
+
+.sheet-close:active { background: var(--grey); transition: none; }
 
 /* ---------------------------------------------------------------- motion */
 

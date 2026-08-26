@@ -49,15 +49,15 @@ touched.
 
 ## State
 
-**Done.** v7. The interface is rebuilt from Figma node `78:655` — three frames,
+**Done.** v8. The interface is rebuilt from Figma node `78:655` — three frames,
 every value read out of the file. The engine passes 122 assertions. Service
-worker cache `rota-v11`.
+worker cache `rota-v12`.
 
 **The design is black, white and one grey.** `#171717`, `#ffffff`, `#444444`.
 Hairlines are `#171717` at 10% between blocks and at 20% between settings
 cells. No radius anywhere and no shadow anywhere. Black surfaces are flush to
-an edge — the team chip to the right, the Kick off bar and the sheet to the
-bottom. Type is Barlow Condensed Bold at 21, 28, 32, 50 and 150, over a Barlow
+an edge — the team chip to the right, the Kick off bar to the bottom, the modal
+to the left and the right. Type is Barlow Condensed Bold at 21, 28, 32, 50 and 150, over a Barlow
 SemiBold eyebrow at 12/14.4 whose track changes by role: 0.48px in the squad
 column, 0.72px on `NEXT ROTATION:`, 0.96px on a section label, 1.2px on a chip
 and a settings label.
@@ -87,22 +87,58 @@ state arriving — it is the thing the block has been saying for ten minutes,
 arriving at zero. Before kick-off the label reads `KICK OFF IN:` and the
 lineups are already on the screen, so the draw is visible before the horn.
 
-**A name carries two flags and the sheet is where they are set.** Tapping a
-name opens a black bar flush to the bottom, 20px of padding and 8px between an
-eyebrow and a 32px line — a settings cell, in white on black:
+**A name carries two flags and the modal is where they are set.** Tapping a
+name opens a black band centred in the viewport and flush to the left and right
+edges — full bleed, no radius, no shadow, 20px of padding, 112.8px tall:
 
 ```
-KEVIN
-FIXED GOALIE · LATE
+KEVIN                                    ×
+[ FIXED GOALIE ]  [ LATE ]
 ```
 
-There is no switch and no tick. The word is the control and how loud it is is
-its state: full ink on, 45% off, which is the same 45% the Kick off button uses
-when it cannot be pressed. A fixed goalie carries the glove in the squad list,
-the same glyph the game screen puts beside whoever is next in. A late player
-goes quiet at 30%, because late is a place at the back of the queue. The same
-bar asks the one question this app asks — `END THE GAME?` — so there is one
-modal surface and not two.
+There is still no switch and no tick. The word is the control. What changed is
+that the state is now the shape the word sits in and not how loud the word is.
+The same band asks the one question this app asks — `END THE GAME?`, with `END`
+filled and `KEEP PLAYING` outlined — so there is one modal surface and not two.
+
+**A bar at the bottom can lean on a tap outside. A band in the middle cannot.**
+A tap outside is where the eye already is and nothing on the screen says it
+does anything, so the band carries an explicit close: the same 23px cross the
+squad list removes a name with, on the title's own line, trimmed to the
+eyebrow's 14.4px so the 20px padding stays true. The scrim and Escape still
+dismiss; the cross is in addition and not instead.
+
+**On and off are a difference in kind, not a difference in strength.** The old
+toggle was full ink on and 45% off — one word twice at two volumes, which you
+can only read by comparing it with the other one. Now:
+
+| | fill | rule | word | ratio |
+|---|---|---|---|---|
+| on | white | white | `#171717` | 17.93:1 |
+| off | none | white 2px | white | 17.93:1 |
+| pressed | `#444444` | `#444444` | white | 9.74:1 |
+
+Neither state is faint and neither needs the other on the screen to be read.
+The geometry is identical in both — 2px of rule either way — so nothing moves
+when one is pressed, and 12px from every outer edge to the cap puts the control
+at 46.4px, over the 44px thumb. Pressed is the third shape and it is instant:
+selected and pressed are two different facts, so they cannot be the same
+picture, and a press that fades is a press that did not land.
+
+**One rule on both surfaces: inverted against the ground means on.** In the
+modal the ground is black, so on is a white fill. In the squad list the page is
+white, so on is a block of ink — 23px, with the glyph knocked out of it at
+16px. The glove for a fixed goalie, the same one the game screen puts beside
+whoever is next in; the clock for late. Both flags are marked the same way
+because they are the same fact about the rotation and only then differ in which
+one. The name itself is never dimmed now. The mark it replaced was a glove at
+50% and, for late, the name at 30% — which composites to `#b9b9b9` and is
+1.96:1. A name you cannot read is not a state.
+
+**The 50% on the game screen's squad column moved from the row to the name.**
+The roster is the quiet half of that column and the marks are the loud half. A
+12px glove at 50% on `#fcfcfc` is 3.36:1; at full ink it is 17.47:1, and the
+list around it stays exactly as quiet as the frame draws it.
 
 **One sub is set at the keeper's size.** Two names at 32 is a list and a list
 wants the smaller size. One name is not a list, it is a second answer, so it
@@ -182,4 +218,5 @@ nothing is written to `localStorage`.
   in and a seed is the only way to repeat it.
 - `&count=0` — skip the kick-off countdown. `&auto=1` — kick off on load
 - `window.rota.setElapsed(ms)`, `.rate(n)`, `.view()`, `.sheet(team, index)`,
-  `.heard`, `.engine`, `.rotation`, `.state`, `.draft`, `.tick`
+  `.heard`, `.engine`, `.rotation`, `.state`, `.draft`, `.tick`. `.sheet` is
+  still called `sheet`; it opens the modal.
