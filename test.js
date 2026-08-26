@@ -10,12 +10,16 @@ import {
   changeIndexAt,
   subCountFor,
   legalStartKeepers,
-  isLegalStartKeeper,
-  nearestLegalStartKeeper,
-  setStartKeeper,
   kickOff,
   addLateArrival,
   removePlayer,
+  setLate,
+  setFixedGoalie,
+  fixedGoalieOf,
+  cycle,
+  cycleGameType,
+  cycleRotations,
+  cycleGameMinutes,
   rotationsOf,
   squadSizeOf,
   derivedIntervalMs,
@@ -29,6 +33,9 @@ import {
   DEFAULT_ROTATIONS,
   MIN_ROTATIONS,
   MAX_ROTATIONS,
+  MIN_GAME_MINUTES,
+  MAX_GAME_MINUTES,
+  GAME_MINUTES_STEP,
   INTERVAL_GRAIN_MS,
   MIN_INTERVAL_MS
 } from './rotation.js';
@@ -75,9 +82,20 @@ const NAMES = [
   'Iris', 'Jo', 'Kai', 'Lena', 'Mo', 'Nia', 'Otto', 'Pia', 'Rey', 'Sky'
 ];
 
-/** Names in the order a person dragged them. Deliberately not alphabetical. */
+/** Names in the order they were typed. Deliberately not alphabetical. */
 function squad(size) {
   return NAMES.slice(0, size);
+}
+
+/** The same names, carrying flags at the given entry positions. */
+function flagged(size, flags = {}) {
+  const fixed = flags.fixedGoalie ?? [];
+  const late = flags.late ?? [];
+  return squad(size).map((name, i) => ({
+    name,
+    fixedGoalie: fixed.includes(i),
+    late: late.includes(i)
+  }));
 }
 
 function setupOf(sizeA, sizeB, options = {}) {
@@ -130,6 +148,22 @@ function withRawStart(setup, teamIndex, keeperIndex) {
   return { ...setup, teams };
 }
 
+/** The same anchor kickOff writes, without the draw. Enumerates legal starts. */
+const withStart = withRawStart;
+
+/** Flip a raw flag on a stored setup, the way a careless interface might. */
+function withFlag(setup, teamIndex, index, flag, value) {
+  const teams = setup.teams.map((team, t) => {
+    if (t !== teamIndex) return team;
+    return { ...team, players: team.players.map((p, i) => (i === index ? { ...p, [flag]: value } : p)) };
+  });
+  return { ...setup, teams };
+}
+
+function namesOf(players) {
+  return players.map((player) => player.name);
+}
+
 /** A repeatable stand-in for Math.random. Spread matters — the draw is tested. */
 function dice(seed) {
   let s = ((seed + 1) * 2654435761) >>> 0;
@@ -146,8 +180,18 @@ function roll(value) {
   return () => value;
 }
 
-/** The two hard rules, plus the roles adding up, over a run of changes. */
+/**
+ * The five invariants, over a run of changes.
+ *
+ *   1  the keeper is never also a sub
+ *   2  nobody goes goal -> bench
+ *   3  nobody goes bench -> goal
+ *   4  the three roles partition the squad exactly
+ *   5  the counts are right: subCount on the bench, the rest of gameType on
+ *      the pitch
+ */
 function checkRules(setup, teamIndex, changes, label) {
+  const g = setup.gameType;
   for (let k = 0; k <= changes; k += 1) {
     const team = stateAt(setup, teamIndex, k);
     const here = `${label} change ${k}`;
@@ -155,19 +199,19 @@ function checkRules(setup, teamIndex, changes, label) {
 
     const subs = new Set(ids(team.subs));
     const next = new Set(ids(team.nextSubs));
+    const n = team.order.length;
 
-    ok(!subs.has(team.keeper.id), `${here}: the keeper is also a sub`);
-    ok(!next.has(team.keeper.id), `${here}: ${team.keeper.name} comes out of goal and sits down`);
-    ok(!subs.has(team.nextKeeper.id), `${here}: ${team.nextKeeper.name} goes from the bench into goal`);
+    ok(!subs.has(team.keeper.id), `${here}: 1 — the keeper is also a sub`);
+    ok(!next.has(team.keeper.id), `${here}: 2 — ${team.keeper.name} comes out of goal and sits down`);
+    ok(!subs.has(team.nextKeeper.id), `${here}: 3 — ${team.nextKeeper.name} goes from the bench into goal`);
 
-    eq(subs.size, team.subs.length, `${here}: the subs are not distinct`);
-    eq(
-      team.subs.length + team.onPitch.length + 1,
-      team.order.length,
-      `${here}: the roles do not add up`
-    );
+    eq(subs.size, team.subs.length, `${here}: 4 — the subs are not distinct`);
+    eq(team.subs.length + team.onPitch.length + 1, n, `${here}: 4 — the roles do not add up`);
     const seen = new Set([team.keeper.id, ...ids(team.subs), ...ids(team.onPitch)]);
-    eq(seen.size, team.order.length, `${here}: a player holds two roles at once`);
+    eq(seen.size, n, `${here}: 4 — a player holds two roles at once`);
+
+    eq(team.subs.length, Math.max(0, n - g), `${here}: 5 — the bench is the wrong size`);
+    eq(team.onPitch.length + 1, Math.min(n, g), `${here}: 5 — the pitch is the wrong size`);
   }
 }
 
@@ -203,6 +247,80 @@ test('blank names drop out and ids are stable', () => {
 
 test('a fresh setup has no starting keeper until kick-off', () => {
   eq(setupOf(8, 8).teams[0].anchor, null);
+});
+
+test('a player carries both flags, and both default to false', () => {
+  const setup = setupOf(0, 0, { playersA: flagged(4, { fixedGoalie: [1], late: [3] }) });
+  same(setup.teams[0].players[0], { id: 't0p0', name: 'Zoe', fixedGoalie: false, late: false });
+  same(setup.teams[0].players[1], { id: 't0p1', name: 'Alex', fixedGoalie: true, late: false });
+  same(setup.teams[0].players[3], { id: 't0p3', name: 'Ben', fixedGoalie: false, late: true });
+  same(fixedGoalieOf(setup, 0), { id: 't0p1', name: 'Alex', fixedGoalie: true, late: false });
+  eq(fixedGoalieOf(setupOf(6, 6), 0), null, 'a team with no goalie named');
+});
+
+test('a plain name and a flagless object build the same player', () => {
+  same(setupOf(0, 0, { playersA: ['Zoe'] }), setupOf(0, 0, { playersA: [{ name: 'Zoe' }] }));
+});
+
+test('createSetup never stores two fixed goalies — the first in the list wins', () => {
+  const setup = setupOf(0, 0, { playersA: flagged(6, { fixedGoalie: [2, 4] }) });
+  same(ids(setup.teams[0].players.filter((player) => player.fixedGoalie)), ['t0p2']);
+});
+
+/* ------------------------------------------------------- the settings cycle */
+
+console.log('\nthe settings cycle');
+
+test('the three settings cycle one place and wrap from the top', () => {
+  eq(cycleGameType(MIN_GAME_TYPE), 5);
+  eq(cycleGameType(MAX_GAME_TYPE), MIN_GAME_TYPE, 'game type wraps');
+  eq(cycleRotations(MIN_ROTATIONS), 2);
+  eq(cycleRotations(MAX_ROTATIONS), MIN_ROTATIONS, 'rotations wraps');
+  eq(cycleGameMinutes(MIN_GAME_MINUTES), MIN_GAME_MINUTES + GAME_MINUTES_STEP);
+  eq(cycleGameMinutes(DEFAULT_GAME_MINUTES), 135, 'two hours steps to 2:15');
+  eq(cycleGameMinutes(MAX_GAME_MINUTES), MIN_GAME_MINUTES, 'game time wraps');
+  eq(cycle('gameType', MAX_GAME_TYPE), cycleGameType(MAX_GAME_TYPE), 'one helper or three');
+});
+
+test('a cycle visits every value once and comes back to the start', () => {
+  const kinds = [
+    ['gameType', MIN_GAME_TYPE, MAX_GAME_TYPE, 1],
+    ['rotations', MIN_ROTATIONS, MAX_ROTATIONS, 1],
+    ['gameMinutes', MIN_GAME_MINUTES, MAX_GAME_MINUTES, GAME_MINUTES_STEP]
+  ];
+  for (const [kind, min, max, step] of kinds) {
+    const places = Math.floor((max - min) / step) + 1;
+    const seen = [];
+    let value = min;
+    for (let i = 0; i < places; i += 1) {
+      ok(value >= min && value <= max && (value - min) % step === 0, `${kind}: ${value} is off the grid`);
+      seen.push(value);
+      value = cycle(kind, value);
+    }
+    eq(value, min, `${kind} did not wrap back to the bottom`);
+    eq(new Set(seen).size, places, `${kind} repeated a value`);
+    eq(seen[places - 1], max, `${kind} never reached the top`);
+  }
+});
+
+test('a cycle clamps a value off the grid, and leaves a setting it does not own alone', () => {
+  eq(cycle('gameType', 99), MIN_GAME_TYPE, 'clamped to the top, then wrapped');
+  eq(cycle('gameType', 0), 5, 'clamped to the bottom, then stepped');
+  eq(cycle('gameMinutes', 0), MIN_GAME_MINUTES + GAME_MINUTES_STEP);
+  eq(cycle('gameMinutes', 1000), MIN_GAME_MINUTES);
+  eq(cycle('gameMinutes', 37), 45, 'off the 15-minute grid');
+  eq(cycle('gameType', 'six'), DEFAULT_GAME_TYPE, 'not a number gives the default');
+  eq(cycle('rotations', undefined), DEFAULT_ROTATIONS);
+  eq(cycle('gameMinutes', NaN), DEFAULT_GAME_MINUTES);
+  eq(cycle('subMinutes', 4), 4, 'a setting this module does not own');
+});
+
+test('the cycled defaults are inside their own ranges', () => {
+  ok(DEFAULT_GAME_TYPE >= MIN_GAME_TYPE && DEFAULT_GAME_TYPE <= MAX_GAME_TYPE);
+  ok(DEFAULT_ROTATIONS >= MIN_ROTATIONS && DEFAULT_ROTATIONS <= MAX_ROTATIONS);
+  ok(DEFAULT_GAME_MINUTES >= MIN_GAME_MINUTES && DEFAULT_GAME_MINUTES <= MAX_GAME_MINUTES);
+  eq((DEFAULT_GAME_MINUTES - MIN_GAME_MINUTES) % GAME_MINUTES_STEP, 0);
+  eq(createSetup({ gameMinutes: 180, teams: [] }).gameMinutes, 180, 'a stored setup is data, not a tap');
 });
 
 /* ---------------------------------------------------------- the interval */
@@ -432,17 +550,20 @@ test('subCount is squad minus gameType, floor 0', () => {
   }
 });
 
-test('at change 0 the subs are exactly the players below the dividing line', () => {
+test('at change 0 the bench is the tail of the drawn ring, and the pitch its head', () => {
   for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
     for (let n = g; n <= g + 5; n += 1) {
       const setup = kickOff(setupOf(n, n, { gameType: g }), dice(n * 31 + g));
       const team = stateAt(setup, 0, 0);
-      same(team.subIndexes, [...Array(n - g).keys()].map((j) => g + j), `${g} a side, squad ${n}`);
+      const where = `${g} a side, squad ${n}`;
+      same(team.subIndexes, [...Array(n - g).keys()].map((j) => g + j), where);
+      same(namesOf(team.subs), namesOf(setup.teams[0].players).slice(g), where);
       same(
-        team.subs.map((player) => player.name),
-        squad(n).slice(g),
-        `${g} a side, squad ${n}`
+        [team.keeperIndex, ...team.onPitchIndexes].sort((a, b) => a - b),
+        [...Array(g).keys()],
+        `${where}: the head of the ring is the pitch`
       );
+      same(namesOf(team.order), namesOf(setup.teams[0].players), `${where}: order is the stored ring`);
     }
   }
 });
@@ -478,29 +599,13 @@ test('the legal starts are 1 .. gameType - 2', () => {
   }
 });
 
-test('the two ends of the line-up and every sub are refused', () => {
-  const setup = setupOf(9, 9, { gameType: 6 });
-  eq(isLegalStartKeeper(setup, 0, 0), false, 'the first name');
-  eq(isLegalStartKeeper(setup, 0, 5), false, 'the last name above the line');
-  eq(isLegalStartKeeper(setup, 0, 6), false, 'a sub');
-  eq(isLegalStartKeeper(setup, 0, 8), false, 'the last sub');
-  for (let i = 1; i <= 4; i += 1) eq(isLegalStartKeeper(setup, 0, i), true, `index ${i}`);
-});
-
-test('an illegal tap has a nearest legal name', () => {
-  const setup = setupOf(9, 9, { gameType: 6 });
-  eq(nearestLegalStartKeeper(setup, 0, 0), 1);
-  eq(nearestLegalStartKeeper(setup, 0, 5), 4);
-  eq(nearestLegalStartKeeper(setup, 0, 8), 4);
-  eq(nearestLegalStartKeeper(setup, 0, 3), 3, 'a legal tap does not move');
-});
-
-test('setStartKeeper stores the tap, and moves an illegal one', () => {
-  const setup = setupOf(9, 9, { gameType: 6 });
-  eq(stateAt(setStartKeeper(setup, 0, 3), 0, 0).keeperIndex, 3);
-  eq(stateAt(setStartKeeper(setup, 0, 0), 0, 0).keeperIndex, 1);
-  eq(stateAt(setStartKeeper(setup, 0, 7), 0, 0).keeperIndex, 4);
-  same(setStartKeeper(setup, 0, 3).teams[1], setup.teams[1], 'the other team is untouched');
+test('the two ends of the line-up and every sub are outside the window', () => {
+  const legal = new Set(legalStartKeepers(setupOf(9, 9, { gameType: 6 }), 0));
+  ok(!legal.has(0), 'the first name');
+  ok(!legal.has(5), 'the last name above the line');
+  ok(!legal.has(6), 'a sub');
+  ok(!legal.has(8), 'the last sub');
+  for (let i = 1; i <= 4; i += 1) ok(legal.has(i), `index ${i}`);
 });
 
 test('kickOff draws from the legal starts only, and covers all of them', () => {
@@ -525,11 +630,10 @@ test('the draw is written down, so the same setup always gives the same answer',
   for (const ms of [0, 600000, 5400000]) same(rotation(restored, ms), rotation(kicked, ms), `elapsed ${ms}`);
 });
 
-test('kickOff is idempotent and never overrides a tap', () => {
-  const tapped = setStartKeeper(setupOf(8, 8), 0, 2);
-  const kicked = kickOff(tapped, dice(5));
-  eq(kicked.teams[0].anchor.keeperIndex, 2, 'the tap survives');
+test('kickOff is idempotent — a second one redraws nothing', () => {
+  const kicked = kickOff(setupOf(8, 8), dice(5));
   same(kickOff(kicked, dice(9)), kicked, 'a second kick-off changes nothing');
+  same(namesOf(kickOff(kicked, dice(9)).teams[0].players), namesOf(kicked.teams[0].players), 'the ring holds');
 });
 
 test('the two teams draw separately', () => {
@@ -547,6 +651,78 @@ test('a preview before kick-off is legal and deterministic', () => {
   checkRules(setup, 0, 27, 'no anchor yet');
 });
 
+/* ----------------------------------------------------------- the draw */
+
+console.log('\nthe draw');
+
+test('the draw lands on a legal start — every game type, every squad, many seeds', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g; n <= g + 5; n += 1) {
+      const base = setupOf(n, n, { gameType: g });
+      const legal = legalStartKeepers(base, 0);
+      for (let seed = 0; seed < 120; seed += 1) {
+        const kicked = kickOff(base, dice(seed * 17 + g * 131 + n));
+        for (let t = 0; t < 2; t += 1) {
+          const index = kicked.teams[t].anchor.keeperIndex;
+          ok(legal.includes(index), `${g} a side, squad ${n}, seed ${seed}: illegal start ${index}`);
+        }
+      }
+    }
+  }
+});
+
+test('the five invariants hold for three laps off a drawn start — every game type and squad', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g; n <= g + 5; n += 1) {
+      for (let seed = 0; seed < 6; seed += 1) {
+        const setup = kickOff(setupOf(n, n, { gameType: g }), dice(seed * 101 + g * 7 + n));
+        const where = `${g} a side, squad ${n}, seed ${seed}`;
+        checkRules(setup, 0, 3 * n, where);
+        checkRules(setup, 1, 3 * n, `${where}, other team`);
+      }
+    }
+  }
+});
+
+test('the ring is drawn, not typed — entry order decides nothing', () => {
+  const base = setupOf(10, 10);
+  const typed = namesOf(base.teams[0].players).join(',');
+  const rings = new Set();
+  let asTyped = 0;
+  for (let seed = 0; seed < 300; seed += 1) {
+    const ring = namesOf(kickOff(base, dice(seed)).teams[0].players).join(',');
+    rings.add(ring);
+    if (ring === typed) asTyped += 1;
+  }
+  ok(rings.size > 250, `the shuffle produced only ${rings.size} rings from 300 draws`);
+  ok(asTyped <= 1, `the typed order came back ${asTyped} times`);
+});
+
+test('who starts on the pitch is drawn, and anybody can be the first keeper', () => {
+  const base = setupOf(10, 10, { gameType: 6 });
+  const lineUps = new Set();
+  const keepers = new Set();
+  for (let seed = 0; seed < 300; seed += 1) {
+    const team = stateAt(kickOff(base, dice(seed)), 0, 0);
+    lineUps.add(namesOf([team.keeper, ...team.onPitch]).sort().join(','));
+    keepers.add(team.keeper.name);
+  }
+  ok(lineUps.size > 100, `only ${lineUps.size} starting line-ups in 300 draws`);
+  eq(keepers.size, 10, 'some player can never start in goal');
+});
+
+test('the drawn keeper is on the pitch, and the drawn bench is the rest', () => {
+  for (let seed = 0; seed < 60; seed += 1) {
+    const setup = kickOff(setupOf(9, 7, { gameType: 6 }), dice(seed + 900));
+    for (let t = 0; t < 2; t += 1) {
+      const team = stateAt(setup, t, 0);
+      ok(!ids(team.subs).includes(team.keeper.id), `seed ${seed}, team ${t}`);
+      eq(team.onPitch.length + 1, Math.min(team.order.length, 6));
+      eq(team.subs.length + team.onPitch.length + 1, team.order.length);
+    }
+  }
+});
+
 /* --------------------------------------------------------- the two rules */
 
 console.log('\nthe two hard rules');
@@ -556,7 +732,7 @@ test('no player goes goal to bench or bench to goal — every game type, squad a
     for (let n = g; n <= g + 5; n += 1) {
       const base = setupOf(n, n, { gameType: g });
       for (const start of legalStartKeepers(base, 0)) {
-        checkRules(setStartKeeper(base, 0, start), 0, 3 * n, `${g} a side, squad ${n}, start ${start}`);
+        checkRules(withStart(base, 0, start), 0, 3 * n, `${g} a side, squad ${n}, start ${start}`);
       }
     }
   }
@@ -1017,6 +1193,345 @@ test('a late arrival and a removal work together', () => {
   checkRules(gone, 0, 21, 'one in, one out');
 });
 
+/* -------------------------------------------------------- a fixed goalie */
+
+console.log('\na fixed goalie');
+
+test('a fixed goalie is in goal at every change and never on the bench', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g; n <= g + 5; n += 1) {
+      const setup = kickOff(
+        setupOf(n, n, { gameType: g, playersA: flagged(n, { fixedGoalie: [n - 2] }) }),
+        dice(n * 13 + g)
+      );
+      const goalie = fixedGoalieOf(setup, 0);
+      const where = `${g} a side, squad ${n}`;
+      eq(goalie.name, NAMES[n - 2], where);
+      eq(setup.teams[0].players[0].id, goalie.id, `${where}: the goalie heads the ring`);
+
+      for (let k = 0; k < 3 * n; k += 1) {
+        const team = stateAt(setup, 0, k);
+        eq(team.keeper.id, goalie.id, `${where}, change ${k}: somebody else is in goal`);
+        eq(team.nextKeeper.id, goalie.id, `${where}, change ${k}: the goal changes hands`);
+        ok(!ids(team.subs).includes(goalie.id), `${where}, change ${k}: the goalie is a sub`);
+        ok(!ids(team.nextSubs).includes(goalie.id), `${where}, change ${k}: the goalie sits next`);
+        ok(!ids(team.onPitch).includes(goalie.id), `${where}, change ${k}: two roles at once`);
+        ok(team.hasFixedGoalie, where);
+        eq(team.fixedGoalie.id, goalie.id, where);
+        eq(team.fixedGoalieIndex, team.keeperIndex, where);
+      }
+      /* the two hard rules are trivial here, but asserted rather than assumed */
+      checkRules(setup, 0, 3 * n, where);
+      ok(!rotation(setup, 0).teams[1].hasFixedGoalie, `${where}: the other team caught the flag`);
+    }
+  }
+});
+
+test('everyone but the fixed goalie still cycles the bench, evenly', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g + 1; n <= g + 5; n += 1) {
+      const setup = kickOff(
+        setupOf(n, n, { gameType: g, playersA: flagged(n, { fixedGoalie: [0] }) }),
+        dice(n * 5 + g)
+      );
+      const goalie = fixedGoalieOf(setup, 0);
+      const bench = new Map();
+      for (const player of setup.teams[0].players) {
+        if (player.id !== goalie.id) bench.set(player.id, 0);
+      }
+      /* one lap of the bench ring is N-1 changes, not N — the goalie is not in it */
+      for (let k = 0; k < n - 1; k += 1) {
+        for (const sub of stateAt(setup, 0, k).subs) bench.set(sub.id, bench.get(sub.id) + 1);
+      }
+      eq(bench.size, n - 1, `${g} a side, squad ${n}`);
+      for (const count of bench.values()) {
+        eq(count, n - g, `${g} a side, squad ${n}: uneven bench shifts`);
+      }
+    }
+  }
+});
+
+test('the bench pointer still moves one place a change, and the arrows still point', () => {
+  const setup = kickOff(setupOf(9, 9, { playersA: flagged(9, { fixedGoalie: [3] }) }), dice(64));
+  for (let k = 0; k < 18; k += 1) {
+    const team = stateAt(setup, 0, k);
+    eq(team.comingOn.length, 1, `change ${k}`);
+    eq(team.goingOff.length, 1, `change ${k}`);
+    same(team.comingOn[0], team.subs[0], `change ${k}: comingOn is the front of the bench`);
+    same(team.goingOff[0], team.nextSubs[team.nextSubs.length - 1], `change ${k}`);
+    ok(team.comingOn[0].id !== team.keeper.id, `change ${k}: the goalie came on`);
+    ok(team.goingOff[0].id !== team.keeper.id, `change ${k}: the goalie went off`);
+  }
+});
+
+test('a fixed goalie on a team with no bench simply stands in goal', () => {
+  const setup = kickOff(setupOf(6, 6, { playersA: flagged(6, { fixedGoalie: [4] }) }), dice(65));
+  const goalie = fixedGoalieOf(setup, 0);
+  for (let k = 0; k < 12; k += 1) {
+    const team = stateAt(setup, 0, k);
+    eq(team.keeper.id, goalie.id, `change ${k}`);
+    eq(team.subs.length, 0);
+    eq(team.onPitch.length, 5);
+  }
+});
+
+test('a team of one fixed goalie does not crash the engine', () => {
+  const setup = kickOff(setupOf(1, 6, { playersA: flagged(1, { fixedGoalie: [0] }) }), dice(66));
+  const team = stateAt(setup, 0, 4);
+  eq(team.keeper.name, 'Zoe');
+  eq(team.subs.length, 0);
+  eq(team.onPitch.length, 0);
+  eq(team.nextKeeper.name, 'Zoe');
+});
+
+test('two fixed goalies: the first in the list wins, and the next write clears the other', () => {
+  const kicked = kickOff(setupOf(9, 9, { playersA: flagged(9, { fixedGoalie: [3] }) }), dice(67));
+  const first = kicked.teams[0].players[0];
+  const two = withFlag(kicked, 0, 5, 'fixedGoalie', true);
+  eq(two.teams[0].players.filter((player) => player.fixedGoalie).length, 2, 'the setup really holds two');
+  eq(stateAt(two, 0, 0).keeper.id, first.id, 'the first flagged is the goalie');
+  eq(stateAt(two, 0, 7).keeper.id, first.id, 'and stays the goalie');
+  checkRules(two, 0, 27, 'two flags set');
+
+  const written = addLateArrival(two, 0, 'Wren', 3 * computeIntervalMs(two));
+  eq(written.teams[0].players.filter((player) => player.fixedGoalie).length, 1, 'the write cleared the second');
+  eq(fixedGoalieOf(written, 0).id, first.id);
+});
+
+test('a raw fixedGoalie flip is read live, and is still legal', () => {
+  const setup = kickOff(setupOf(9, 9), dice(77));
+  const flipped = withFlag(setup, 0, 4, 'fixedGoalie', true);
+  const chosen = setup.teams[0].players[4];
+  ok(rotation(flipped, 0).teams[0].hasFixedGoalie);
+  for (let k = 0; k < 20; k += 1) eq(stateAt(flipped, 0, k).keeper.id, chosen.id, `change ${k}`);
+  checkRules(flipped, 0, 27, 'a raw fixedGoalie flip');
+});
+
+test('a late arrival joins a fixed goalie team at the front of the bench', () => {
+  const setup = kickOff(setupOf(9, 9, { playersA: flagged(9, { fixedGoalie: [2] }) }), dice(68));
+  const at = 2 * computeIntervalMs(setup) + 500;
+  const was = rotation(setup, at).teams[0];
+  const after = addLateArrival(setup, 0, 'Wren', at);
+  const now = rotation(after, at).teams[0];
+
+  eq(now.keeper.id, was.keeper.id, 'the goalie does not move');
+  same(ids(now.onPitch), ids(was.onPitch), 'nobody on the pitch is disturbed');
+  eq(now.subs.length, was.subs.length + 1);
+  eq(now.subs[0].name, 'Wren');
+  eq(now.comingOn[0].name, 'Wren');
+  ok(now.hasFixedGoalie);
+  checkRules(after, 0, 30, 'a late arrival behind a fixed goalie');
+});
+
+test('a full fixed goalie team gains a bench and the newcomer sits on it', () => {
+  const setup = kickOff(setupOf(6, 6, { playersA: flagged(6, { fixedGoalie: [1] }) }), dice(69));
+  const at = 3 * computeIntervalMs(setup) + 5;
+  const was = rotation(setup, at).teams[0];
+  const now = rotation(addLateArrival(setup, 0, 'Wren', at), at).teams[0];
+  eq(was.subCount, 0);
+  eq(now.subCount, 1);
+  eq(now.subs[0].name, 'Wren');
+  eq(now.keeper.id, was.keeper.id);
+  same(ids(now.onPitch), ids(was.onPitch));
+});
+
+test('removing anyone else from a fixed goalie team leaves the goalie in goal', () => {
+  const setup = kickOff(setupOf(10, 9, { playersA: flagged(10, { fixedGoalie: [6] }) }), dice(70));
+  const interval = computeIntervalMs(setup);
+  const goalie = fixedGoalieOf(setup, 0);
+  for (let k = 0; k < 6; k += 1) {
+    const at = k * interval + 200;
+    for (const player of setup.teams[0].players) {
+      if (player.id === goalie.id) continue;
+      const after = removePlayer(setup, 0, player.id, at);
+      const now = rotation(after, at).teams[0];
+      eq(now.keeper.id, goalie.id, `change ${k}, removed ${player.name}`);
+      ok(now.hasFixedGoalie);
+      ok(!ids(now.order).includes(player.id), 'the leaver is still in the ring');
+      checkRules(after, 0, 18, `change ${k}, removed ${player.name}`);
+    }
+  }
+});
+
+test('a fixed goalie who goes home leaves a legal ordinary rota behind', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    const n = g + 3;
+    const setup = kickOff(
+      setupOf(n, n, { gameType: g, playersA: flagged(n, { fixedGoalie: [0] }) }),
+      dice(g * 11)
+    );
+    const at = 5 * computeIntervalMs(setup) + 10;
+    const goalie = fixedGoalieOf(setup, 0);
+    const was = rotation(setup, at).teams[0];
+    const after = removePlayer(setup, 0, goalie.id, at);
+    const now = rotation(after, at).teams[0];
+    const where = `${g} a side`;
+
+    ok(!now.hasFixedGoalie, `${where}: the flag survived its owner`);
+    eq(now.fixedGoalie, null, where);
+    eq(now.order.length, n - 1, where);
+    for (const player of was.onPitch) {
+      ok(ids([now.keeper, ...now.onPitch]).includes(player.id), `${where}: an outfielder left the pitch`);
+    }
+    same(ids(now.subs), ids(was.subs).slice(0, was.subs.length - 1), `${where}: the bench gave up its far end`);
+    checkRules(after, 0, 3 * (n - 1), where);
+  }
+});
+
+test('naming a fixed goalie mid-game puts them in goal and keeps them there', () => {
+  const setup = kickOff(setupOf(9, 9), dice(71));
+  const at = 3 * computeIntervalMs(setup) + 100;
+  const chosen = setup.teams[0].players[5];
+  const after = setFixedGoalie(setup, 0, chosen.id, true, at);
+
+  eq(rotation(after, at).teams[0].keeper.id, chosen.id, 'in goal from this change');
+  for (let k = 3; k < 3 + 20; k += 1) {
+    const team = stateAt(after, 0, k);
+    eq(team.keeper.id, chosen.id, `change ${k}`);
+    ok(!ids(team.subs).includes(chosen.id), `change ${k}`);
+  }
+  eq(after.teams[0].players.filter((player) => player.fixedGoalie).length, 1);
+  eq(after.teams[0].players[0].id, chosen.id, 'and they head the ring');
+  same(after.teams[1], setup.teams[1], 'the other team is untouched');
+  checkRules(after, 0, 27, 'a goalie named mid-game');
+  same(setFixedGoalie(after, 0, chosen.id, true, at), after, 'setting it twice changes nothing');
+});
+
+test('clearing a fixed goalie hands the team back to the ordinary rota', () => {
+  const setup = kickOff(setupOf(9, 9, { playersA: flagged(9, { fixedGoalie: [4] }) }), dice(72));
+  const at = 4 * computeIntervalMs(setup) + 100;
+  const goalie = fixedGoalieOf(setup, 0);
+  const after = setFixedGoalie(setup, 0, goalie.id, false, at);
+
+  eq(rotation(after, at).teams[0].keeper.id, goalie.id, 'still in goal for this change');
+  ok(!rotation(after, at).teams[0].hasFixedGoalie);
+  ok(stateAt(after, 0, 5).keeper.id !== goalie.id, 'and the goal changes hands next change');
+  eq(after.teams[0].players.filter((player) => player.fixedGoalie).length, 0);
+  checkRules(after, 0, 27, 'the goalie stood down');
+  same(setFixedGoalie(after, 0, goalie.id, false, at), after, 'clearing it twice changes nothing');
+  same(setFixedGoalie(setup, 0, 'nobody', true, at), setup, 'an unknown id changes nothing');
+});
+
+/* ------------------------------------------------------------------- late */
+
+console.log('\nlate');
+
+test('a late player sorts to the end of the drawn ring and starts on the bench', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (let n = g + 1; n <= g + 5; n += 1) {
+      const setup = kickOff(
+        setupOf(n, n, { gameType: g, playersA: flagged(n, { late: [1] }) }),
+        dice(n * 3 + g)
+      );
+      const players = setup.teams[0].players;
+      const where = `${g} a side, squad ${n}`;
+      eq(players[n - 1].name, 'Alex', `${where}: not last in the ring`);
+      ok(players[n - 1].late, where);
+      ok(ids(stateAt(setup, 0, 0).subs).includes(players[n - 1].id), `${where}: not on the bench at kick-off`);
+      checkRules(setup, 0, 3 * n, where);
+    }
+  }
+});
+
+test('the late sort is stable — the drawn ring is kept, the late players moved to the end', () => {
+  /* the same seed draws the same ring, so flagging changes nothing but the move */
+  const late = ['Alex', 'Cara', 'Finn'];
+  for (let seed = 0; seed < 40; seed += 1) {
+    const plain = namesOf(kickOff(setupOf(10, 10), dice(seed + 800)).teams[0].players);
+    const setup = kickOff(setupOf(10, 10, { playersA: flagged(10, { late: [1, 4, 7] }) }), dice(seed + 800));
+    const ring = namesOf(setup.teams[0].players);
+    const where = `seed ${seed}`;
+    same(ring.slice(7).slice().sort(), late.slice().sort(), `${where}: the late players are not last`);
+    same(ring.slice(0, 7), plain.filter((name) => !late.includes(name)), `${where}: the draw was disturbed`);
+    same(ring.slice(7), plain.filter((name) => late.includes(name)), `${where}: the late order was disturbed`);
+    for (let i = 0; i < 7; i += 1) ok(!setup.teams[0].players[i].late, `${where}: a late player got in early`);
+  }
+});
+
+test('setLate puts the newcomer to the flag last and leaves the late block in order', () => {
+  const setup = kickOff(setupOf(10, 10, { playersA: flagged(10, { late: [1, 4, 7] }) }), dice(801));
+  const block = namesOf(setup.teams[0].players).slice(7);
+  const after = setLate(setup, 0, setup.teams[0].players[2].id, true, 4 * computeIntervalMs(setup));
+  const ring = namesOf(after.teams[0].players);
+  same(ring.slice(6, 9), block, 'the block that was already late kept its order');
+  eq(ring[9], namesOf(setup.teams[0].players)[2], 'and the new one is last of all');
+});
+
+test('a late player is not excluded — their turn in goal comes round', () => {
+  const setup = kickOff(setupOf(9, 9, { playersA: flagged(9, { late: [0] }) }), dice(73));
+  const late = setup.teams[0].players[8];
+  eq(late.name, 'Zoe');
+  let turns = 0;
+  for (let k = 0; k < 9; k += 1) if (stateAt(setup, 0, k).keeper.id === late.id) turns += 1;
+  eq(turns, 1, 'exactly one turn in goal per lap of nine');
+  ok(stateAt(setup, 0, 0).keeper.id !== late.id, 'but not the first turn');
+});
+
+test('setting or clearing late mid-game does not change the current keeper', () => {
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (const fixed of [false, true]) {
+      const n = g + 3;
+      const flags = fixed ? { fixedGoalie: [0] } : {};
+      const setup = kickOff(
+        setupOf(n, n, { gameType: g, playersA: flagged(n, flags) }),
+        dice(g * 5 + (fixed ? 1 : 0))
+      );
+      const interval = computeIntervalMs(setup);
+      for (let k = 1; k < 4; k += 1) {
+        const at = k * interval + 777;
+        const was = rotation(setup, at).teams[0];
+        for (const player of setup.teams[0].players) {
+          const where = `${g} a side${fixed ? ', fixed goalie' : ''}, change ${k}, ${player.name}`;
+          const on = setLate(setup, 0, player.id, true, at);
+          eq(rotation(on, at).teams[0].keeper.id, was.keeper.id, `${where}: set moved the keeper`);
+          checkRules(on, 0, 2 * n, `${where} set`);
+
+          const off = setLate(on, 0, player.id, false, at);
+          eq(rotation(off, at).teams[0].keeper.id, was.keeper.id, `${where}: clear moved the keeper`);
+          checkRules(off, 0, 2 * n, `${where} clear`);
+        }
+      }
+    }
+  }
+});
+
+test('setLate re-cuts the ring and is reversible', () => {
+  const setup = kickOff(setupOf(9, 9), dice(74));
+  const id = setup.teams[0].players[2].id;
+  same(setLate(setup, 0, id, false, 0), setup, 'clearing a flag nobody has');
+  same(setLate(setup, 0, 'nobody', true, 0), setup, 'an unknown id');
+
+  const on = setLate(setup, 0, id, true, 0);
+  eq(on.teams[0].players[8].id, id, 'sorted to the end of the ring');
+  ok(on.teams[0].players[8].late);
+  same(setLate(on, 0, id, true, 0), on, 'setting it twice');
+
+  const off = setLate(on, 0, id, false, 0);
+  eq(off.teams[0].players.find((player) => player.id === id).late, false, 'the flag is reversible');
+  eq(off.teams[0].players.filter((player) => player.late).length, 0);
+  same(namesOf(off.teams[0].players).sort(), namesOf(setup.teams[0].players).sort(), 'nobody was lost');
+});
+
+test('flipping the raw flag changes nothing — the ring is stored, not derived', () => {
+  const setup = kickOff(setupOf(9, 9), dice(75));
+  const at = 3 * computeIntervalMs(setup) + 10;
+  const flipped = withFlag(setup, 0, 4, 'late', true);
+  eq(rotation(flipped, at).teams[0].keeper.id, rotation(setup, at).teams[0].keeper.id);
+  same(ids(rotation(flipped, at).teams[0].subs), ids(rotation(setup, at).teams[0].subs));
+  ok(rotation(flipped, at).teams[0].order[4].late, 'and the interface can still read the flag');
+});
+
+test('a late flag on the whole squad sorts nothing and still leaves a legal rota', () => {
+  const all = squad(8).map((name) => ({ name, late: true }));
+  const setup = kickOff(setupOf(8, 8, { playersA: all }), dice(76));
+  same(
+    namesOf(setup.teams[0].players),
+    namesOf(kickOff(setupOf(8, 8), dice(76)).teams[0].players),
+    'everybody last is everybody where they were drawn'
+  );
+  checkRules(setup, 0, 24, 'everybody late');
+});
+
 /* ----------------------------------------------------------------- purity */
 
 console.log('\npurity');
@@ -1063,7 +1578,8 @@ test('the helpers do not touch the setup they are given', () => {
   const snapshot = JSON.stringify(setup);
   addLateArrival(setup, 0, 'Wren', 900000);
   removePlayer(setup, 1, setup.teams[1].players[0].id, 900000);
-  setStartKeeper(setup, 0, 2);
+  setLate(setup, 0, setup.teams[0].players[2].id, true, 900000);
+  setFixedGoalie(setup, 0, setup.teams[0].players[1].id, true, 900000);
   kickOff(setup, dice(36));
   eq(JSON.stringify(setup), snapshot);
 });
@@ -1075,6 +1591,63 @@ test('the roster helpers are pure — same call, same new setup', () => {
     removePlayer(setup, 0, setup.teams[0].players[3].id, 900000),
     removePlayer(setup, 0, setup.teams[0].players[3].id, 900000)
   );
+  const id = setup.teams[0].players[2].id;
+  same(setLate(setup, 0, id, true, 900000), setLate(setup, 0, id, true, 900000));
+  same(setFixedGoalie(setup, 0, id, true, 900000), setFixedGoalie(setup, 0, id, true, 900000));
+});
+
+test('a fixed goalie and a late flag survive JSON and a dead phone', () => {
+  let setup = kickOff(
+    setupOf(9, 9, { playersA: flagged(9, { fixedGoalie: [3], late: [5] }), playersB: flagged(9, { late: [0, 1] }) }),
+    dice(38)
+  );
+  setup = addLateArrival(setup, 0, 'Wren', 1200000);
+  setup = setLate(setup, 1, setup.teams[1].players[2].id, true, 1800000);
+  setup = removePlayer(setup, 1, setup.teams[1].players[3].id, 1800000);
+  const restored = JSON.parse(JSON.stringify(setup));
+  for (const ms of [0, 331000, 5400000, 12345678]) {
+    same(rotation(restored, ms), rotation(setup, ms), `elapsed ${ms}`);
+  }
+  ok(rotation(restored, 0).teams[0].hasFixedGoalie, 'the flag came back');
+  checkRules(restored, 0, 30, 'restored, fixed goalie');
+  checkRules(restored, 1, 30, 'restored, two late');
+});
+
+test('every player in the result carries both flags', () => {
+  const setup = kickOff(setupOf(9, 9, { playersA: flagged(9, { fixedGoalie: [2], late: [6] }) }), dice(39));
+  for (const player of rotation(setup, 0).teams[0].order) {
+    eq(typeof player.fixedGoalie, 'boolean', player.name);
+    eq(typeof player.late, 'boolean', player.name);
+  }
+  eq(rotation(setup, 0).teams[0].order.filter((player) => player.fixedGoalie).length, 1);
+  eq(rotation(setup, 0).teams[0].order.filter((player) => player.late).length, 1);
+});
+
+test('every anchor the module writes is legal, whatever the flags and the roster do', () => {
+  const random = dice(2025);
+  for (let g = MIN_GAME_TYPE; g <= MAX_GAME_TYPE; g += 1) {
+    for (const fixed of [false, true]) {
+      const n = g + 2;
+      const flags = fixed ? { fixedGoalie: [0], late: [n - 1] } : { late: [1] };
+      let setup = kickOff(setupOf(n, n, { gameType: g, playersA: flagged(n, flags) }), dice(g * 3 + n));
+      let elapsed = 0;
+      for (let round = 0; round < 12; round += 1) {
+        elapsed += computeIntervalMs(setup) * (1 + round) + 1234;
+        const team = setup.teams[0];
+        const roll = random();
+        if (roll < 0.35 || team.players.length < 3) {
+          setup = addLateArrival(setup, 0, `${NAMES[round % NAMES.length]}${round}`, elapsed);
+        } else if (roll < 0.7) {
+          const victim = team.players[Math.floor(random() * team.players.length)];
+          setup = removePlayer(setup, 0, victim.id, elapsed);
+        } else {
+          const player = team.players[Math.floor(random() * team.players.length)];
+          setup = setLate(setup, 0, player.id, !player.late, elapsed);
+        }
+        checkRules(setup, 0, 3 * setup.teams[0].players.length, `${g} a side${fixed ? ' fixed' : ''} round ${round}`);
+      }
+    }
+  }
 });
 
 test('createSetup is pure — same names in, same setup out', () => {
