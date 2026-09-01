@@ -42,7 +42,7 @@
  * are the settings cyclers, which fall back.
  */
 import * as engine from './rotation.js';
-import { buildHorn, buildChime, buildTick, HORN_MS } from './sound.js';
+import { buildHorn, buildChime, buildTick, buildBeep, HORN_MS } from './sound.js';
 
 const MS_PER_MINUTE = 60000;
 const NAME_MAX = 10;
@@ -69,7 +69,8 @@ const COPY = {
   late: 'Late',
   endTitle: 'End the game?',
   endYes: 'End',
-  endNo: 'Keep playing'
+  endNo: 'Keep playing',
+  soundTest: 'Sound is working.'
 };
 
 /* ------------------------------------------------------------- storage */
@@ -238,6 +239,11 @@ const state = {
   pendingSetup: null,
   shownChange: null,
   windowFor: null,
+  /* the change the countdown is running towards. The horn only sounds on a
+     change this was armed for, so a phone that slept through four of them
+     wakes up on the right one in silence. */
+  armedFor: null,
+  beatLeft: 0,
   countdownAt: 0,
   countdownLeft: 0,
   countText: '',
@@ -270,11 +276,13 @@ const el = {
   count: $('count'),
   watch: $('watch'),
   end: $('end'),
+  test: $('test'),
   keepers: [$('keeper-0'), $('keeper-1')],
   subs: [$('subs-0'), $('subs-1')],
   subSlots: [$('subslot-0'), $('subslot-1')],
   subLabels: [$('subs-label-0'), $('subs-label-1')],
-  orders: [$('order-0'), $('order-1')],
+  goalQueues: [$('queue-goal-0'), $('queue-goal-1')],
+  subQueues: [$('queue-subs-0'), $('queue-subs-1')],
   sheet: $('sheet'),
   scrim: $('scrim'),
   panel: $('panel'),
@@ -402,6 +410,14 @@ function tick880() {
   if (!ctx) return;
   resumeAudio();
   buildTick(ctx, ctx.currentTime + 0.005, ctx.destination);
+}
+
+/* one a second through the last ten seconds of a shift */
+function beep() {
+  const ctx = audio();
+  if (!ctx) return;
+  resumeAudio();
+  buildBeep(ctx, ctx.currentTime + 0.005, ctx.destination);
 }
 
 /* ================================================================ voice */
@@ -585,13 +601,13 @@ function lineFor(teamIndex, keeper, subs) {
   return bits.join(' ');
 }
 
-/* the change is ten seconds away, so the state it describes is the next one */
-function linesForChange(r) {
-  return r.teams.map((team, t) => lineFor(t, team.nextKeeper, team.nextSubs)).filter(Boolean);
-}
-
-/* at kick-off the state it describes is this one */
-function linesForKickOff(r) {
+/*
+ * The voice always describes the pitch as it stands right now. It used to
+ * describe the next one, because it spoke ten seconds early; the countdown
+ * took that job, so the horn lands on the change and the names follow it —
+ * the same order as kick-off, and one line of code instead of two.
+ */
+function linesForNow(r) {
   return r.teams.map((team, t) => lineFor(t, team.keeper, team.subs)).filter(Boolean);
 }
 
@@ -914,17 +930,32 @@ function elapsedWords(ms) {
 }
 
 /*
- * The right-hand column: the whole squad in rotation order, with a glove on
- * whoever is next in goal and the arrows on whoever is next off. Everything
- * that column needs comes out of the engine — there is no arithmetic here.
+ * WHO IS AFTER THIS ONE
+ *
+ * The queue is the rota read forward: the pitch at the next change, and the
+ * one after that, and so on. There is no arithmetic here and there is no new
+ * engine call to write — the rotation is a pure function of elapsed time, so
+ * the state at change `k` is `rotation(setup, k * intervalMs)`. Landing exactly
+ * on a boundary floors to that change, which is why the multiplication is
+ * safe.
+ *
+ * It stops one short of a full cycle. Past that the names start coming round
+ * again, and a queue that repeats is a queue that says nothing.
  */
-function orderRows(team) {
-  const subs = new Set(team.nextSubIndexes || []);
-  return (team.order || []).map((player, i) => {
-    const mark = i === team.nextKeeperIndex ? 'i-glove' : subs.has(i) ? 'i-swap' : null;
-    const glyph = mark ? icon(mark, 'ic12') : icon('i-swap', 'ic12 blank');
-    return `<div class="orow">${glyph}<span class="on">${safe(player.name)}</span></div>`;
-  }).join('');
+const QUEUE_MAX = 8;
+
+function futureRotations(setup, changeIndex, intervalMs, count) {
+  const out = [];
+  for (let k = 1; k <= count; k += 1) {
+    out.push(engine.rotation(setup, (changeIndex + k) * intervalMs));
+  }
+  return out;
+}
+
+function queueLength(r) {
+  const sizes = (r.teams || []).map((team) => (team.order || []).length);
+  const longest = sizes.length ? Math.max(...sizes) : 0;
+  return Math.max(0, Math.min(QUEUE_MAX, longest - 1));
 }
 
 /*
@@ -954,11 +985,15 @@ function fitLine(node) {
 
 function fitNames() {
   document.querySelectorAll('.keeper, .sn, .nm').forEach(fitLine);
+  /* a queue name is never fitted: it sits in a row with no column to fit into
+     and the edge of the screen is what ends it */
 }
 
 window.addEventListener('resize', fitNames);
 
-function paint(r) {
+function paint(r, setup) {
+  const later = futureRotations(setup, r.changeIndex, r.intervalMs, queueLength(r));
+
   (r.teams || []).forEach((team, t) => {
     el.keepers[t].textContent = team.keeper ? team.keeper.name : '';
 
@@ -970,7 +1005,19 @@ function paint(r) {
       .map((player) => `<p class="sn dsp">${safe(player.name)}</p>`)
       .join('');
 
-    el.orders[t].innerHTML = orderRows(team);
+    el.goalQueues[t].innerHTML = later
+      .map((next) => next.teams[t] && next.teams[t].keeper)
+      .filter(Boolean)
+      .map((player) => `<p class="qn dsp">${safe(player.name)}</p>`)
+      .join('');
+
+    el.subQueues[t].innerHTML = later
+      .map((next) => (next.teams[t] ? next.teams[t].subs || [] : []))
+      .filter((names) => names.length > 0)
+      .map((names) => `<div class="stack">${names
+        .map((player) => `<p class="qn dsp">${safe(player.name)}</p>`)
+        .join('')}</div>`)
+      .join('');
   });
   fitNames();
 }
@@ -1015,27 +1062,52 @@ function tick() {
 
   /* the crossing, not the tick */
   if (r.changeIndex !== state.shownChange) {
+    /* the countdown ran towards this change, so this is a real changeover and
+       not a phone waking up past one */
+    const armed = state.armedFor === r.changeIndex;
     state.shownChange = r.changeIndex;
     state.windowFor = null;
-    paint(r);
+    state.armedFor = null;
+    state.beatLeft = 0;
+    paint(r, state.game.setup);
+
+    /* THE HORN LANDS ON THE CHANGE. It used to land ten seconds early and be
+       the warning itself. The countdown is the warning now, so the horn is
+       what the countdown arrives at — and the names follow it, describing the
+       pitch as it now stands. The same order as kick-off. */
+    if (armed) {
+      const wait = horn();
+      window.setTimeout(() => announce(linesForNow(r)), wait + VOICE_GAP_MS);
+    }
   }
 
   if (inWindow && state.windowFor !== r.changeIndex + 1) {
     state.windowFor = r.changeIndex + 1;
-    /* a window walked in on late — a jump, or a phone that woke up in it — was
-       missed, not announced. Everything else is a real warning. */
+    /* a window walked in on late — a jump, or a phone that woke up in it — is
+       not a countdown. Nothing is armed, so nothing counts and nothing sounds
+       at the change. Everything else is a real ten seconds. */
     if (r.msToNextChange >= WINDOW_MS - 900) {
-      const wait = horn();
-      window.setTimeout(() => announce(linesForChange(r)), wait + VOICE_GAP_MS);
+      state.armedFor = r.changeIndex + 1;
+      state.beatLeft = 0;
     }
+  }
+
+  const left = Math.max(1, Math.ceil(r.msToNextChange / 1000));
+
+  /* one beep a second, on the second the screen changes to, so the sound and
+     the number are never a frame apart */
+  if (inWindow && state.armedFor === r.changeIndex + 1 && left !== state.beatLeft) {
+    state.beatLeft = left;
+    beep();
   }
 
   setCounting(inWindow);
   setLabel(COPY.nextRotation);
-  setGauge(inWindow ? 0 : r.msToNextChange / r.intervalMs);
-  setCount(inWindow
-    ? String(Math.max(1, Math.ceil(r.msToNextChange / 1000)))
-    : mmss(r.msToNextChange));
+  /* in the window the bar measures the window, not the shift */
+  setGauge(inWindow
+    ? r.msToNextChange / WINDOW_MS
+    : r.msToNextChange / r.intervalMs);
+  setCount(inWindow ? String(left) : mmss(r.msToNextChange));
 
   const watch = elapsedWords(elapsed);
   if (watch !== state.watchText) {
@@ -1123,7 +1195,7 @@ function beginKickOff() {
 
   const r = engine.rotation(setup, 0);
   showGame();
-  paint(r);
+  paint(r, setup);
   el.watch.textContent = '0:00';
   state.watchText = '0:00';
 
@@ -1137,7 +1209,7 @@ function beginKickOff() {
   state.countdownLeft = KICKOFF_S + 1;
   setCounting(true);
   setLabel(COPY.kickOffIn);
-  setGauge(0);
+  setGauge(1);
   takeWakeLock();
   startLoop();
   runCountdown();
@@ -1150,6 +1222,8 @@ function runCountdown() {
     finishKickOff();
     return;
   }
+  /* the same bar as a rotation's last ten seconds, over twenty */
+  setGauge((KICKOFF_S * 1000 - gone) / (KICKOFF_S * 1000));
   if (left === state.countdownLeft) return;
   state.countdownLeft = left;
   setCount(String(left));
@@ -1166,6 +1240,8 @@ function finishKickOff() {
   state.screen = 'game';
   state.shownChange = null;
   state.windowFor = null;
+  state.armedFor = null;
+  state.beatLeft = 0;
   state.countText = '';
   setCounting(false);
   showGame();
@@ -1174,11 +1250,32 @@ function finishKickOff() {
   const wait = horn();
   const r = engine.rotation(setup, Math.max(0, elapsedMs()));
   /* the same order as a changeover: the horn finishes, then the names */
-  window.setTimeout(() => announce(linesForKickOff(r)), wait + VOICE_GAP_MS);
+  window.setTimeout(() => announce(linesForNow(r)), wait + VOICE_GAP_MS);
 
   startLoop();
   tick();
 }
+
+/*
+ * THE SOUND TEST
+ *
+ * The one thing this app does that fails silently. A phone on silent swallows
+ * the horn and still says the names; a phone with the media volume down does
+ * neither; and both of those look exactly like an app that is working right up
+ * until the first changeover, when nobody hears it.
+ *
+ * So the test plays both channels, because on iOS they are two different
+ * channels and they fail independently: the horn is Web Audio, which the ring
+ * switch mutes, and the voice is `speechSynthesis`, which it does not. One of
+ * them sounding and the other not is the answer, not a failure of the test.
+ */
+el.test.addEventListener('click', (event) => {
+  event.stopPropagation();
+  markGesture();
+  if (!voiceUnlocked) unlockVoice();
+  const wait = horn();
+  window.setTimeout(() => announce([COPY.soundTest]), wait + VOICE_GAP_MS);
+});
 
 /* =========================================================== going home */
 
@@ -1220,6 +1317,8 @@ function goHome() {
   releaseWakeLock();
   state.shownChange = null;
   state.windowFor = null;
+  state.armedFor = null;
+  state.beatLeft = 0;
   state.degradedLock = false;
   state.countText = '';
   state.watchText = '';
@@ -1317,9 +1416,14 @@ function restoreGame() {
   const r = engine.rotation(state.game.setup, now);
   /* no dialog, and no voice for changes missed while the phone was dead */
   state.shownChange = r.changeIndex;
+  /* a restore inside the window is a window that was never counted, so it is
+     marked seen and left unarmed: no beeps, and no horn at the change it is
+     already most of the way through */
   if (r.msToNextChange <= WINDOW_MS) state.windowFor = r.changeIndex + 1;
+  state.armedFor = null;
+  state.beatLeft = 0;
   showGame();
-  paint(r);
+  paint(r, state.game.setup);
   startLoop();
   tick();
   return true;

@@ -192,6 +192,21 @@ function tone(ctx, out, freq, at, dur, level) {
   }
 }
 
+/*
+ * The ten seconds before a rotation. One a second, and the horn at zero.
+ *
+ * It is the chime's first tone and not the kick-off tick, because those are
+ * two different jobs. The tick is a hair under the hearing floor on purpose —
+ * it counts a kick-off in on a phone held in a hand. This one has to carry
+ * across a pitch through the same speaker the horn does, so it is built the
+ * same way the chime is: a fundamental with two partials over it, which is
+ * what survives a cheap bluetooth driver.
+ */
+export function buildBeep(ctx, at, out) {
+  tone(ctx, out, 880, at, 0.1, 0.5);
+  return 100;
+}
+
 /* The last five seconds of the kick-off countdown. One tick a second. */
 export function buildTick(ctx, at, out) {
   const g = ctx.createGain();

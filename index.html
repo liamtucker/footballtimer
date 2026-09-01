@@ -60,6 +60,10 @@
     <path fill="currentColor" d="M14.6814 4.97342L15.8926 3.76227L17.0711 4.94077L15.8599 6.15192C16.8863 7.43499 17.5 9.0625 17.5 10.8333C17.5 14.9755 14.1422 18.3333 10 18.3333C5.85787 18.3333 2.5 14.9755 2.5 10.8333C2.5 6.6912 5.85787 3.33333 10 3.33333C11.7708 3.33333 13.3983 3.94706 14.6814 4.97342ZM10 16.6667C13.2217 16.6667 15.8333 14.055 15.8333 10.8333C15.8333 7.61167 13.2217 5 10 5C6.77834 5 4.16667 7.61167 4.16667 10.8333C4.16667 14.055 6.77834 16.6667 10 16.6667ZM9.16667 6.66667H10.8333V11.6667H9.16667V6.66667ZM6.66667 0.833333H13.3333V2.5H6.66667V0.833333Z"/>
   </symbol>
 
+  <symbol id="i-volume" viewBox="0 0 24 24">
+    <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M19.6824 8.07941C21.2661 10.5939 21.4898 13.9404 19.9833 16.9018M16.3459 9.72406C17.6827 11.2866 17.8715 13.3662 16.5999 15.2065M12 6L7.58775 9.4884H3V14.5111L7.58775 14.5099L12 18V6Z"/>
+  </symbol>
+
   <symbol id="i-square" viewBox="0 0 24 24">
     <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M17 5H7C5.89543 5 5 5.89543 5 7V17C5 18.1046 5.89543 19 7 19H17C18.1046 19 19 18.1046 19 17V7C19 5.89543 18.1046 5 17 5Z"/>
   </symbol>
@@ -164,8 +168,9 @@
 <main id="game" hidden>
 
   <div class="timer" id="timer">
-    <!-- the gauge. black is the shift that is left, and it draws back to the
-         left edge as the shift runs out, uncovering the grey underneath. -->
+    <!-- the gauge. two jobs on one bar: for most of a shift it is the share
+         still to run, drawing back to the left as the shift empties. In the
+         last ten seconds it is the last ten seconds, and it empties again. -->
     <div class="gauge" id="gauge"></div>
     <p class="eyebrow timer-label" id="timer-label">Next rotation:</p>
     <p class="count dsp" id="count">0:00</p>
@@ -173,9 +178,13 @@
       <svg class="ic ic20" aria-hidden="true"><use href="#i-watch"/></svg>
       <span class="watch-time dsp" id="watch">0:00</span>
     </div>
-    <div class="endrow">
-      <span class="end-word dsp">End</span>
-      <button class="end-btn" id="end" type="button" aria-label="End the game">
+    <!-- two icons and no words. The speaker tests the sound, which is the one
+         thing about this app that fails silently. -->
+    <div class="spine">
+      <button class="ibtn" id="test" type="button" aria-label="Test the sound">
+        <svg class="ic ic24" aria-hidden="true"><use href="#i-volume"/></svg>
+      </button>
+      <button class="ibtn" id="end" type="button" aria-label="End the game">
         <svg class="ic ic24" aria-hidden="true"><use href="#i-square"/></svg>
       </button>
     </div>
@@ -189,14 +198,21 @@
     <div class="side-now">
       <div class="slot">
         <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-glove"/></svg><span>Goal</span></p>
-        <p class="keeper dsp" id="keeper-0"></p>
+        <!-- who is in now, then who is in after that, on one baseline and
+             clipped at the edge of the screen -->
+        <div class="row">
+          <p class="keeper dsp" id="keeper-0"></p>
+          <div class="queue" id="queue-goal-0"></div>
+        </div>
       </div>
       <div class="slot" id="subslot-0">
         <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-swap"/></svg><span id="subs-label-0">Subs</span></p>
-        <div class="subnames" id="subs-0"></div>
+        <div class="row">
+          <div class="subnames stack" id="subs-0"></div>
+          <div class="queue" id="queue-subs-0"></div>
+        </div>
       </div>
     </div>
-    <div class="side-order" id="order-0"></div>
   </section>
 
   <hr class="rule">
@@ -209,14 +225,19 @@
     <div class="side-now">
       <div class="slot">
         <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-glove"/></svg><span>Goal</span></p>
-        <p class="keeper dsp" id="keeper-1"></p>
+        <div class="row">
+          <p class="keeper dsp" id="keeper-1"></p>
+          <div class="queue" id="queue-goal-1"></div>
+        </div>
       </div>
       <div class="slot" id="subslot-1">
         <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-swap"/></svg><span id="subs-label-1">Subs</span></p>
-        <div class="subnames" id="subs-1"></div>
+        <div class="row">
+          <div class="subnames stack" id="subs-1"></div>
+          <div class="queue" id="queue-subs-1"></div>
+        </div>
       </div>
     </div>
-    <div class="side-order" id="order-1"></div>
   </section>
 
 </main>

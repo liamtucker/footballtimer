@@ -88,6 +88,18 @@
   --paper: #ffffff;
   --paper-game: #fcfcfc;
 
+  /*
+   * The timer block is the only colour in the app, and it is two pairs of one
+   * colour: a saturated bar over a pale ground of the same hue. Green is the
+   * shift running. Red is the last ten seconds of it. Everything on the block
+   * is black in both, so nothing about the type changes when the colour does —
+   * 17.4:1 on the pale green, 14.9:1 on the pale red, 6.9:1 on the red itself.
+   */
+  --lime: #ddfd66;
+  --lime-pale: #edfeaf;
+  --red: #ff5a5a;
+  --red-pale: #ffe0dd;
+
   /* the two hairlines. 10% between blocks, 20% between settings cells. */
   --hair: rgba(23, 23, 23, .1);
   --hair-hard: rgba(23, 23, 23, .2);
@@ -99,6 +111,7 @@
   --hero: 50px;
   --name: 32px;
   --clock: 150px;
+  --queue: 18px;
 
   /* the one opacity ramp: a dimmed word, a dimmed surface, a placeholder */
   --dim: .5;
@@ -559,7 +572,7 @@ input:focus { outline: none; }
   justify-content: center;
   gap: 16px;
   padding: 0 20px 20px;
-  background: var(--grey);
+  background: var(--lime-pale);
   overflow: hidden;
 }
 
@@ -579,7 +592,7 @@ input:focus { outline: none; }
   position: absolute;
   inset: 0;
   width: 100%;
-  background: var(--ink);
+  background: var(--lime);
   transform-origin: left center;
   transform: scaleX(var(--shift, 1));
 }
@@ -592,14 +605,14 @@ input:focus { outline: none; }
   width: 100%;
   text-align: center;
   text-indent: .36px;
-  color: #fff;
+  color: var(--ink);
   letter-spacing: .72px;
 }
 
 .count {
   width: 100%;
   text-align: center;
-  color: #fff;
+  color: var(--ink);
   font-size: var(--clock);
   letter-spacing: 0;
 }
@@ -608,15 +621,25 @@ input:focus { outline: none; }
  * THE COUNTDOWN
  *
  * Twenty seconds before kick-off and ten before every rotation, and the same
- * treatment for both: the gauge goes to nothing and the block is the grey
- * underneath it, whole. Liam's words were "grey like it's inactive kind of
- * style but still enough contrast to read" — white on #444 is 7.6:1, so it is
- * the quiet state and it is still four times the floor for large type.
+ * treatment for both: the block turns red and the bar starts again, this time
+ * measuring the countdown itself rather than the shift. Ten seconds is two
+ * percent of a shift, so a bar left on the shift's own scale would not move at
+ * all in the window that matters most. Rescaled, it sweeps the full width and
+ * runs out exactly as the horn lands.
  *
- * At a rotation the grey is not a new colour arriving. It is the gauge
- * finishing, which is the same thing the block has been saying for ten minutes.
+ * Only the colours change and nothing moves, so it is still the gauge
+ * finishing and not a new mechanism arriving. The number flashes on top of it,
+ * once a second, which is the one thing on this screen that is allowed to move
+ * on its own.
  */
-#game.counting .gauge { transform: scaleX(0); }
+#game.counting .timer { background: var(--red-pale); }
+#game.counting .gauge { background: var(--red); }
+#game.counting .count { animation: flash 1s steps(1, end) infinite; }
+
+@keyframes flash {
+  0%, 65% { opacity: 1; }
+  65.01%, 100% { opacity: .2; }
+}
 
 .watch {
   position: absolute;
@@ -625,33 +648,31 @@ input:focus { outline: none; }
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #fff;
+  color: var(--ink);
 }
 
 .watch-time { font-size: var(--lead); }
 
 /*
- * The word and the square are centred on each other and the square's 44px box
- * overhangs the word by 4px, which is what puts the word's right edge at 342
- * and the drawn square 18px off the screen edge. The negative margin is the
- * file's own geometry, not a nudge.
+ * Two 44px boxes in a row, flush to the right at 8px and 15px off the bottom —
+ * 294 from the left edge in the file, which is 390 less the 88 they occupy
+ * less the 8 they stand off. The word `END` is gone: two icons side by side
+ * are read as a pair of controls, and a word beside one of them would say that
+ * only that one is a control.
  */
-.endrow {
+.spine {
   position: absolute;
   right: 8px;
   bottom: 15px;
   display: flex;
   align-items: center;
-  color: #fff;
+  color: var(--ink);
 }
 
-.end-word { font-size: var(--lead); }
-
-.end-btn {
+.ibtn {
   flex: none;
   width: 44px;
   height: 44px;
-  margin-left: -4px;
   display: grid;
   place-items: center;
 }
@@ -663,8 +684,7 @@ input:focus { outline: none; }
   flex: 1 1 0;
   min-height: 0;
   display: flex;
-  align-items: center;
-  gap: 40px;
+  align-items: flex-start;
   padding: 40px 24px;
   overflow: hidden;
 }
@@ -684,7 +704,6 @@ input:focus { outline: none; }
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow: hidden;
 }
 
 .slot-label {
@@ -694,16 +713,59 @@ input:focus { outline: none; }
   opacity: var(--dim);
 }
 
+/*
+ * THE ROW, AND WHY IT RUNS OFF THE SCREEN
+ *
+ * Who is in goal now, and then everybody who is in goal after that, on one
+ * line. The rota was a column down the right of the screen before: the whole
+ * squad, in order, with a glove on whoever was next. It answered "when is my
+ * turn" and it made you count to answer "who is after this one" — which is the
+ * question anybody standing on a pitch actually asks.
+ *
+ * So the order is laid along the line the eye is already on. The name in play
+ * is at full size in a fixed column; the ones behind it are 18px at 20%, in
+ * the order they arrive, running to the right until the screen stops them.
+ *
+ * NOTHING SCROLLS. `.side` clips at its padding box, which is the full 390 —
+ * so a name is cut by the edge of the phone rather than by the 24px gutter,
+ * exactly as the file draws it, and there is no horizontal scroll to find.
+ *
+ * ALIGNED TO BASELINE. `align-items: flex-end` on a row of `.dsp` is baseline
+ * alignment: the display type is trimmed cap-to-baseline, so the bottom of
+ * every margin box in the row *is* its last baseline. 50px, 32px and 18px sit
+ * on one line without a single magic number.
+ */
+.row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+/* the file's own column. It is what holds the queue's left edge still while a
+   name changes length underneath it. */
+.keeper,
+.subnames {
+  flex: none;
+  width: 171px;
+}
+
 .keeper {
   font-size: var(--hero);
   white-space: nowrap;
   overflow: hidden;
 }
 
-.subnames {
+/*
+ * A stack of names is set at line-height 1 in the file, which is cap-to-cap
+ * equal to the font size. These are separate elements rather than one `<p>`
+ * with a `<br>`, because each one is measured and fitted on its own — so the
+ * gap has to put the caps back where a single line box would have them. The
+ * margin box is 0.7em, so the gap is the other 0.3em.
+ */
+.stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: .3em;
 }
 
 .sn {
@@ -724,42 +786,27 @@ input:focus { outline: none; }
 /* a team with nobody on the bench says nothing about the bench */
 .slot.empty { display: none; }
 
-/* ------------------------------------------------------------------ order */
-
-.side-order {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
+/* ------------------------------------------------------------------ queue */
 
 /*
- * The roster is the quiet half of this column and the marks are the loud half,
- * so the 50% sits on the name and not on the row. A glove or a pair of arrows
- * is the one thing in here anybody looks for, and at 50% on #fcfcfc a 12px
- * glyph is 3.36:1. At full ink it is 17.47:1, and the list around it stays as
- * quiet as the frame draws it.
+ * Everybody after the one in play. 20% ink is the quietest thing on this
+ * screen and it is meant to be: it is 1.87:1 on #fcfcfc, which is a shape you
+ * can find when you look for it and cannot read from the far post. The one in
+ * play is the answer; the queue is only there for the question after it.
  */
-.orow {
+.queue {
+  flex: none;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-end;
+  gap: 12px;
 }
 
-.orow .on {
-  font-family: var(--sans);
-  font-weight: 600;
-  font-size: var(--eyebrow);
-  line-height: 1.4;
-  letter-spacing: .48px;
-  text-transform: uppercase;
+.queue > * { opacity: var(--ghost); }
+
+.qn {
+  font-size: var(--queue);
   white-space: nowrap;
-  overflow: hidden;
-  opacity: var(--dim);
 }
-
-/* the column keeps its 12px gutter whether a row is marked or not */
-.orow .ic12.blank { visibility: hidden; }
 
 /* ================================================================== modal */
 
