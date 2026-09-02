@@ -52,6 +52,10 @@
     <path fill="currentColor" d="M6.2501 1C6.11205 1 6.0001 1.11193 6.0001 1.25V6H5.0001V2.25C5.0001 2.11193 4.88817 2 4.7501 2C4.61202 2 4.5001 2.11193 4.5001 2.25V7C4.32326 7 3.50012 7 3.50012 7C3.30955 6.1896 2.82118 5.72035 2.2977 5.6608C2.43963 6.0332 2.68058 6.6296 3.08317 7.54975C3.51255 8.5311 3.94564 9.2609 4.50187 9.7493C5.03915 10.221 5.7293 10.5 6.7501 10.5C8.2689 10.5 9.5001 9.26885 9.5001 7.7501V3.5C9.5001 3.36193 9.38815 3.25 9.2501 3.25C9.11205 3.25 9.0001 3.36193 9.0001 3.5V6H8.0001V2C8.0001 1.86193 7.88815 1.75 7.7501 1.75C7.61205 1.75 7.5001 1.86193 7.5001 2V6H6.5001V1.25C6.5001 1.11193 6.38815 1 6.2501 1ZM10.5001 7.7501C10.5001 9.8212 8.82115 11.5 6.7501 11.5C5.52085 11.5 4.58607 11.154 3.84208 10.5008C3.11706 9.86415 2.61264 8.96905 2.16702 7.9506C1.70197 6.88765 1.44502 6.2402 1.30496 5.86175C1.12659 5.37985 1.37308 4.70606 2.04292 4.65923C2.62038 4.61886 3.1103 4.80625 3.5001 5.12935V2.25C3.5001 1.55965 4.05974 1 4.7501 1C4.84261 1 4.93277 1.01005 5.01955 1.02912C5.12385 0.444113 5.6351 0 6.2501 0C6.7801 0 7.23305 0.329847 7.4149 0.795455C7.52155 0.765835 7.634 0.75 7.7501 0.75C8.44045 0.75 9.0001 1.30965 9.0001 2V2.27501C9.0809 2.25861 9.1645 2.25 9.2501 2.25C9.94045 2.25 10.5001 2.80965 10.5001 3.5V7.7501Z"/>
   </symbol>
 
+  <symbol id="i-return" viewBox="0 0 16 16">
+    <path fill="currentColor" d="M3.88562 4.66637L5.57597 6.35673L4.63317 7.29953L1.33333 3.9997L4.63317 0.699867L5.57597 1.64268L3.88562 3.33303H8.66667C11.6122 3.33303 14 5.72085 14 8.6664C14 11.6119 11.6122 13.9997 8.66667 13.9997H2.66667V12.6664H8.66667C10.8758 12.6664 12.6667 10.8755 12.6667 8.6664C12.6667 6.45723 10.8758 4.66637 8.66667 4.66637H3.88562Z"/>
+  </symbol>
+
   <symbol id="i-swap" viewBox="0 0 12 12">
     <path fill="currentColor" d="M8.02515 6.0249L10.5 8.4998L8.02515 10.9747L7.318 10.2676L8.586 8.9994L2 8.9998V7.9998L8.586 7.9994L7.318 6.732L8.02515 6.0249ZM3.97487 1.0249L4.68198 1.73201L3.414 2.9994L10 2.99977V3.99977L3.414 3.9994L4.68198 5.26755L3.97487 5.97465L1.5 3.49977L3.97487 1.0249Z"/>
   </symbol>
@@ -85,58 +89,55 @@
   <hr class="rule">
 
   <div class="squad" data-team="0">
-    <div class="chip">
-      <svg class="ic ic16" aria-hidden="true"><use href="#i-shirt"/></svg>
-      <span class="chip-word eyebrow" id="chip-0">BIBS</span>
-    </div>
-    <div class="lineup">
-      <div class="namecol">
-        <p class="eyebrow lineup-label">Lineup</p>
-        <div class="names" id="names-0a"></div>
-      </div>
-      <div class="namecol">
-        <p class="eyebrow lineup-label ghost">Subs</p>
-        <div class="names" id="names-0b"></div>
-      </div>
-    </div>
-    <div class="entry">
+    <p class="eyebrow band" id="chip-0">Team A</p>
+    <!--
+      A form and not a bare input. On iOS the return key only commits a field
+      that is in one, and the keydown handler this replaces was never reached.
+    -->
+    <form class="entry" id="form-0" data-team="0" autocomplete="off" novalidate>
       <input class="field dsp" id="input-0" data-team="0" type="text" maxlength="10"
-             autocapitalize="words" autocorrect="off" autocomplete="off" spellcheck="false"
-             enterkeyhint="done" placeholder="Enter name" aria-label="Enter a name for Bibs">
-      <button class="enter" id="enter-0" data-team="0" type="button" aria-label="Add this name">
+             name="p0" inputmode="text" autocapitalize="words" autocorrect="off"
+             autocomplete="off" spellcheck="false" enterkeyhint="done"
+             data-lpignore="true" data-1p-ignore data-form-type="other"
+             placeholder="Enter name" aria-label="Add a player to team A">
+      <button class="enter" id="enter-0" data-team="0" type="submit" aria-label="Add this name">
         <svg class="ic ic24" aria-hidden="true"><use href="#i-up"/></svg>
       </button>
+    </form>
+    <div class="lineup">
+      <div class="names" id="names-0a"></div>
+      <div class="names" id="names-0b"></div>
     </div>
   </div>
 
   <hr class="rule">
 
   <div class="squad" data-team="1">
-    <div class="chip">
-      <svg class="ic ic16" aria-hidden="true"><use href="#i-shirt-o"/></svg>
-      <span class="chip-word eyebrow" id="chip-1">NON BIBS</span>
-    </div>
-    <div class="lineup">
-      <div class="namecol">
-        <p class="eyebrow lineup-label">Lineup</p>
-        <div class="names" id="names-1a"></div>
-      </div>
-      <div class="namecol">
-        <p class="eyebrow lineup-label ghost">Subs</p>
-        <div class="names" id="names-1b"></div>
-      </div>
-    </div>
-    <div class="entry">
+    <p class="eyebrow band" id="chip-1">Team B</p>
+    <!--
+      A form and not a bare input. On iOS the return key only commits a field
+      that is in one, and the keydown handler this replaces was never reached.
+    -->
+    <form class="entry" id="form-1" data-team="1" autocomplete="off" novalidate>
       <input class="field dsp" id="input-1" data-team="1" type="text" maxlength="10"
-             autocapitalize="words" autocorrect="off" autocomplete="off" spellcheck="false"
-             enterkeyhint="done" placeholder="Enter name" aria-label="Enter a name for Non bibs">
-      <button class="enter" id="enter-1" data-team="1" type="button" aria-label="Add this name">
+             name="p1" inputmode="text" autocapitalize="words" autocorrect="off"
+             autocomplete="off" spellcheck="false" enterkeyhint="done"
+             data-lpignore="true" data-1p-ignore data-form-type="other"
+             placeholder="Enter name" aria-label="Add a player to team B">
+      <button class="enter" id="enter-1" data-team="1" type="submit" aria-label="Add this name">
         <svg class="ic ic24" aria-hidden="true"><use href="#i-up"/></svg>
       </button>
+    </form>
+    <div class="lineup">
+      <div class="names" id="names-1a"></div>
+      <div class="names" id="names-1b"></div>
     </div>
   </div>
 
   <div class="foot">
+    <!-- the interval is the answer the three settings produce, so it stands on
+         its own above them rather than riding on the button -->
+    <p class="every eyebrow" id="kick-note">Rotate every &#8212;</p>
     <hr class="rule">
     <div class="settings">
       <button class="cell" id="cell-aside" data-cell="aside" type="button">
@@ -153,11 +154,8 @@
       </button>
     </div>
     <button class="kick" id="kick" type="button">
-      <span class="kick-main">
-        <svg class="ic ic28" aria-hidden="true"><use href="#i-ball"/></svg>
-        <span class="kick-word dsp">Kick off</span>
-      </span>
-      <span class="kick-note eyebrow" id="kick-note">Rotate every: &#8212;</span>
+      <svg class="ic ic28" aria-hidden="true"><use href="#i-ball"/></svg>
+      <span class="kick-word dsp">Kick off</span>
     </button>
   </div>
 
@@ -190,52 +188,42 @@
     </div>
   </div>
 
-  <section class="side" data-team="0">
+  <!--
+    THE SCREEN IS TWO ROLES NOW, NOT TWO TEAMS
+
+    Both keepers on one reel and both benches on the other. Nobody standing on
+    a pitch asks "what are the bibs doing" — they ask "am I in goal" and "am I
+    off", and those are the two questions, one to a block.
+
+    Each reel is the whole game laid along a line: every change from the first
+    to the last, with the one in play centred and the rest either side of it.
+    On a change the reel slides one place left, so the next names arrive where
+    the eye is already looking instead of appearing somewhere new.
+  -->
+  <section class="role" data-role="goal">
     <div class="chip">
-      <svg class="ic ic16" aria-hidden="true"><use href="#i-shirt"/></svg>
-      <span class="chip-word eyebrow">BIBS</span>
+      <svg class="ic ic16" aria-hidden="true"><use href="#i-ball"/></svg>
+      <span class="chip-word eyebrow">Goalkeepers</span>
     </div>
-    <div class="side-now">
-      <div class="slot">
-        <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-glove"/></svg><span>Goal</span></p>
-        <!-- who is in now, then who is in after that, on one baseline and
-             clipped at the edge of the screen -->
-        <div class="row">
-          <p class="keeper dsp" id="keeper-0"></p>
-          <div class="queue" id="queue-goal-0"></div>
-        </div>
-      </div>
-      <div class="slot" id="subslot-0">
-        <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-swap"/></svg><span id="subs-label-0">Subs</span></p>
-        <div class="row">
-          <div class="subnames stack" id="subs-0"></div>
-          <div class="queue" id="queue-subs-0"></div>
-        </div>
+    <div class="role-body">
+      <svg class="ic ic32 role-mark" aria-hidden="true"><use href="#i-ball"/></svg>
+      <div class="reel">
+        <div class="ribbon" id="reel-goal"></div>
       </div>
     </div>
   </section>
 
   <hr class="rule">
 
-  <section class="side" data-team="1">
+  <section class="role" data-role="subs">
     <div class="chip">
-      <svg class="ic ic16" aria-hidden="true"><use href="#i-shirt-o"/></svg>
-      <span class="chip-word eyebrow">NON BIBS</span>
+      <svg class="ic ic16" aria-hidden="true"><use href="#i-return"/></svg>
+      <span class="chip-word eyebrow">Substitutes</span>
     </div>
-    <div class="side-now">
-      <div class="slot">
-        <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-glove"/></svg><span>Goal</span></p>
-        <div class="row">
-          <p class="keeper dsp" id="keeper-1"></p>
-          <div class="queue" id="queue-goal-1"></div>
-        </div>
-      </div>
-      <div class="slot" id="subslot-1">
-        <p class="eyebrow slot-label"><svg class="ic ic12" aria-hidden="true"><use href="#i-swap"/></svg><span id="subs-label-1">Subs</span></p>
-        <div class="row">
-          <div class="subnames stack" id="subs-1"></div>
-          <div class="queue" id="queue-subs-1"></div>
-        </div>
+    <div class="role-body">
+      <svg class="ic ic32 role-mark" aria-hidden="true"><use href="#i-return"/></svg>
+      <div class="reel">
+        <div class="ribbon" id="reel-subs"></div>
       </div>
     </div>
   </section>
@@ -268,6 +256,11 @@
     <p class="sheet-opts" id="sheet-opts"></p>
   </div>
 </div>
+
+<!-- the ruler. A name is measured here, at 50px, and never on the element in
+     the middle of the reel — writing a size to a live element to read one back
+     is a flash on the screen. -->
+<span class="ruler dsp" id="ruler" aria-hidden="true"></span>
 
 <p class="sr-only" id="faults" role="status"></p>
 

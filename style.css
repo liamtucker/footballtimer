@@ -111,7 +111,7 @@
   --hero: 50px;
   --name: 32px;
   --clock: 150px;
-  --queue: 18px;
+  --queue-name: 24px;
 
   /* the one opacity ramp: a dimmed word, a dimmed surface, a placeholder */
   --dim: .5;
@@ -177,6 +177,17 @@ input:focus { outline: none; }
 
 .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 
+/* off the side of the page, laid out but never painted, so a name can be
+   measured at 50px without touching the one on the screen */
+.ruler {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  visibility: hidden;
+  white-space: nowrap;
+  font-size: 50px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px; height: 1px;
@@ -221,6 +232,7 @@ input:focus { outline: none; }
 .ic24 { width: 24px; height: 24px; }
 .ic23 { width: 23px; height: 23px; }
 .ic28 { width: 28px; height: 28px; }
+.ic32 { width: 32px; height: 32px; }
 
 /* --------------------------------------------------------------- hairline */
 
@@ -248,13 +260,15 @@ input:focus { outline: none; }
 /* ------------------------------------------------------------------- chip */
 
 /*
- * The one black shape that is not a bar. It is flush to the right edge and to
+ * The one black shape that is not a bar. It is flush to the left edge and to
  * the top of the block it names, so it reads as a tab on the block rather than
- * as a label floating over it.
+ * as a label floating over it — and it is on the left because the block under
+ * it is centred, and a tab in the corner the reading starts in is the corner
+ * the eye passes anyway.
  */
 .chip {
   position: absolute;
-  right: 0;
+  left: 0;
   top: 0;
   z-index: 1;
   display: flex;
@@ -290,7 +304,7 @@ input:focus { outline: none; }
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  padding: 48px 20px 24px;
+  padding: 56px 20px 24px;
 }
 
 .title { font-size: var(--hero); }
@@ -317,55 +331,115 @@ input:focus { outline: none; }
  * `1 0 auto` is the two states of the frame in one line. Empty, the two squads
  * split the leftover height between them and the screen is exactly one page.
  * Full, they take the height their names need and the page grows past the
- * viewport — which is what the filled frame does at 909px against an 844px
- * phone.
+ * viewport.
  */
 .squad {
   position: relative;
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
+  padding-bottom: 40px;
 }
 
-/* the 16px only exists once there is a list to separate from the field */
-.squad.filled { gap: 16px; }
+/*
+ * THE TEAM IS A BAND NOW, NOT A CHIP
+ *
+ * It used to be a black tab flush to the right edge with a shirt in it. Two
+ * black tabs on a white page are two of the loudest things on the screen
+ * saying the quietest thing on it — which team a column of names belongs to,
+ * on a screen where the columns are already side by side and already labelled.
+ *
+ * So it is a full-bleed band in the palest grey the page has, and the ink on
+ * it is the page's own. 5% is not enough to see and 15% is a second surface;
+ * #f0f0f0 is 6% and it reads as a divider with a word on it.
+ *
+ * 5.6px under it, because the file puts the field 40px down the block and the
+ * band is 34.4 of that.
+ */
+.band {
+  flex: none;
+  padding: 10px 20px;
+  margin-bottom: 5.6px;
+  background: #f0f0f0;
+  color: var(--ink);
+  letter-spacing: 1.2px;
+}
+
+/* ------------------------------------------------------------------ entry */
+
+/*
+ * The field is at the top of the block now and the names are under it, which
+ * is the order the thing is actually used in: you type eight names and then
+ * you read them back. It used to be the other way round, so every name pushed
+ * the field further from the thumb that was about to use it again.
+ */
+.entry {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px;
+}
+
+.field {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--name);
+  /* an input ignores `line-height: 1` for its own height and falls back to the
+     font's natural 1.2em box, which put 6.5px into the row that is not in the
+     file. Stated, it trims like every other line of display type. */
+  height: 1em;
+}
+
+.field::placeholder { color: var(--ink); opacity: var(--ghost); }
+
+/*
+ * A 24px arrow on white was a 24px target and a 24px signal. It is a 40px
+ * block of ink with the arrow knocked out of it now — the same shape a flagged
+ * name carries in the list below, and the same rule: inverted against the
+ * ground means live. Empty, the whole block sits at 10%, which is a shape
+ * where the arrow alone was a hairline.
+ */
+.enter {
+  flex: none;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  background: var(--ink);
+  color: var(--paper);
+  opacity: .1;
+  transition: opacity 120ms linear;
+}
+
+.enter.ready { opacity: 1; }
+
+/* 40px is the drawing. 44px is the thumb. */
+.enter::after { content: ''; position: absolute; inset: -2px; }
+
+/* ------------------------------------------------------------------ names */
 
 .lineup {
   display: flex;
   align-items: flex-start;
   gap: 40px;
-  padding: 40px 20px 10px;
+  padding: 0 20px;
 }
 
-.namecol {
+.names {
   flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 16px;
   overflow: hidden;
 }
 
-.lineup-label { opacity: var(--dim); }
-
-/*
- * The second column's label is in the file and it is set to zero opacity. It
- * is not `SUBS` any more — nobody picks the bench, the pitch is drawn at
- * kick-off — so it holds the column's width and says nothing.
- */
-.lineup-label.ghost {
-  opacity: 0;
-  letter-spacing: 1.2px;
-}
-
-.names {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-/* an empty column must not open the 16px above it */
+/* an empty squad must not open the gap under its field */
+.lineup:not(:has(.nrow)) { display: none; }
 .names:empty { display: none; }
 
 .nrow {
@@ -388,23 +462,11 @@ input:focus { outline: none; }
  * Both flags are marked the same way, because they are the same fact — this
  * name is not in the ordinary rotation — and only then do they differ in which
  * one. The mark is a 23px block of ink with the glyph knocked out of it in
- * white: the glove for a fixed goalie, the same one the game screen puts
- * beside whoever is next in, and the clock for late. The glyph is 16px inside
- * the 23px block, because at 12px in a block this size the drawing is a smudge
- * and the block would say a name is flagged without saying which.
+ * white: the glove for a fixed goalie and the clock for late.
  *
- * It is the modal's ON state on the other ground. In the modal the surface is
- * black, so on is a white fill; here the page is white, so on is a black fill.
- * One rule on both surfaces: inverted against the ground means on.
- *
- * The old marking was a glove at 50% and, for late, the name itself at 30%.
- * 30% ink on white composites to #b9b9b9 and is 1.96:1 — a name you cannot
- * read is not a state, and telling two states apart by how loud they are only
- * works when both are on the screen at once. The block is 17.93:1 and it is
- * the loudest thing in a column of black-on-white names.
- *
- * The name itself is never dimmed now, so every name in the squad reads at
- * full ink whatever it carries.
+ * One rule on both surfaces: inverted against the ground means on. In the
+ * modal the ground is black, so on is a white fill. Here the page is white, so
+ * on is a block of ink.
  */
 .flag {
   flex: none;
@@ -429,44 +491,32 @@ input:focus { outline: none; }
 /* 23px is the drawing. 43px is the thumb. */
 .x::after { content: ''; position: absolute; inset: -10px; }
 
-/* ------------------------------------------------------------------ entry */
-
-.entry {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 20px;
-}
-
-.field {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: var(--name);
-  /* an input ignores `line-height: 1` for its own height and falls back to the
-     font's natural 1.2em box, which put 6.5px into the row that is not in the
-     file. Stated, it trims like every other line of display type. */
-  height: 1em;
-}
-
-.field::placeholder { color: var(--ink); opacity: var(--ghost); }
-
-.enter {
-  position: relative;
-  flex: none;
-  width: 24px;
-  height: 24px;
-  opacity: var(--ghost);
-  transition: opacity 120ms linear;
-}
-
-/* the arrow is the placeholder's opacity until there is something to send */
-.enter.ready { opacity: 1; }
-
-.enter::after { content: ''; position: absolute; inset: -12px; }
-
 /* ------------------------------------------------------------------- foot */
 
-.foot { flex: none; }
+.foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * THE INTERVAL CAME OFF THE BUTTON
+ *
+ * It used to be a second line inside `KICK OFF`, dimmed, which made the button
+ * two things: a control and a readout. It is not part of the control — it is
+ * the answer the three settings underneath it produce, and it changes every
+ * time one of them is tapped. So it stands on its own, a chip of ink centred
+ * on the rule above the settings, where a change to it is visible next to the
+ * thing that caused it.
+ */
+.every {
+  align-self: center;
+  padding: 10px 12px;
+  background: var(--ink);
+  color: var(--paper);
+  letter-spacing: 1.2px;
+  text-indent: 1.2px;
+}
 
 .settings { display: flex; }
 
@@ -512,43 +562,22 @@ input:focus { outline: none; }
 
 /* ---------------------------------------------------------------- kick off */
 
-/*
- * Full bleed, flush to the bottom, and it wraps: the ball and the words are
- * one line, the interval is the next. The interval is not a second label on
- * the button — it is the answer the three settings above produce, and it lives
- * here because this is where the settings stop being adjustable.
- */
+/* Full bleed, flush to the bottom, one line: the ball and the words. */
 .kick {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  align-content: center;
   justify-content: center;
   gap: 8px;
   width: 100%;
   padding: 32px 20px calc(32px + env(safe-area-inset-bottom));
   background: var(--ink);
   color: #fff;
-}
-
-.kick-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   transition: opacity 120ms linear;
 }
 
 .kick-word { font-size: var(--count); }
 
-.kick:disabled { cursor: default; }
-.kick:disabled .kick-main { opacity: var(--off); }
-
-.kick-note {
-  width: 100%;
-  text-align: center;
-  text-indent: .48px;
-  opacity: var(--dim);
-}
+.kick:disabled { cursor: default; opacity: var(--off); }
 
 /* =================================================================== game */
 
@@ -579,11 +608,9 @@ input:focus { outline: none; }
 /*
  * THE GAUGE
  *
- * The black is not the block's background. It is a bar pinned to the left edge
- * and scaled to the share of the shift that is still to run, over a #444
- * ground — so the black draws back to the left as the shift empties and the
- * grey behind it is what is left. In the design frame it is 284 of 390 with
- * 6:09 of 8:30 on the clock: 369/510 is 0.724, and 0.724 of 390 is 282.
+ * A bar pinned to the left edge and scaled to the share of the shift that is
+ * still to run, over the pale ground of the same hue — so the colour draws
+ * back to the left as the shift empties. In the design frame it is 284 of 390.
  *
  * It is a `scaleX` and not a width so the change is a composited transform,
  * which is what lets it move every frame beside a 150px clock.
@@ -624,13 +651,7 @@ input:focus { outline: none; }
  * treatment for both: the block turns red and the bar starts again, this time
  * measuring the countdown itself rather than the shift. Ten seconds is two
  * percent of a shift, so a bar left on the shift's own scale would not move at
- * all in the window that matters most. Rescaled, it sweeps the full width and
- * runs out exactly as the horn lands.
- *
- * Only the colours change and nothing moves, so it is still the gauge
- * finishing and not a new mechanism arriving. The number flashes on top of it,
- * once a second, which is the one thing on this screen that is allowed to move
- * on its own.
+ * all in the window that matters most.
  */
 #game.counting .timer { background: var(--red-pale); }
 #game.counting .gauge { background: var(--red); }
@@ -654,11 +675,9 @@ input:focus { outline: none; }
 .watch-time { font-size: var(--lead); }
 
 /*
- * Two 44px boxes in a row, flush to the right at 8px and 15px off the bottom —
- * 294 from the left edge in the file, which is 390 less the 88 they occupy
- * less the 8 they stand off. The word `END` is gone: two icons side by side
- * are read as a pair of controls, and a word beside one of them would say that
- * only that one is a control.
+ * Two 44px boxes in a row, flush to the right at 8px and 15px off the bottom.
+ * The word `END` is gone: two icons side by side are read as a pair of
+ * controls, and a word beside one of them would say that only that one is.
  */
 .spine {
   position: absolute;
@@ -677,135 +696,126 @@ input:focus { outline: none; }
   place-items: center;
 }
 
-/* ------------------------------------------------------------------- side */
+/* ------------------------------------------------------------------- role */
 
-.side {
+/*
+ * ONE BLOCK A ROLE, NOT ONE BLOCK A TEAM
+ *
+ * The screen used to be Bibs over Non bibs, each with a keeper and a bench in
+ * it. That is the rota's own filing and it is not the question. Standing on a
+ * pitch you ask "am I in goal" and "am I off", and the answer to each is one
+ * short list — so there are two blocks and they are Goalkeepers and
+ * Substitutes, both teams in each.
+ *
+ * The team chip went with it. Two teams' worth of keepers is two names, and
+ * which of them is yours is a thing you know.
+ */
+.role {
   position: relative;
   flex: 1 1 0;
   min-height: 0;
   display: flex;
-  align-items: flex-start;
-  padding: 40px 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 24px 48px;
   overflow: hidden;
 }
 
 /* the home indicator lives under the last block, not under the words */
-.side:last-of-type { padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+.role:last-of-type { padding-bottom: calc(48px + env(safe-area-inset-bottom)); }
 
-.side-now {
-  flex: 1 1 0;
+.role-body {
+  flex: 1 1 auto;
   min-width: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-}
-
-.slot {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.slot-label {
-  display: flex;
   align-items: center;
-  gap: 4px;
-  opacity: var(--dim);
+  justify-content: center;
+  gap: 12px;
 }
+
+.role-mark { flex: none; }
+
+/* ------------------------------------------------------------------- reel */
 
 /*
- * THE ROW, AND WHY IT RUNS OFF THE SCREEN
+ * THE REEL
  *
- * Who is in goal now, and then everybody who is in goal after that, on one
- * line. The rota was a column down the right of the screen before: the whole
- * squad, in order, with a glove on whoever was next. It answered "when is my
- * turn" and it made you count to answer "who is after this one" — which is the
- * question anybody standing on a pitch actually asks.
+ * The whole game on one line: every change from the first to the last, the one
+ * in play in the middle at full size and the rest either side of it at 24px
+ * and half ink. On a change the line slides one place left, so the next names
+ * arrive where the eye already is instead of appearing somewhere new. Behind
+ * is behind and ahead is ahead, which is the one thing a row of names can say
+ * that a column cannot.
  *
- * So the order is laid along the line the eye is already on. The name in play
- * is at full size in a fixed column; the ones behind it are 18px at 20%, in
- * the order they arrive, running to the right until the screen stops them.
- *
- * NOTHING SCROLLS. `.side` clips at its padding box, which is the full 390 —
+ * NOTHING SCROLLS. `.role` clips at its padding box, which is the full 390 —
  * so a name is cut by the edge of the phone rather than by the 24px gutter,
  * exactly as the file draws it, and there is no horizontal scroll to find.
  *
- * ALIGNED TO BASELINE. `align-items: flex-end` on a row of `.dsp` is baseline
- * alignment: the display type is trimmed cap-to-baseline, so the bottom of
- * every margin box in the row *is* its last baseline. 50px, 32px and 18px sit
- * on one line without a single magic number.
+ * THE MIDDLE IS A FIXED COLUMN AND THAT IS THE POINT. Names run from three
+ * letters to ten and a row that packs them would put the centre somewhere new
+ * every seven minutes. 188px wide whatever is in it, with the two sides pushed
+ * up against it, so the eye can sit on one spot for two hours.
  */
-.row {
+.reel {
+  flex: 0 1 auto;
+  min-height: 0;
+  width: 100%;
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
+  align-items: center;
 }
 
-/* the file's own column. It is what holds the queue's left edge still while a
-   name changes length underneath it. */
-.keeper,
-.subnames {
-  flex: none;
-  width: 171px;
-}
-
-.keeper {
-  font-size: var(--hero);
-  white-space: nowrap;
-  overflow: hidden;
+.ribbon {
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  width: max-content;
+  will-change: transform;
 }
 
 /*
- * A stack of names is set at line-height 1 in the file, which is cap-to-cap
- * equal to the font size. These are separate elements rather than one `<p>`
- * with a `<br>`, because each one is measured and fitted on its own — so the
- * gap has to put the caps back where a single line box would have them. The
- * margin box is 0.7em, so the gap is the other 0.3em.
+ * The two sides are packed towards the middle rather than centred in their own
+ * slots: on the left the names end at the gap and on the right they start at
+ * it, so the next two along are on the screen instead of a sliver of each.
  */
-.stack {
+.grp {
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: .3em;
+  font-size: var(--queue-name);
+  color: var(--ink);
+  opacity: var(--dim);
+  text-align: center;
+  white-space: nowrap;
+  /* `width` is not in here because `auto` does not interpolate: the middle
+     column snaps to 188 and the type grows into it, which is the same picture
+     because the reel is re-centred every frame while this runs. */
+  transition: font-size 420ms cubic-bezier(.22, .61, .36, 1),
+              opacity 420ms linear;
 }
 
-.sn {
-  font-size: var(--name);
-  white-space: nowrap;
+.grp.before { align-items: flex-end; }
+.grp.after { align-items: flex-start; }
+
+.grp.now {
+  width: 188px;
+  align-items: center;
+  font-size: var(--hero);
+  opacity: 1;
+}
+
+.rn {
+  font-size: inherit;
   overflow: hidden;
 }
 
-/*
- * ONE SUB IS READ FROM THE SAME DISTANCE AS THE KEEPER
- *
- * Two names at 32 is a list and a list wants a smaller size than a headline.
- * One name is not a list — it is a second answer, and it is on the phone for
- * the same reason the first one is. So a lone sub takes the keeper's 50.
- */
-.subnames.solo .sn { font-size: var(--hero); }
-
-/* a team with nobody on the bench says nothing about the bench */
-.slot.empty { display: none; }
-
-/* ------------------------------------------------------------------ queue */
-
-/*
- * Everybody after the one in play. 20% ink is the quietest thing on this
- * screen and it is meant to be: it is 1.87:1 on #fcfcfc, which is a shape you
- * can find when you look for it and cannot read from the far post. The one in
- * play is the answer; the queue is only there for the question after it.
- */
-.queue {
-  flex: none;
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-.queue > * { opacity: var(--ghost); }
-
-.qn {
-  font-size: var(--queue);
-  white-space: nowrap;
+/* a jump — kick-off, a restore, a phone that woke up four changes late — is
+   not a rotation, so it lands rather than slides */
+.ribbon.jump,
+.ribbon.jump .grp {
+  transition: none;
 }
 
 /* ================================================================== modal */

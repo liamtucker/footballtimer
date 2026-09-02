@@ -47,138 +47,112 @@ touched.
 - **Squad memory.** The last squad is kept and prefilled at setup. A setup
   convenience only. It never touches the rotation. Nothing on the screen
   sweeps it away — a name leaves the list one row at a time.
+- **The teams are Team A and Team B.** Bibs and Non bibs named a thing the
+  screen no longer shows: the game groups by role and the only place a team is
+  written is the band over its own field.
 
 ## State
 
-**Done.** v9. The game screen is rebuilt from Figma node `87:385`; the team
-select and the modal are still node `78:655`, measured against the file at
-390x844 and landing within 0.8px everywhere. The engine passes 122 assertions
-and was not touched. Service worker cache `rota-v13`.
+**Done.** v10. Rebuilt from Figma node `94:756`. The engine passes 122
+assertions and was not touched. Service worker cache `rota-v14`.
 
-**The palette is black, white, one grey and one block of colour.** `#171717`,
-`#ffffff`, `#444444`. Hairlines are `#171717` at 10% between blocks and 20%
-between settings cells. No radius and no shadow anywhere, and black surfaces are
-flush to an edge. Type is Barlow Condensed Bold at 18, 21, 28, 32, 50 and 150,
-over a Barlow SemiBold eyebrow at 12/14.4 whose track changes by role: 0.72px on
-`NEXT ROTATION:`, 0.96px on a section label, 1.2px on a chip and a settings
-label.
+**The screen is two roles now, not two teams.** Both keepers in one block and
+both benches in the other, under a black tab that names the role. Nobody on a
+pitch asks what the bibs are doing — they ask *am I in goal* and *am I off* —
+and the team chip was the loudest thing on the screen saying the quietest
+thing on it. The voice follows the screen: `Goalkeepers, Sam and Kevin. Subs,
+Chris and Lee.`
 
-**The timer block is the only colour, and it is two pairs.** A saturated bar
-over a pale ground of the same hue: `#ddfd66` on `#edfeaf` while the shift runs,
-`#ff5a5a` on `#ffe0dd` in the last ten seconds. Everything on the block is
-`#171717` in both — 17.4:1 on the pale green, 14.9:1 on the pale red, 6.9:1 on
-the red itself — so nothing about the type changes when the colour does.
+**Each block is a reel, and it is the whole game on one line.** Every change
+from the first to the last, in order, with the pair in play centred at 50px
+and the rest either side at 24px and half ink. On a change the line slides one
+place left, so the next names arrive where the eye already is. Behind is
+behind and ahead is ahead — the one thing a row can say that a column cannot.
 
-**The bar has two scales, and the second one is the point.** For most of a
-shift it is `remaining / interval`, drawn backwards: a bar pinned to the left
-edge and `scaleX`d, so the colour draws back to the left as the shift empties.
-In the last ten seconds it is `remaining / 10s`, so it sweeps the full width and
-runs out exactly as the horn lands. Ten seconds is two percent of a shift; left
-on the shift's own scale the bar would not move at all in the window that
-matters most. The big number flashes over it at 1Hz — the one thing on this
-screen allowed to move on its own.
+It is built once at kick-off and after that a change moves one class. The
+positioning is measured, not calculated: every frame of the slide the middle
+of the active group is put on the middle of the reel, so the type can grow
+from 24 to 50 underneath it and the centre never moves. `transitionend` has
+the last word, because a throttled tab can outlive the deadline.
 
-**The horn moved to the change, and the countdown took its job.** It used to
-fire ten seconds early and be the warning itself, with the names over the top
-describing a pitch that did not exist yet. Now: ten beeps, one a second, the
-horn on the crossing, then the names describing the pitch as it stands — the
-same order as kick-off, and one `linesForNow` instead of two builders. A horn
-only sounds on a change the countdown was armed for, so a phone that slept
-through four of them wakes on the right one in silence.
+**The middle is a fixed 188px column and that is the point.** Names run from
+three letters to ten and a row that packed them would put the centre somewhere
+new every seven minutes. A name too wide for the column, or a stack too tall
+for the block, is set smaller — measured on a ruler off the side of the page
+and never on the element that is mid-transition.
 
-**The rota is read along the line the eye is already on.** The whole squad used
-to run down a column on the right, with a glove on whoever was next. It answered
-*when is my turn* and made you count to answer *who is after this one* — the
-question somebody on a pitch actually asks. So the order is laid out
-horizontally: the name in play at full size in a 171px column, then everyone
-after it at 18px and 20% ink, running right until the edge of the phone stops
-them. Nothing scrolls — `.side` clips at its padding box, the full 390, so a
-name is cut by the screen edge and not by the 24px gutter.
+**The horn swells now, and it cost two percent.** Three things made it harsh:
+it started in 20ms, it stopped in 120, and it carried 6.5kHz of top. It swells
+over 110ms on a curve, lets go over 320, and the lowpass opens from 2.2kHz to
+5kHz with it and closes on the way out — a throat, not a switch. The interval
+went from a fourth to a fifth, which is consonant *and* louder through a phone
+speaker, F4 at 349Hz sitting higher in the band a small driver passes than Eb4
+at 311Hz. Modelled at 48kHz and normalised to the old horn's peak: RMS 0.578
+against 0.600, band-RMS 0.420 against 0.417. It is not a quieter horn.
 
-**Baseline alignment is what `flex-end` already is.** The display type is
-trimmed cap-to-baseline, so the bottom of every `.dsp` margin box *is* its last
-baseline. 50px, 32px and 18px sit on one line with no magic number, and stay on
-it when `fitLine` shrinks a long name.
+**The voice is said twice, and it retries.** A pitch is the worst listening
+room there is, so the two lines are said, then said again after a second and a
+half — long enough to be a second chance and not an echo, with a chime at the
+head of each pass for the bluetooth speaker that has gone to sleep.
 
-**The queue is `rotation()` called forward.** The state at change *k* is
-`rotation(setup, k * intervalMs)`; landing on a boundary floors to that change.
-No new engine code and no arithmetic in `app.js`. It stops one short of a full
-cycle, because a queue that repeats says nothing.
+Two things were making it silent on iOS and both are fixed. A held
+`SpeechSynthesisVoice` goes stale when the list is rebuilt behind the page, and
+an utterance carrying a stale one is answered with silence and no error — so
+the choice is kept as a name and resolved against the live list at the moment
+of speaking. And no `start` inside 700ms is a wedged engine, not a slow one, so
+it is cleared and asked again twice, the second ask dropping our voice
+entirely. `cancel()` now happens in exactly two places, never on an empty
+queue, because a speculative cancel is itself the wedge. `heard.voice` reads
+back what happened.
 
-**The sound test plays both channels.** On iOS the horn is Web Audio, which the
-ring switch mutes, and the voice is `speechSynthesis`, which it does not. They
-fail independently, so the button plays the horn and then says *Sound is
-working*. One sounding and the other not is the answer, not a broken test.
+**The field is at the top of the block and it is a form.** You type eight names
+and then read them back, so the field used to get further from the thumb with
+every name. And on iOS a bare input has no return key — the keyboard shows
+`done`, which dismisses it and never reaches the page. Inside a form the return
+commits the name, and the arrow is that form's submit button, so both routes
+are one handler. Autofill is asked off four ways: `autocomplete`, `autocorrect`,
+`spellcheck` and a neutral `name`.
 
-**The display type is trimmed to its cap height, and that is why the file
-agrees.** Figma uses `text-box-trim: trim-both` with `text-box-edge: cap
-alphabetic`, so every vertical measurement in the design is cap-to-baseline.
-Barlow and Barlow Condensed are both 1000 units to the em with cap height 700,
-ascent 1000 and descent 200. With `line-height: 1` the cap top sits 0.2em down
-and the baseline 0.9em down, so `margin-block: -.2em -.1em` leaves a margin box
-of exactly 0.7em — which is why 50px occupies 35px and 150px occupies 105px, the
-numbers the file reports. It is margins and not `text-box`, which lands in
-Safari 18.4 and would leave every earlier iPhone a third of a line out. A stack
-of names sets each one as its own element on a `.3em` gap, which puts the caps
-where a single line box would.
-
-**A name that does not fit is set smaller, not cut off.** Nothing in the design
-reaches the edge of its column; a real squad does, and clipping LORENZO turns
-the one thing the screen exists to say into LORENZ. **And one sub is set at the
-keeper's size** — two names at 32 is a list, one name is a second answer.
-
-**A name carries two flags and the modal is where they are set.** One black
-band, centred and full bleed, 112.8px tall — and it asks the one question this
-app asks, `END THE GAME?`, so there is one modal surface and not two. There is
-no switch and no tick: the word is the control, and the state is the shape the
-word sits in. Inverted against the ground means on — a white fill on the band, a
-block of ink in the squad list — and pressed is a third shape in `#444444`,
-instant, because selected and pressed are two different facts. The geometry is
-identical in all three, so nothing moves when a finger lands. A band in the
-middle of the screen cannot lean on a tap outside, so it carries an explicit
-23px cross; the scrim and Escape still dismiss.
-
-**What the rebuilds deleted.** The subs divider, the drag to reorder, the tap
-that set the starting keeper, and the edit route behind all three — the random
-draw makes entry order meaningless, so none of them had anything left to decide.
-Also gone: the mute (Liam removed it before this), the two mid-game roster
-controls, the squad column with its glove-and-arrow marks, and the word `END`,
-which is now two 44px icons side by side, flush right at 8px and 15px off the
-bottom. A word beside one of two icons says that only that one is a control. The
-sound test came back as the other icon, because the volume failing silently is
-the one way this app breaks on a pitch.
+**The interval came off the button.** It was a dimmed second line inside
+`KICK OFF`, which made the button a control and a readout at once. It is a chip
+of ink centred on the rule above the settings now, next to the three things
+that change it.
 
 **What was carried across untouched.** The clock as `Date.now() - kickoff` with
-the `visibilitychange` resync; `Bibs. Goal, Umar. Sub, Kevin.` with a chime
-before each team; the `navigator.audioSession = 'playback'` fix that made the
-horn audible on a silent iPhone; the wake lock; `localStorage` persistence and
-silent restore; the offline service worker; the `?t=` debug hook.
+the `visibilitychange` resync; the gauge and its two scales; the ten beeps and
+the horn on the crossing; the centred modal and its two flags; the
+`navigator.audioSession = 'playback'` fix; the wake lock; `localStorage`
+persistence and silent restore; the offline service worker; the `?t=` debug
+hook.
 
-**Next.** The field test, and it is the same one as before with one more
-question in it: whether the horn is the right length on a real speaker, whether
-the countdown at every change annoys people by minute forty, and whether ten
-beeps before it is nine too many.
+**Next.** The field test. Whether the horn is now too polite through a real
+bluetooth speaker, whether twice is enough, and whether the reel reads at a
+glance from the far post.
 
 **Blocked.** Nothing.
 
 **Open, for Liam.**
 
-- **The design's own numbers do not agree with each other.** The team select
-  shows squads of 8 and 7 with `ROTATE EVERY: 8:30`; 8:30 is the answer for 7
-  and the answer for 8 is 7:30. The build does the arithmetic and shows 7:30.
-- **The team select's second column is labelled `SUBS` at zero opacity.** It
-  holds the width and says nothing, which is correct now that nobody picks the
-  bench — but it is a label waiting to be deleted or given a job.
-- **The second team's chip has no shirt icon in node `87:385`.** The first
-  team's does, and both did in `78:655`. The build keeps the outline shirt: it
-  is the only thing that tells the two chips apart at a glance, and a deleted
-  icon looks more like a slip than a decision.
-- **No agent can hear any of this.** The horn is proved by an
-  `OfflineAudioContext` render and nothing else, and the voice has never fired
-  `start` in an automation browser.
-- **`brain/design.md` and `spec.md` describe an interface two rebuilds old.**
-  Both are still right about the rotation and about why the sounds are what they
-  are, and wrong about every screen.
+- **The two blocks in the file are 12px apart and 24px apart.** Goalkeepers
+  puts 12 between the mark and the names, Substitutes puts 24. The build uses
+  12 in both, because two identical structures differing by 12px is a slip and
+  not a decision.
+- **The subs stack is set to fit the room, not to the file's number.** With
+  four names the file draws them at 31.9px; the room between the mark and the
+  bottom of the block takes 36.8. A fit rule is right and a magic number is
+  not, so the build fits.
+- **Nothing marks which team a name is on.** That is what grouping by role
+  costs, and on a six-a-side pitch it is probably free. It is the first thing
+  to look at if the field test is confusing.
+- **The reel shows the past.** Two names to the left of centre have already had
+  their turn. It is what makes a reel a reel, and it is also two names of
+  screen spent on something nobody needs.
+- **`brain/design.md` and `spec.md` describe an interface three rebuilds old.**
+  Both are still right about the rotation and about why the sounds are what
+  they are, and wrong about every screen.
+- **No agent can hear any of this,** and now no agent can render it either: the
+  horn's graph is proved to build in a real browser, but its loudness is a
+  numeric model of the same graph and not an `OfflineAudioContext` render.
 
 ## Debug hook
 

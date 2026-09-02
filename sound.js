@@ -31,31 +31,46 @@
  * emergency, and low with rich harmonics reads as an object with air in it
  * where a high square wave reads as a circuit.
  *
- * Rendered through an OfflineAudioContext at 48kHz:
+ * WHY IT SWELLS, AND WHY THAT COST NOTHING
  *
- *     the old whistle   peak 0.344   RMS 0.075   crest 4.58   550ms
- *     the klaxon        peak 0.936   RMS 0.469   crest 2.00   2504ms
- *     this horn         peak 0.940   RMS 0.602   crest 1.56   2522ms
+ * The held horn was still harsh, and three things made it so: it started in
+ * twenty milliseconds, it stopped in a hundred and twenty, and it carried
+ * 6.5kHz of top on a stack driven four times over. All three are the sound of
+ * a switch and not of an object.
  *
- * The horn is the loudest of the three and it does not clip. Nothing was
- * traded for the timbre: a held note has no notches cut in it, so it spends
- * all of its length at the ceiling where the klaxon spent nine tenths.
- * Through a band model of a portable speaker — 400Hz to 6kHz — the horn is
- * 0.544 against the klaxon's 0.513 and the whistle's 0.086.
+ * So the note now swells over 110ms on a curve, holds, and lets go over 320ms;
+ * the top comes up with it, from 2.2kHz to 5kHz, and closes again on the way
+ * out. The throat opening is what a real horn does and it is the whole
+ * difference between an alarm and an announcement.
+ *
+ * The interval changed with it. Bb3 and Eb4 is a fourth, which is the
+ * interval a truck air horn is built to and it grinds on purpose. Bb3 and F4
+ * is a fifth: consonant, and — this is the part that matters on a pitch —
+ * measurably louder through a small speaker, because F4 at 349Hz sits higher
+ * in the band a phone can actually pass than Eb4 at 311Hz.
+ *
+ * Modelled at 48kHz and normalised to the old horn's peak, so RMS is a
+ * like-for-like loudness number, and band-RMS is what a 400Hz-6kHz speaker
+ * passes:
+ *
+ *     the old whistle          RMS 0.075   band-RMS 0.086
+ *     the klaxon               RMS 0.469
+ *     the fourth, hard edges   RMS 0.600   band-RMS 0.417
+ *     this horn                RMS 0.578   band-RMS 0.420
+ *
+ * Two percent of RMS bought the swell and the release, and the fifth gave it
+ * back through the speaker that has to carry it. It is not a quieter horn.
  *
  * HOW IT IS BUILT
  *
- * Two throats, Bb3 and Eb4, a fourth apart and sounding together. That is the
- * interval a truck air horn is built to, and a fourth held together beats and
- * grinds in a way one note cannot. Each throat is a pair of sawtooths six or
- * seven cents apart, so the pair drifts in and out of phase and never sits
- * still. The stack is driven four times into a soft clipper, which is what
- * turns a thin sawtooth chord into something with a throat: the clipper folds
- * the harmonics up through 400Hz to 6kHz, which is where a small speaker and a
- * human ear are both at their most sensitive. A 6.5kHz lowpass takes the fizz
- * off the top, and a trim holds the rendered peak under 1.
+ * Two throats, Bb3 and F4, a fifth apart and sounding together. Each throat is
+ * a pair of sawtooths six or seven cents apart, so the pair drifts in and out
+ * of phase and never sits still. The stack is driven into a soft clipper,
+ * which is what turns a thin sawtooth chord into something with a throat: the
+ * clipper folds the harmonics up through 400Hz to 5kHz, which is where a small
+ * speaker and a human ear are both at their most sensitive.
  *
- * The pitch climbs 40 cents into the note and drops 70 cents out of it. A real
+ * The pitch climbs 45 cents into the note and drops 60 cents out of it. A real
  * horn does both — the air has to catch and it has to run out — and it is the
  * detail that makes this read as an object rather than as an oscillator.
  */
@@ -65,17 +80,28 @@
 export const HORN_MS = 2500;
 
 const HORN_LOW = 233.08;    /* Bb3 */
-const HORN_HIGH = 311.13;   /* Eb4, a fourth up — the two throats of an air horn */
+const HORN_HIGH = 349.23;   /* F4, a fifth up — the two throats of the horn */
 /* how hard the stack is pushed into the clipper. this is the timbre control:
    under two it is a synth chord, over six it is a buzz. */
-const HORN_DRIVE = 4;
+const HORN_DRIVE = 4.2;
 /* measured: the graph peaks at 1/HORN_TRIM before this, so this is what puts
    the rendered peak just under the ceiling instead of over it */
-const HORN_TRIM = 0.8;
-const HORN_RISE = 40;   /* cents the pitch climbs as the air catches */
-const HORN_FALL = 70;   /* cents it drops as the air runs out */
-const RISE_S = 0.06;
-const FALL_S = 0.22;
+const HORN_TRIM = 0.74;
+const HORN_RISE = 45;   /* cents the pitch climbs as the air catches */
+const HORN_FALL = 60;   /* cents it drops as the air runs out */
+const RISE_S = 0.11;
+const FALL_S = 0.34;
+
+/* the swell and the let-go. the attack is a curve and not a ramp, because a
+   straight line into a held note is still an edge — it is the second half of
+   the rise that has to be slow, not the first. */
+const ATTACK_S = 0.11;
+const RELEASE_S = 0.32;
+
+/* the throat opening. the top comes up with the note and closes on the way
+   out, which is the difference between a horn and a switch. */
+const TOP_SHUT = 2200;
+const TOP_OPEN = 5000;
 
 /*
  * A soft clipper. Four sawtooths driven four times over can reach well past
@@ -99,6 +125,15 @@ function clipper(ctx, ceiling) {
   return shaper;
 }
 
+/** The attack, as a curve. `x^1.7` is slow where a ramp is fastest. */
+function swell(points) {
+  const curve = new Float32Array(points);
+  for (let i = 0; i < points; i += 1) {
+    curve[i] = Math.max(0.0001, Math.pow(i / (points - 1), 1.7));
+  }
+  return curve;
+}
+
 /**
  * The horn. The same sound at kick-off and at every changeover.
  *
@@ -107,13 +142,17 @@ function clipper(ctx, ceiling) {
 export function buildHorn(ctx, at, out) {
   const seconds = HORN_MS / 1000;
 
-  const shaper = clipper(ctx, 0.86);
+  const shaper = clipper(ctx, 0.9);
   /* the top of a clipped sawtooth stack is fizz on a small driver and nothing
-     on a big one. taking it off costs almost no loudness and a lot of harshness. */
+     on a big one. taking it off costs almost no loudness and a lot of
+     harshness — and moving it is the throat opening and closing. */
   const top = ctx.createBiquadFilter();
   top.type = 'lowpass';
-  top.frequency.setValueAtTime(6500, at);
-  top.Q.setValueAtTime(0.5, at);
+  top.frequency.setValueAtTime(TOP_SHUT, at);
+  top.frequency.linearRampToValueAtTime(TOP_OPEN, at + ATTACK_S + 0.07);
+  top.frequency.setValueAtTime(TOP_OPEN, at + seconds - RELEASE_S);
+  top.frequency.linearRampToValueAtTime(3000, at + seconds);
+  top.Q.setValueAtTime(0.6, at);
   /* the shaper bounds itself, but the filter after it overshoots on every
      edge. the trim is what keeps the rendered peak under 1. */
   const trim = ctx.createGain();
@@ -121,28 +160,30 @@ export function buildHorn(ctx, at, out) {
   shaper.connect(top).connect(trim).connect(out);
 
   /* one envelope for the whole horn. it is a held note, so there is nothing
-     inside it to articulate — only a fast attack and a release short enough to
-     stay a horn and long enough to carry the pitch drop. */
+     inside it to articulate — only a swell in and a let-go out, both long
+     enough to read as air moving rather than as a contact closing. */
   const body = ctx.createGain();
-  body.gain.setValueAtTime(0.0001, at);
-  body.gain.linearRampToValueAtTime(1, at + 0.02);
-  body.gain.setValueAtTime(1, at + seconds - 0.12);
+  /* the curve owns the start of the note. An explicit setValueAtTime at the
+     same instant is an event inside a curve's span, which Safari throws on. */
+  body.gain.setValueCurveAtTime(swell(64), at, ATTACK_S);
+  body.gain.setValueAtTime(1, at + seconds - RELEASE_S);
   body.gain.linearRampToValueAtTime(0.0001, at + seconds);
   body.connect(shaper);
 
-  /* the drive is before the envelope, so the clipper sees the same amount of
-     signal for the whole note and the timbre does not change as it fades */
+  /* the drive is before the envelope, so the clipper sees less signal as the
+     note swells — which is why the timbre opens with the level instead of
+     arriving whole */
   const drive = ctx.createGain();
   drive.gain.setValueAtTime(HORN_DRIVE, at);
   drive.connect(body);
 
   const fallAt = at + seconds - FALL_S;
-  /* two throats a fourth apart, each a beating pair */
+  /* two throats a fifth apart, each a beating pair */
   for (const [freq, cents, level] of [
     [HORN_LOW, 0, 0.5],
-    [HORN_LOW, 7, 0.5],
-    [HORN_HIGH, 0, 0.42],
-    [HORN_HIGH, -6, 0.42]
+    [HORN_LOW, -7, 0.5],
+    [HORN_HIGH, 0, 0.44],
+    [HORN_HIGH, 6, 0.44]
   ]) {
     const osc = ctx.createOscillator();
     osc.type = 'sawtooth';

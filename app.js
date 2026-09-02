@@ -55,16 +55,15 @@ const KICKOFF_S = 20;
 /* the silence between the horn ending and the first chime */
 const VOICE_GAP_MS = 150;
 
-const TEAM_NAMES = ['Bibs', 'Non bibs'];
+const TEAM_NAMES = ['Team A', 'Team B'];
 
 const COPY = {
-  goal: 'Goal',
-  sub: 'Sub',
+  goalkeepers: 'Goalkeepers',
   subs: 'Subs',
   nextRotation: 'Next rotation:',
   kickOffIn: 'Kick off in:',
-  rotateEvery: 'Rotate every:',
-  dash: '—',
+  rotateEvery: 'Rotate every',
+  dash: '\u2014',
   fixedGoalie: 'Fixed goalie',
   late: 'Late',
   endTitle: 'End the game?',
@@ -262,6 +261,7 @@ const el = {
   setup: $('setup'),
   game: $('game'),
   again: $('again'),
+  forms: [$('form-0'), $('form-1')],
   inputs: [$('input-0'), $('input-1')],
   enters: [$('enter-0'), $('enter-1')],
   squads: [...document.querySelectorAll('.squad')],
@@ -277,12 +277,8 @@ const el = {
   watch: $('watch'),
   end: $('end'),
   test: $('test'),
-  keepers: [$('keeper-0'), $('keeper-1')],
-  subs: [$('subs-0'), $('subs-1')],
-  subSlots: [$('subslot-0'), $('subslot-1')],
-  subLabels: [$('subs-label-0'), $('subs-label-1')],
-  goalQueues: [$('queue-goal-0'), $('queue-goal-1')],
-  subQueues: [$('queue-subs-0'), $('queue-subs-1')],
+  ruler: $('ruler'),
+  reels: [$('reel-goal'), $('reel-subs')],
   sheet: $('sheet'),
   scrim: $('scrim'),
   panel: $('panel'),
@@ -318,7 +314,8 @@ const heard = {
   after: 'none',
   rate: 0,
   session: 'none',
-  horn: 'none'
+  horn: 'none',
+  voice: 'none'
 };
 
 function claimSession() {
@@ -425,14 +422,44 @@ function beep() {
 /*
  * `speechSynthesis.speaking` is worth nothing: measured in Chrome 151 it stays
  * true for ever on a queued utterance that never starts. Only `start` proves a
- * voice, and the sequence moves on at an estimate as well as on `end`, so a
- * dead engine costs an announcement its timing and never its second team.
+ * voice.
+ *
+ * WHY THIS RETRIES, AND WHY IT NO LONGER HOLDS A VOICE
+ *
+ * The announcement is spoken two and a half seconds after the horn, which is
+ * seconds after any touch and, at a changeover, after no touch at all. That is
+ * the shape iOS is worst at: the engine is unlocked for the session and still
+ * answers `speak()` with silence, no error and no `start`.
+ *
+ * Two things fix it and both are here.
+ *
+ * A held `SpeechSynthesisVoice` goes stale. The list is rebuilt behind the
+ * page — on `voiceschanged`, on a return from the background, on a locale
+ * change — and an utterance carrying a voice object from the old list is
+ * answered with silence. So the choice is kept as a name and resolved against
+ * the live list at the moment of speaking, and never held.
+ *
+ * And no start inside seven hundred milliseconds is a wedged engine, not a
+ * slow one. A wedged engine is cleared and asked again, twice, and the second
+ * ask drops our voice entirely and takes whatever the engine wants to use —
+ * because a voice that will not speak is worse than an American one.
+ *
+ * `cancel()` is the other half of the wedge, so it is called in exactly two
+ * places: on an utterance that never started, and when an announcement is
+ * being replaced by a newer one. Never speculatively, and never on an empty
+ * queue.
  */
 
-const VOICE_START_MS = 1500;
+const VOICE_START_MS = 700;
+const VOICE_TRIES = 3;
+
+/* the same names said twice, with a gap wide enough to be a second chance and
+   not an echo. Across a pitch the first pass is the one that is half heard. */
+const VOICE_PASSES = 2;
+const PASS_GAP_MS = 1600;
 
 let announceToken = 0;
-let chosenVoice = null;
+let voiceName = '';
 
 /* en-GB and local first. An engine left to pick can land on a US voice
    halfway through a season. */
@@ -452,9 +479,20 @@ function pickVoice() {
     const region = /^en-GB/i.test(lang) ? 0 : /^en/i.test(lang) ? 1 : 2;
     return region * 10 + (voice.localService ? 0 : 1);
   };
-  chosenVoice = pool
+  const best = pool
     .slice()
-    .sort((a, b) => rank(a) - rank(b) || String(a.name).localeCompare(String(b.name)))[0] || null;
+    .sort((a, b) => rank(a) - rank(b) || String(a.name).localeCompare(String(b.name)))[0];
+  voiceName = best ? String(best.name) : '';
+}
+
+/* resolved fresh, every single time. See the header. */
+function voiceNow() {
+  if (!voiceName) return null;
+  try {
+    return (speechSynthesis.getVoices() || []).find((v) => v.name === voiceName) || null;
+  } catch (error) {
+    return null;
+  }
 }
 
 /** Roughly how long a line takes to say, at rate 0.95 with its full stops. */
@@ -467,22 +505,32 @@ function haveVoice() {
   return 'speechSynthesis' in window;
 }
 
-/* Only ever called when there is something in the queue to take out. */
-function clearVoice() {
+/* Replacing an announcement, or leaving the game. The only two cancels that
+   are about the queue rather than about a wedge. */
+function stopVoice() {
+  if (!haveVoice()) return;
+  try { speechSynthesis.cancel(); } catch (error) { /* ignore */ }
+}
+
+/* an engine that took an utterance and never started it. Clearing it is the
+   only thing that gets the next one out. */
+function unwedge() {
   if (!haveVoice()) return;
   try {
-    if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+    speechSynthesis.cancel();
+    speechSynthesis.resume();
   } catch (error) { /* ignore */ }
 }
 
-function utteranceFor(text) {
+function utteranceFor(text, plain) {
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.rate = 0.95;
   utterance.pitch = 1;
   utterance.volume = 1;
-  if (chosenVoice) {
-    utterance.voice = chosenVoice;
-    utterance.lang = chosenVoice.lang;
+  const voice = plain ? null : voiceNow();
+  if (voice) {
+    utterance.voice = voice;
+    utterance.lang = voice.lang;
   } else {
     utterance.lang = 'en-GB';
   }
@@ -502,6 +550,10 @@ if ('speechSynthesis' in window) {
  * whitespace one and a lone full stop all have no phonemes and are the shapes
  * that leave the queue stuck. It is `ok` at rate 10, about fifty
  * milliseconds, spent at the first touch anywhere on the page.
+ *
+ * It used to arm a cancel fifteen hundred milliseconds later, in case the
+ * unlock itself wedged. That cancel was landing on an empty queue, which is
+ * the wedge, so it is gone.
  */
 let voiceUnlocked = false;
 let voiceAsks = 0;
@@ -517,13 +569,12 @@ function unlockVoice() {
     const utterance = utteranceFor('ok');
     utterance.volume = 0.02;
     utterance.rate = 10;
-    utterance.onstart = () => { state.degradedVoice = false; };
+    utterance.onstart = () => {
+      state.degradedVoice = false;
+      heard.voice = 'unlocked';
+    };
     speechSynthesis.speak(utterance);
     voiceUnlocked = true;
-    const asked = voiceAsks;
-    window.setTimeout(() => {
-      if (voiceAsks === asked) clearVoice();
-    }, VOICE_START_MS);
   } catch (error) {
     state.degradedVoice = true;
   }
@@ -532,9 +583,11 @@ function unlockVoice() {
 function speak(text, onEnd) {
   voiceAsks += 1;
   let done = false;
+  let timer = 0;
   const finish = () => {
     if (done) return;
     done = true;
+    window.clearTimeout(timer);
     if (onEnd) onEnd();
   };
   if (!haveVoice()) {
@@ -542,30 +595,61 @@ function speak(text, onEnd) {
     finish();
     return;
   }
-  try {
-    if (speechSynthesis.paused) speechSynthesis.resume();
-    const utterance = utteranceFor(text);
-    let started = false;
-    utterance.onstart = () => {
-      started = true;
-      state.degradedVoice = false;
-    };
-    utterance.onend = finish;
-    utterance.onerror = (event) => {
-      /* a cancel is our own doing, not a lost voice */
-      const reason = event && event.error;
-      if (reason !== 'canceled' && reason !== 'interrupted') state.degradedVoice = true;
+
+  let tries = 0;
+  const attempt = () => {
+    if (done) return;
+    tries += 1;
+    try {
+      if (speechSynthesis.paused) speechSynthesis.resume();
+      /* the second and third asks drop our chosen voice and take the engine's
+         own. A voice object is the commonest thing that answers with silence. */
+      const utterance = utteranceFor(text, tries > 1);
+      utterance.onstart = () => {
+        window.clearTimeout(timer);
+        state.degradedVoice = false;
+        heard.voice = tries === 1 ? 'speaking' : `speaking (try ${tries})`;
+        /* `end` is not reliable either, so the sequence also moves on at an
+           estimate — a dead engine costs an announcement its timing and never
+           its second line */
+        timer = window.setTimeout(finish, sayMs(text));
+      };
+      utterance.onend = finish;
+      utterance.onerror = (event) => {
+        const reason = event && event.error;
+        /* a cancel is our own doing, and the retry is already on its way */
+        if (reason === 'canceled' || reason === 'interrupted') return;
+        heard.voice = `error: ${reason}`;
+        window.clearTimeout(timer);
+        if (tries < VOICE_TRIES) {
+          timer = window.setTimeout(attempt, 60);
+          return;
+        }
+        state.degradedVoice = true;
+        finish();
+      };
+      speechSynthesis.speak(utterance);
+      timer = window.setTimeout(() => {
+        if (done) return;
+        if (tries < VOICE_TRIES) {
+          unwedge();
+          attempt();
+          return;
+        }
+        state.degradedVoice = true;
+        heard.voice = 'never started';
+        finish();
+      }, VOICE_START_MS);
+    } catch (error) {
+      if (tries < VOICE_TRIES) {
+        timer = window.setTimeout(attempt, 60);
+        return;
+      }
+      state.degradedVoice = true;
       finish();
-    };
-    speechSynthesis.speak(utterance);
-    window.setTimeout(() => {
-      if (!started && !done) state.degradedVoice = true;
-    }, VOICE_START_MS);
-    window.setTimeout(finish, sayMs(text));
-  } catch (error) {
-    state.degradedVoice = true;
-    finish();
-  }
+    }
+  };
+  attempt();
 }
 
 function joinNames(names) {
@@ -577,55 +661,66 @@ function joinNames(names) {
 /*
  * ONE TEMPLATE, THE STATE AND NOT THE TRANSITION
  *
- *   [chime] Bibs. Goal, Umar. Sub, Kevin.
+ *   [chime] Goalkeepers, Sam and Kevin. Subs, Chris and Lee.
+ *   [pause]
+ *   [chime] Goalkeepers, Sam and Kevin. Subs, Chris and Lee.
  *
- * The same words the screen shows, so the two never disagree. It says who is
- * in goal and who is sitting down, never who is leaving, because a state is
- * true for the next ten minutes and a transition is true for a second. A team
- * with no subs drops the clause — `No subs` is information nobody can act on.
+ * The same words the screen shows, in the same two blocks, so the two never
+ * disagree. It says who is in goal and who is sitting down, never who is
+ * leaving, because a state is true for the next ten minutes and a transition
+ * is true for a second.
+ *
+ * It is said twice. A pitch is the worst listening room there is — wind, two
+ * other games, and the phone in a bag ten yards away — and the first pass is
+ * the one that tells everybody to listen. The gap between them is a second
+ * and a half, which is long enough that the second pass is a second chance
+ * rather than an echo.
  *
  * The name is spoken exactly as it was typed. The screen's uppercase is a
  * `text-transform` and never reaches the engine.
  */
-function said(word) {
-  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-}
-
-function lineFor(teamIndex, keeper, subs) {
-  if (!keeper) return null;
-  const bits = [`${said(TEAM_NAMES[teamIndex])}.`, `${COPY.goal}, ${keeper.name}.`];
-  const names = subs.map((player) => player.name);
-  if (names.length > 0) {
-    bits.push(`${said(names.length > 1 ? COPY.subs : COPY.sub)}, ${joinNames(names)}.`);
-  }
-  return bits.join(' ');
-}
-
-/*
- * The voice always describes the pitch as it stands right now. It used to
- * describe the next one, because it spoke ten seconds early; the countdown
- * took that job, so the horn lands on the change and the names follow it —
- * the same order as kick-off, and one line of code instead of two.
- */
 function linesForNow(r) {
-  return r.teams.map((team, t) => lineFor(t, team.keeper, team.subs)).filter(Boolean);
+  const teams = r.teams || [];
+  const keepers = teams.map((team) => team.keeper).filter(Boolean).map((p) => p.name);
+  const subs = teams.reduce((all, team) => all.concat((team.subs || []).map((p) => p.name)), []);
+  const lines = [];
+  if (keepers.length > 0) lines.push(`${COPY.goalkeepers}, ${joinNames(keepers)}.`);
+  if (subs.length > 0) lines.push(`${COPY.subs}, ${joinNames(subs)}.`);
+  return lines;
 }
 
-function announce(lines) {
+function announce(lines, passes = VOICE_PASSES) {
   announceToken += 1;
   const token = announceToken;
-  /* the one cancel per announcement, and only if there is a queue to take out */
-  clearVoice();
-  let i = 0;
+  /* the one cancel per announcement: this one replaces whatever is queued */
+  stopVoice();
+  if (lines.length === 0) return;
+
+  /* the whole announcement as a flat list of steps, so the repeat is data and
+     not a second code path */
+  const steps = [];
+  for (let pass = 0; pass < Math.max(1, passes); pass += 1) {
+    if (pass > 0) steps.push({ wait: PASS_GAP_MS });
+    /* the chime is the throwaway first token a sleeping bluetooth speaker
+       eats, and there is one at the head of every pass for the same reason */
+    steps.push({ chime: true });
+    lines.forEach((text) => steps.push({ say: text }));
+  }
+
+  let at = 0;
   const next = () => {
-    if (token !== announceToken || i >= lines.length) return;
-    const text = lines[i];
-    i += 1;
-    const wait = chime();
-    window.setTimeout(() => {
-      if (token !== announceToken) return;
-      speak(text, next);
-    }, wait + 70);
+    if (token !== announceToken || at >= steps.length) return;
+    const step = steps[at];
+    at += 1;
+    if (step.wait) {
+      window.setTimeout(next, step.wait);
+      return;
+    }
+    if (step.chime) {
+      window.setTimeout(next, chime() + 70);
+      return;
+    }
+    speak(step.say, next);
   };
   next();
 }
@@ -733,7 +828,6 @@ function renderSetup() {
 
   for (let t = 0; t < 2; t += 1) {
     renderNames(t);
-    el.squads[t].classList.toggle('filled', draft.players[t].length > 0);
     el.enters[t].classList.toggle('ready', el.inputs[t].value.trim().length > 0);
   }
 
@@ -771,15 +865,24 @@ el.inputs.forEach((input, t) => {
   input.addEventListener('input', () => {
     el.enters[t].classList.toggle('ready', input.value.trim().length > 0);
   });
-  input.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter') return;
+});
+
+/*
+ * THE RETURN KEY COMMITS THE NAME
+ *
+ * It is a `submit` and not a `keydown`, because on iOS a bare input has no
+ * return key to press — the keyboard shows `done`, which dismisses it and
+ * never reaches the page. An input inside a form gets a real return, and
+ * `enterkeyhint` is what puts the word on it.
+ *
+ * The arrow is the form's submit button, so both routes are one handler and
+ * they cannot drift apart.
+ */
+el.forms.forEach((form, t) => {
+  form.addEventListener('submit', (event) => {
     event.preventDefault();
     commitField(t);
   });
-});
-
-el.enters.forEach((button, t) => {
-  button.addEventListener('click', () => commitField(t));
 });
 
 /*
@@ -930,46 +1033,187 @@ function elapsedWords(ms) {
 }
 
 /*
- * WHO IS AFTER THIS ONE
+ * THE REEL
  *
- * The queue is the rota read forward: the pitch at the next change, and the
- * one after that, and so on. There is no arithmetic here and there is no new
- * engine call to write — the rotation is a pure function of elapsed time, so
- * the state at change `k` is `rotation(setup, k * intervalMs)`. Landing exactly
- * on a boundary floors to that change, which is why the multiplication is
- * safe.
+ * Two of them, one a role: both keepers on the first and both benches on the
+ * second. Each is the whole game on one line — every change from the first to
+ * the last, in order, with the one in play in the middle at 50px and the rest
+ * either side of it at 24px and half ink. The screen shows about two along in
+ * each direction and the edge of the phone ends it.
  *
- * It stops one short of a full cycle. Past that the names start coming round
- * again, and a queue that repeats is a queue that says nothing.
+ * There is no arithmetic here and there is no new engine call to write. The
+ * rotation is a pure function of elapsed time, so the pitch at change `k` is
+ * `rotation(setup, k * intervalMs)`; landing exactly on a boundary floors to
+ * that change, which is why the multiplication is safe.
+ *
+ * WHY IT IS BUILT ONCE
+ *
+ * The rota does not change while a game runs, so the reel is the same list of
+ * names for two hours. It is written at kick-off and after that a change moves
+ * one class and the line slides. Rebuilding it every seven minutes would throw
+ * away the thing that makes a slide read as a slide: the same elements, in the
+ * same order, in a new place.
  */
-const QUEUE_MAX = 8;
 
-function futureRotations(setup, changeIndex, intervalMs, count) {
-  const out = [];
-  for (let k = 1; k <= count; k += 1) {
-    out.push(engine.rotation(setup, (changeIndex + k) * intervalMs));
+/* a two hour game on the minimum interval is 120 changes. Past that the reel
+   is longer than the game will ever reach and the extra is dead weight. */
+const REEL_MAX = 120;
+
+/* the middle is a fixed column, whatever is standing in it */
+const NOW_W = 188;
+const HERO = 50;
+const FIT_FLOOR = 24;
+/* the gap between the mark and the names, and it is in the stylesheet too */
+const MARK_GAP = 12;
+/* long enough to read as one thing moving and short enough to be over before
+   anybody looks up. It matches the transition in the stylesheet. */
+const GLIDE_MS = 420;
+
+const reels = [
+  { node: el.reels[0], groups: [], at: 0, x: 0 },
+  { node: el.reels[1], groups: [], at: 0, x: 0 }
+];
+
+/* the setup the reels were built from. Identity, not equality: `kickOff`
+   returns a new object and that is exactly when the reel has to be rebuilt. */
+let reelSetup = null;
+/* while this is in the future the reels are re-centred every frame, which is
+   what keeps the middle in the middle while the two sizes are still changing */
+let glideUntil = 0;
+
+function reelLists(setup) {
+  const intervalMs = engine.computeIntervalMs(setup);
+  const gameMs = (Number(engine.gameMinutesOf(setup)) || 0) * MS_PER_MINUTE;
+  const count = Math.max(1, Math.min(REEL_MAX, Math.ceil(gameMs / intervalMs)));
+  const goal = [];
+  const subs = [];
+  for (let k = 0; k < count; k += 1) {
+    const r = engine.rotation(setup, k * intervalMs);
+    const teams = r.teams || [];
+    goal.push(teams.map((team) => team.keeper).filter(Boolean).map((p) => p.name));
+    subs.push(teams.reduce((all, team) => all.concat((team.subs || []).map((p) => p.name)), []));
   }
-  return out;
+  return [goal, subs];
 }
 
-function queueLength(r) {
-  const sizes = (r.teams || []).map((team) => (team.order || []).length);
-  const longest = sizes.length ? Math.max(...sizes) : 0;
-  return Math.max(0, Math.min(QUEUE_MAX, longest - 1));
+function buildReels(setup) {
+  reelLists(setup).forEach((lists, index) => {
+    const reel = reels[index];
+    reel.node.innerHTML = lists.map((names) => (
+      `<div class="grp">${(names.length > 0 ? names : [COPY.dash])
+        .map((name) => `<p class="rn dsp">${safe(name)}</p>`)
+        .join('')}</div>`
+    )).join('');
+    reel.groups = [...reel.node.children];
+    reel.at = 0;
+    reel.x = 0;
+  });
 }
 
 /*
  * A NAME THAT DOES NOT FIT IS SET SMALLER, NOT CUT OFF
  *
- * The design's longest keeper is KEVIN and its longest squad name is LORENZO,
- * so nothing in the file ever reaches the edge of its column. A real squad
- * does: LORENZO at 50px is 157px against a 151px column, and clipping it turns
- * the one thing the screen exists to say into LORENZ. So a line that is too
- * wide is scaled down until it fits, and every name in the design is untouched
- * because every name in the design already fits.
+ * Two things can be too small for a group in the middle: the 188px column,
+ * which a ten letter name overruns at 50px, and the height left between the
+ * mark and the bottom of the block, which four names overrun on any phone.
+ * Both are answered the same way and the smaller answer wins.
+ *
+ * The measuring is done on a ruler off the side of the page and never on the
+ * live element, because the live element is in the middle of a transition and
+ * writing a size to it to read one back is a flash on the screen.
  */
-const FIT_FLOOR = 24;
+function widthAt(name) {
+  el.ruler.textContent = name;
+  return el.ruler.getBoundingClientRect().width;
+}
 
+function fitGroup(reel) {
+  const group = reel.groups[reel.at];
+  if (!group) return;
+  const lines = [...group.children];
+  if (lines.length === 0) return;
+
+  let widest = 0;
+  lines.forEach((line) => { widest = Math.max(widest, widthAt(line.textContent)); });
+
+  /* the stack is `n` margin boxes of 0.7em with `n - 1` gaps of 0.3em between
+     them, which is `n - 0.3` ems whatever `n` is */
+  const body = reel.node.closest('.role-body');
+  const mark = body ? body.querySelector('.role-mark') : null;
+  const room = body ? body.clientHeight - (mark ? mark.getBoundingClientRect().height : 0) - MARK_GAP : 0;
+
+  const byWidth = widest > 0 ? HERO * (NOW_W / widest) : HERO;
+  const byHeight = room > 0 ? room / (lines.length - 0.3) : HERO;
+  const size = Math.max(FIT_FLOOR, Math.min(HERO, byWidth, byHeight));
+  group.style.fontSize = `${size.toFixed(1)}px`;
+}
+
+/*
+ * The middle of the active group put on the middle of the reel. It is measured
+ * and corrected rather than calculated, so it is right while the two sizes are
+ * still animating and it needs no arithmetic about gaps.
+ */
+function centreReel(reel) {
+  const group = reel.groups[reel.at];
+  if (!group) return;
+  const frame = reel.node.parentNode.getBoundingClientRect();
+  const now = group.getBoundingClientRect();
+  if (!frame.width || !now.width) return;
+  const drift = (frame.left + frame.width / 2) - (now.left + now.width / 2);
+  if (Math.abs(drift) < 0.05) return;
+  reel.x += drift;
+  reel.node.style.transform = `translateX(${reel.x.toFixed(2)}px)`;
+}
+
+function centreReels() {
+  reels.forEach(centreReel);
+}
+
+/* the last word on where the reel stops. The per-frame centring runs on a
+   deadline, and a throttled tab can finish the transition after it — so the
+   transition itself gets the final say and the middle cannot end up off
+   centre for the next seven minutes. */
+reels.forEach((reel) => {
+  reel.node.addEventListener('transitionend', (event) => {
+    if (event.propertyName === 'font-size') centreReel(reel);
+  });
+});
+
+function setNow(reel, index, jump) {
+  const at = Math.max(0, Math.min(reel.groups.length - 1, index));
+  reel.groups.forEach((group, i) => {
+    /* only the middle is ever fitted, so every other one goes back to 24 */
+    if (i !== at) group.style.fontSize = '';
+    group.className = `grp ${i === at ? 'now' : i < at ? 'before' : 'after'}`;
+  });
+  reel.at = at;
+  fitGroup(reel);
+  if (!jump) return;
+  /* a jump is a kick-off, a restore or a phone that woke up four changes late.
+     None of them is a rotation, so none of them slides. */
+  reel.node.classList.add('jump');
+  centreReel(reel);
+  /* the read that makes the suppressed transition real before it is lifted */
+  reel.node.getBoundingClientRect();
+  reel.node.classList.remove('jump');
+}
+
+function paint(r, setup, jump) {
+  if (setup !== reelSetup) {
+    reelSetup = setup;
+    buildReels(setup);
+    jump = true;
+  }
+  reels.forEach((reel) => setNow(reel, r.changeIndex, jump));
+  if (jump) {
+    glideUntil = 0;
+    centreReels();
+  } else {
+    glideUntil = Date.now() + GLIDE_MS + 120;
+  }
+}
+
+/* the setup screen's own names, which have a column to fit into and no reel */
 function fitLine(node) {
   node.style.fontSize = '';
   if (!node.textContent) return;
@@ -984,42 +1228,22 @@ function fitLine(node) {
 }
 
 function fitNames() {
-  document.querySelectorAll('.keeper, .sn, .nm').forEach(fitLine);
-  /* a queue name is never fitted: it sits in a row with no column to fit into
-     and the edge of the screen is what ends it */
+  document.querySelectorAll('.nm').forEach(fitLine);
 }
 
-window.addEventListener('resize', fitNames);
-
-function paint(r, setup) {
-  const later = futureRotations(setup, r.changeIndex, r.intervalMs, queueLength(r));
-
-  (r.teams || []).forEach((team, t) => {
-    el.keepers[t].textContent = team.keeper ? team.keeper.name : '';
-
-    const subs = team.subs || [];
-    el.subSlots[t].classList.toggle('empty', subs.length === 0);
-    el.subLabels[t].textContent = subs.length === 1 ? COPY.sub : COPY.subs;
-    el.subs[t].classList.toggle('solo', subs.length === 1);
-    el.subs[t].innerHTML = subs
-      .map((player) => `<p class="sn dsp">${safe(player.name)}</p>`)
-      .join('');
-
-    el.goalQueues[t].innerHTML = later
-      .map((next) => next.teams[t] && next.teams[t].keeper)
-      .filter(Boolean)
-      .map((player) => `<p class="qn dsp">${safe(player.name)}</p>`)
-      .join('');
-
-    el.subQueues[t].innerHTML = later
-      .map((next) => (next.teams[t] ? next.teams[t].subs || [] : []))
-      .filter((names) => names.length > 0)
-      .map((names) => `<div class="stack">${names
-        .map((player) => `<p class="qn dsp">${safe(player.name)}</p>`)
-        .join('')}</div>`)
-      .join('');
-  });
+window.addEventListener('resize', () => {
   fitNames();
+  reels.forEach(fitGroup);
+  centreReels();
+});
+
+/* a webfont that lands after the first paint changes every width on the page */
+if (document.fonts && document.fonts.ready) {
+  document.fonts.ready.then(() => {
+    fitNames();
+    reels.forEach(fitGroup);
+    centreReels();
+  }).catch(() => { /* a fallback face is still a measurable one */ });
 }
 
 function setCount(text) {
@@ -1065,11 +1289,17 @@ function tick() {
     /* the countdown ran towards this change, so this is a real changeover and
        not a phone waking up past one */
     const armed = state.armedFor === r.changeIndex;
+    /* one step forward from a change we were already showing is a rotation and
+       it slides. A first paint, a jump backwards, or four changes at once is a
+       phone catching up, and that lands rather than travels. */
+    const stepped = state.shownChange !== null && r.changeIndex === state.shownChange + 1;
     state.shownChange = r.changeIndex;
     state.windowFor = null;
     state.armedFor = null;
     state.beatLeft = 0;
-    paint(r, state.game.setup);
+    /* a change slides the reels; a phone waking up past four of them does not,
+       and neither does a kick-off */
+    paint(r, state.game.setup, !stepped);
 
     /* THE HORN LANDS ON THE CHANGE. It used to land ten seconds early and be
        the warning itself. The countdown is the warning now, so the horn is
@@ -1114,6 +1344,10 @@ function tick() {
     state.watchText = watch;
     el.watch.textContent = watch;
   }
+
+  /* the middle stays in the middle while the two sizes are still changing.
+     Measured every frame, and only while a slide is in flight. */
+  if (Date.now() < glideUntil) centreReels();
 
   setFaults();
 }
@@ -1195,7 +1429,7 @@ function beginKickOff() {
 
   const r = engine.rotation(setup, 0);
   showGame();
-  paint(r, setup);
+  paint(r, setup, true);
   el.watch.textContent = '0:00';
   state.watchText = '0:00';
 
@@ -1274,7 +1508,7 @@ el.test.addEventListener('click', (event) => {
   markGesture();
   if (!voiceUnlocked) unlockVoice();
   const wait = horn();
-  window.setTimeout(() => announce([COPY.soundTest]), wait + VOICE_GAP_MS);
+  window.setTimeout(() => announce([COPY.soundTest], 1), wait + VOICE_GAP_MS);
 });
 
 /* =========================================================== going home */
@@ -1309,7 +1543,7 @@ function goHome() {
   closeSheet();
   stopLoop();
   announceToken += 1;
-  try { speechSynthesis.cancel(); } catch (error) { /* ignore */ }
+  stopVoice();
 
   /* the game goes first, so the lock's own release handler does not read the
      let-go as a screen that failed to stay awake */
@@ -1341,6 +1575,9 @@ document.addEventListener('pointerdown', () => {
   if (first || (ac && ac.state !== 'running')) markGesture();
   if (!voiceUnlocked) unlockVoice();
   else if (first && state.game && state.degradedVoice) unlockVoice();
+  /* a paused engine is silent and says nothing about being paused. Every touch
+     is a free chance to lift it, and resume() on a running engine is a no-op. */
+  else if (haveVoice()) { try { speechSynthesis.resume(); } catch (error) { /* ignore */ } }
 }, { capture: true });
 
 /* ======================================================== staying alive */
@@ -1423,7 +1660,7 @@ function restoreGame() {
   state.armedFor = null;
   state.beatLeft = 0;
   showGame();
-  paint(r, state.game.setup);
+  paint(r, state.game.setup, true);
   startLoop();
   tick();
   return true;
@@ -1454,6 +1691,8 @@ if (debug) {
     },
     kickOff: () => el.kick.click(),
     sheet: (t, i) => openPlayerSheet(t, i),
+    reels,
+    fit: () => reels.forEach(fitGroup),
     tick
   };
 }
