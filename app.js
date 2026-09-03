@@ -939,13 +939,39 @@ el.again.addEventListener('click', () => {
  * for, and one filled control against one outlined one is the only way this
  * palette can say which of two buttons is the primary.
  */
+/* `on` may be a value or a reading of one. A switch has to be able to change
+   because the other switch changed, and re-rendering the row to say so throws
+   away the travel that makes it a switch. */
+function sheetOn(option) {
+  return typeof option.on === 'function' ? Boolean(option.on()) : Boolean(option.on);
+}
+
+/* the state, onto the rows that are already on the screen */
+function syncSheet() {
+  if (!state.sheet) return;
+  [...el.sheetOpts.children].forEach((button, i) => {
+    const option = state.sheet[i];
+    if (!option) return;
+    const on = sheetOn(option);
+    button.classList.toggle('on', on);
+    if (option.toggle) button.setAttribute('aria-checked', String(on));
+  });
+}
+
 function openSheet(title, options) {
   state.sheet = options;
   el.sheetTitle.textContent = title;
-  el.sheetOpts.innerHTML = options.map((option, i) => (
-    `<button class="opt${option.on ? ' on' : ''}" type="button" data-opt="${i}"` +
-    (option.toggle ? ` aria-pressed="${String(Boolean(option.on))}"` : '') +
-    `><span class="dsp">${safe(option.label)}</span></button>`
+  el.sheetOpts.innerHTML = options.map((option, i) => (option.toggle
+    /* a flag is a switch: the knob is somewhere, and somewhere has an other
+       side, so the control says it has two states before a word is read */
+    ? `<button class="tog${sheetOn(option) ? ' on' : ''}" type="button" data-opt="${i}" ` +
+      `role="switch" aria-checked="${String(sheetOn(option))}">` +
+      `<span class="tog-word dsp">${safe(option.label)}</span>` +
+      `<span class="sw" aria-hidden="true"><span class="knob"></span></span>` +
+      `</button>`
+    /* an answer is not a state. Two words, and the filled one is the primary */
+    : `<button class="opt${sheetOn(option) ? ' on' : ''}" type="button" data-opt="${i}">` +
+      `<span class="dsp">${safe(option.label)}</span></button>`
   )).join('');
   el.sheet.hidden = false;
   /* the band is in the middle of the screen and nothing else on it is live, so
@@ -976,13 +1002,25 @@ document.addEventListener('keydown', (event) => {
 /*
  * A NAME CARRIES TWO FLAGS
  *
- *   KEVIN
- *   [FIXED GOALIE] [LATE]
+ *   KEVIN                          x
+ *   ─────────────────────────────────
+ *   Fixed goalie              [ ●   ]
+ *   Late                      [   ● ]
  *
- * An eyebrow over a row of controls, 12px between them and 20px of padding
- * round. There is still no switch and no tick — the word is the control — but
- * the state is now the shape it sits in and not how loud it is: a white fill
- * on, an outline off, and the one grey while a finger is on it.
+ * The name at reading size over two switched rows, on a panel inset from both
+ * edges. The word used to be the control — filled on, outlined off — and a
+ * filled word beside an outlined word reads as a chosen one beside an unchosen
+ * one, with nothing in either shape to say that tapping it flips it.
+ *
+ * A switch says it before a word is read. The colour rule is the app's own and
+ * is unchanged: inverted against the ground means on, so the track fills white
+ * and the knob goes black. What the switch adds is somewhere for the knob to
+ * be, which is what makes the other side visible while you are looking at this
+ * one.
+ *
+ * The whole row is the target and the state is written onto the row that is
+ * already on the screen — turning one flag on turns the other off, and a
+ * re-render would make that a jump instead of a switch moving.
  */
 function openPlayerSheet(teamIndex, index) {
   const player = draft.players[teamIndex][index];
@@ -990,12 +1028,12 @@ function openPlayerSheet(teamIndex, index) {
   const refresh = () => {
     renderSetup();
     saveSquad();
-    openPlayerSheet(teamIndex, index);
+    syncSheet();
   };
   openSheet(player.name, [
     {
       label: COPY.fixedGoalie,
-      on: Boolean(player.fixedGoalie),
+      on: () => Boolean(player.fixedGoalie),
       toggle: true,
       act() {
         const turningOn = !player.fixedGoalie;
@@ -1009,7 +1047,7 @@ function openPlayerSheet(teamIndex, index) {
     },
     {
       label: COPY.late,
-      on: Boolean(player.late),
+      on: () => Boolean(player.late),
       toggle: true,
       act() {
         player.late = !player.late;
@@ -1055,9 +1093,16 @@ function elapsedWords(ms) {
  * same order, in a new place.
  */
 
-/* a two hour game on the minimum interval is 120 changes. Past that the reel
-   is longer than the game will ever reach and the extra is dead weight. */
-const REEL_MAX = 120;
+/*
+ * The reel has no end. `changeIndex` counts past the final whistle and never
+ * stops, so a game that runs over carries on rotating and the line has to have
+ * somewhere to go. It is grown from the right instead of rebuilt, which leaves
+ * every element already on it exactly where it was — the thing that makes a
+ * slide read as a slide rather than as a repaint.
+ *
+ * Six ahead is about three more than the screen can show.
+ */
+const REEL_AHEAD = 6;
 
 /* the middle is a fixed column, whatever is standing in it */
 const NOW_W = 188;
@@ -1081,32 +1126,38 @@ let reelSetup = null;
    what keeps the middle in the middle while the two sizes are still changing */
 let glideUntil = 0;
 
-function reelLists(setup) {
-  const intervalMs = engine.computeIntervalMs(setup);
-  const gameMs = (Number(engine.gameMinutesOf(setup)) || 0) * MS_PER_MINUTE;
-  const count = Math.max(1, Math.min(REEL_MAX, Math.ceil(gameMs / intervalMs)));
-  const goal = [];
-  const subs = [];
-  for (let k = 0; k < count; k += 1) {
-    const r = engine.rotation(setup, k * intervalMs);
-    const teams = r.teams || [];
-    goal.push(teams.map((team) => team.keeper).filter(Boolean).map((p) => p.name));
-    subs.push(teams.reduce((all, team) => all.concat((team.subs || []).map((p) => p.name)), []));
-  }
-  return [goal, subs];
+function groupMarkup(names) {
+  return `<div class="grp">${(names.length > 0 ? names : [COPY.dash])
+    .map((name) => `<p class="rn dsp">${safe(name)}</p>`)
+    .join('')}</div>`;
 }
 
-function buildReels(setup) {
-  reelLists(setup).forEach((lists, index) => {
-    const reel = reels[index];
-    reel.node.innerHTML = lists.map((names) => (
-      `<div class="grp">${(names.length > 0 ? names : [COPY.dash])
-        .map((name) => `<p class="rn dsp">${safe(name)}</p>`)
-        .join('')}</div>`
-    )).join('');
-    reel.groups = [...reel.node.children];
+function emptyReels() {
+  reels.forEach((reel) => {
+    reel.node.innerHTML = '';
+    reel.node.style.transform = '';
+    reel.groups = [];
     reel.at = 0;
     reel.x = 0;
+  });
+}
+
+/* Both reels to the same length, appending only. There is no arithmetic here:
+   the pitch at change `k` is `rotation(setup, k * intervalMs)`, and landing
+   exactly on a boundary floors to that change. */
+function growReels(setup, upto) {
+  const from = reels[0].groups.length;
+  if (upto < from) return;
+  const intervalMs = engine.computeIntervalMs(setup);
+  const parts = [[], []];
+  for (let k = from; k <= upto; k += 1) {
+    const teams = engine.rotation(setup, k * intervalMs).teams || [];
+    parts[0].push(teams.map((team) => team.keeper).filter(Boolean).map((p) => p.name));
+    parts[1].push(teams.reduce((all, team) => all.concat((team.subs || []).map((p) => p.name)), []));
+  }
+  reels.forEach((reel, i) => {
+    reel.node.insertAdjacentHTML('beforeend', parts[i].map(groupMarkup).join(''));
+    reel.groups = [...reel.node.children];
   });
 }
 
@@ -1184,7 +1235,7 @@ function setNow(reel, index, jump) {
   reel.groups.forEach((group, i) => {
     /* only the middle is ever fitted, so every other one goes back to 24 */
     if (i !== at) group.style.fontSize = '';
-    group.className = `grp ${i === at ? 'now' : i < at ? 'before' : 'after'}`;
+    group.className = i === at ? 'grp now' : 'grp';
   });
   reel.at = at;
   fitGroup(reel);
@@ -1201,9 +1252,10 @@ function setNow(reel, index, jump) {
 function paint(r, setup, jump) {
   if (setup !== reelSetup) {
     reelSetup = setup;
-    buildReels(setup);
+    emptyReels();
     jump = true;
   }
+  growReels(setup, r.changeIndex + REEL_AHEAD);
   reels.forEach((reel) => setNow(reel, r.changeIndex, jump));
   if (jump) {
     glideUntil = 0;

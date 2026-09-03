@@ -309,15 +309,22 @@ input:focus { outline: none; }
 
 .title { font-size: var(--hero); }
 
+/*
+ * The word went. `START AGAIN` beside a circular arrow is the arrow said
+ * twice, and it was the only two-word control in the app. 24px of drawing at
+ * half ink, with the 44px thumb around it.
+ */
 .again {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
   opacity: var(--dim);
   transition: opacity 120ms linear;
 }
 
-.again-word { font-size: var(--lead); }
+.again::after { content: ''; position: absolute; inset: -10px; }
 
 /* with nothing typed there is nothing to start again from */
 .again.gone {
@@ -338,7 +345,7 @@ input:focus { outline: none; }
   flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  padding-bottom: 40px;
+  padding: 40px 0;
 }
 
 /*
@@ -357,9 +364,11 @@ input:focus { outline: none; }
  * band is 34.4 of that.
  */
 .band {
-  flex: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
   padding: 10px 20px;
-  margin-bottom: 5.6px;
   background: #f0f0f0;
   color: var(--ink);
   letter-spacing: 1.2px;
@@ -368,10 +377,9 @@ input:focus { outline: none; }
 /* ------------------------------------------------------------------ entry */
 
 /*
- * The field is at the top of the block now and the names are under it, which
- * is the order the thing is actually used in: you type eight names and then
- * you read them back. It used to be the other way round, so every name pushed
- * the field further from the thumb that was about to use it again.
+ * The field sits under the names it is adding to. A field above the list it
+ * fills reads as a search box; under it, the list grows towards the thumb and
+ * the last name typed is the one nearest the field that typed it.
  */
 .entry {
   flex: none;
@@ -427,6 +435,10 @@ input:focus { outline: none; }
   gap: 40px;
   padding: 0 20px;
 }
+
+/* the 20px the field's own padding does not supply on the side facing the
+   list. With no names the list is gone and the field keeps the block's 40px. */
+.lineup + .entry { padding-top: 20px; }
 
 .names {
   flex: 1 1 0;
@@ -562,14 +574,24 @@ input:focus { outline: none; }
 
 /* ---------------------------------------------------------------- kick off */
 
-/* Full bleed, flush to the bottom, one line: the ball and the words. */
+/*
+ * Full bleed, flush to the bottom, one line: the ball and the words.
+ *
+ * The padding is 20 and 20, and the home indicator is a border and not more
+ * padding. Padding under the words is space you read as part of the button;
+ * on a phone with an indicator the safe area was adding 34 of it to the
+ * bottom only, so the words sat above the middle of a bar half again as tall
+ * as it needed to be. A border in the same ink holds the same ground and is
+ * not measured from the type.
+ */
 .kick {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   width: 100%;
-  padding: 32px 20px calc(32px + env(safe-area-inset-bottom));
+  padding: 20px;
+  border-bottom: env(safe-area-inset-bottom) solid var(--ink);
   background: var(--ink);
   color: #fff;
   transition: opacity 120ms linear;
@@ -775,14 +797,16 @@ input:focus { outline: none; }
 }
 
 /*
- * The two sides are packed towards the middle rather than centred in their own
- * slots: on the left the names end at the gap and on the right they start at
- * it, so the next two along are on the screen instead of a sliver of each.
+ * Every group centres its own names, the ones either side exactly as much as
+ * the one in the middle. A stack that is ragged down one edge is read as a
+ * list with an order to it, and these are pairs — one name a team, and neither
+ * of them first.
  */
 .grp {
   flex: none;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: .3em;
   font-size: var(--queue-name);
   color: var(--ink);
@@ -796,12 +820,8 @@ input:focus { outline: none; }
               opacity 420ms linear;
 }
 
-.grp.before { align-items: flex-end; }
-.grp.after { align-items: flex-start; }
-
 .grp.now {
   width: 188px;
-  align-items: center;
   font-size: var(--hero);
   opacity: 1;
 }
@@ -821,11 +841,14 @@ input:focus { outline: none; }
 /* ================================================================== modal */
 
 /*
- * One surface, two jobs: the two toggles a name carries, and the one question
- * this app asks. It is a black band centred in the viewport and flush to the
- * left and right edges — full bleed, no radius, no shadow, which is what every
- * other black surface in this app is. Centring it is the only change of
- * position; the geometry is unchanged, and that is why it needs no border.
+ * One surface, two jobs: the two flags a name carries, and the one question
+ * this app asks.
+ *
+ * It is inset from the edges now and it is bigger. Full bleed made it a bar,
+ * and a bar is a thing that arrives at the bottom of a screen and waits; a
+ * block with the page visible either side of it is a thing standing in front
+ * of the page. That is what a modal is for and it is the only time this app
+ * ever interrupts anybody.
  *
  * The ground it sits on is the scrim at 50% ink, which composites to #8b8b8b
  * over the page. The band is #171717 against it — 5.26:1 — so the surface is
@@ -838,6 +861,7 @@ input:focus { outline: none; }
   display: flex;
   flex-direction: column;
   justify-content: center;
+  padding: 20px;
 }
 
 .scrim {
@@ -850,8 +874,8 @@ input:focus { outline: none; }
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 20px;
+  gap: 20px;
+  padding: 24px 20px;
   background: var(--ink);
   color: var(--paper);
 }
@@ -859,10 +883,13 @@ input:focus { outline: none; }
 .panel:focus { outline: none; }
 
 /*
- * The title and the way out are one line, not two elements. The cross is
- * trimmed to the eyebrow's 14.4px line the same way the display type is
- * trimmed to its cap height — (14.4 - 23) / 2 — so the 23px drawing overhangs
- * the row instead of setting its height, and the 20px padding stays true.
+ * The title is the name, at reading size. It used to be a 12px eyebrow at half
+ * ink, which asked the modal to be interruptive and then whispered the one
+ * word that says what it is about.
+ *
+ * The cross is trimmed to the title's cap box the same way the type is —
+ * (22.4 - 31) / 2 — so the 23px drawing inside its 4px of padding overhangs
+ * the row instead of setting its height.
  */
 .sheet-head {
   display: flex;
@@ -872,16 +899,20 @@ input:focus { outline: none; }
 }
 
 .sheet-title {
-  opacity: var(--dim);
-  letter-spacing: 1.2px;
+  min-width: 0;
+  font-size: var(--name);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sheet-close {
   position: relative;
   flex: none;
   padding: 4px;
-  margin: -8.3px -4px;
-  transition: background-color 120ms linear;
+  margin: -4.3px -4px;
+  opacity: var(--dim);
+  transition: background-color 120ms linear, opacity 120ms linear;
 }
 
 /* 23px is the drawing. 43px is the thumb. */
@@ -889,38 +920,105 @@ input:focus { outline: none; }
 
 .sheet-opts {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
+/* a list of switches is a column with a rule between, not a row of chips */
+.sheet-opts:has(.tog) { gap: 0; }
+
+/* ------------------------------------------------------------------ toggle */
+
 /*
- * ON IS A DIFFERENCE IN KIND, NOT IN STRENGTH
+ * A SWITCH, BECAUSE A WORD CANNOT SAY WHICH WAY IT GOES
  *
- * The old toggle was full ink on and 45% off. That is one word twice at two
- * volumes, and you can only read it by comparing it with the other one. This
- * is the same word in two different shapes:
+ * On was a white fill and off was an outline. Both are legible, both are full
+ * contrast, and neither of them says the control is a control: a filled word
+ * beside an outlined word looks like a chosen one beside an unchosen one, and
+ * nothing about either says that tapping it flips it.
  *
- *   on   a white block with the word cut out of it        17.93:1
- *   off  the black ground with a white rule round it      17.93:1
+ * A switch says all of it in one shape. The knob is somewhere, and somewhere
+ * has an other side, so the thing has two states before you have read a word
+ * of it. The colour rule is unchanged and it is the app's only one — inverted
+ * against the ground means on — so the track fills white and the knob goes
+ * black and travels to the right.
  *
- * Both are white-on-black or black-on-white at full ink, so neither is faint
- * and neither depends on the other being on the screen. The geometry is
- * identical in both states — 2px of rule either way — so nothing moves when
- * one is pressed.
+ * 34px of track clears the 44px thumb with the row's own padding, and the row
+ * is the target, not the switch.
+ */
+.tog {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  color: var(--paper);
+}
+
+.tog + .tog { border-top: 1px solid rgba(255, 255, 255, .2); }
+
+.tog-word {
+  min-width: 0;
+  font-size: var(--name);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sw {
+  flex: none;
+  position: relative;
+  width: 60px;
+  height: 34px;
+  border: 2px solid var(--paper);
+  background: transparent;
+  transition: background-color 160ms linear, border-color 160ms linear;
+}
+
+.knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  background: var(--paper);
+  transition: transform 160ms cubic-bezier(.22, .61, .36, 1),
+              background-color 160ms linear;
+}
+
+.tog.on .sw { background: var(--paper); }
+.tog.on .knob { background: var(--ink); transform: translateX(26px); }
+
+/* pressed is the app's one grey, and it is instant, because a press that
+   fades is a press that did not land */
+.tog:active .sw {
+  background: var(--grey);
+  border-color: var(--grey);
+  transition: none;
+}
+
+.tog:active .knob { background: var(--paper); transition: transform 160ms cubic-bezier(.22, .61, .36, 1); }
+
+/* ------------------------------------------------------------------ answer */
+
+/*
+ * The other job: two words, one question. There is no switch here because
+ * neither of them is a state — they are the two ways out of a game, and one
+ * filled control against one outlined one is how this palette says which of
+ * two buttons is the primary.
  *
- * The rule is the same on both surfaces of the app: inverted against the
- * ground means on. In here the ground is black, so on is a white fill. In the
- * squad list the ground is white, so on is a black fill.
- *
- * 12px from every outer edge to the cap: 2px of rule and 10px of padding, on
- * all four sides. 46.4px tall, which clears the 44px thumb.
+ * 14px of padding and 2px of rule puts the cap 16px from every edge, and the
+ * pair fills the panel's width between them.
  */
 .opt {
+  flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   border: 2px solid var(--paper);
-  padding: 10px;
+  padding: 14px;
   color: var(--paper);
   background: transparent;
   transition: background-color 120ms linear, color 120ms linear;
@@ -929,7 +1027,7 @@ input:focus { outline: none; }
 /*
  * The display face carries a -.5px track, and CSS takes that half pixel off
  * after the last character where the padding then starts. Given back, so the
- * word sits 10px from both rules and not 10 and 9.5.
+ * word sits the same distance from both rules.
  */
 .opt > .dsp {
   font-size: var(--name);
@@ -941,16 +1039,6 @@ input:focus { outline: none; }
   color: var(--ink);
 }
 
-/*
- * PRESSED IS THE THIRD SHAPE, AND IT IS THE ONE GREY
- *
- * Selected and pressed are two different facts, so they cannot be the same
- * picture. Pressed is the app's one grey filling the control, white on
- * #444444 at 9.74:1 — the same pairing the countdown block uses. It is neither
- * the white fill nor the empty outline, it reads the same whichever state is
- * underneath it, and it is instant, because a press that fades is a press that
- * did not land.
- */
 .opt:active,
 .opt.on:active {
   background: var(--grey);
@@ -959,7 +1047,7 @@ input:focus { outline: none; }
   transition: none;
 }
 
-.sheet-close:active { background: var(--grey); transition: none; }
+.sheet-close:active { background: var(--grey); opacity: 1; transition: none; }
 
 /* ---------------------------------------------------------------- motion */
 

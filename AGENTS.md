@@ -53,8 +53,9 @@ touched.
 
 ## State
 
-**Done.** v10. Rebuilt from Figma node `94:756`. The engine passes 122
-assertions and was not touched. Service worker cache `rota-v14`.
+**Done.** v11. Rebuilt from Figma node `94:756`, then eight corrections from
+Liam on top of it. The engine passes 122 assertions and was not touched.
+Service worker cache `rota-v15`.
 
 **The screen is two roles now, not two teams.** Both keepers in one block and
 both benches in the other, under a black tab that names the role. Nobody on a
@@ -63,13 +64,18 @@ and the team chip was the loudest thing on the screen saying the quietest
 thing on it. The voice follows the screen: `Goalkeepers, Sam and Kevin. Subs,
 Chris and Lee.`
 
-**Each block is a reel, and it is the whole game on one line.** Every change
-from the first to the last, in order, with the pair in play centred at 50px
-and the rest either side at 24px and half ink. On a change the line slides one
-place left, so the next names arrive where the eye already is. Behind is
-behind and ahead is ahead — the one thing a row can say that a column cannot.
+**Each block is a reel, and the reel has no end.** Every change in order, the
+pair in play centred at 50px and the rest either side at 24px and half ink. On
+a change the line slides one place left, so the next names arrive where the eye
+already is. Behind is behind and ahead is ahead — the one thing a row can say
+that a column cannot. Every group centres its own names, the ones either side
+exactly as much as the one in the middle: a stack ragged down one edge reads as
+a list with an order to it, and these are pairs.
 
-It is built once at kick-off and after that a change moves one class. The
+`changeIndex` counts past the final whistle and never stops, so a game that
+runs over carries on rotating. The line is **grown from the right** six ahead
+of the middle and never rebuilt, which leaves every element already on it
+exactly where it was — the thing that makes a slide read as a slide. The
 positioning is measured, not calculated: every frame of the slide the middle
 of the active group is put on the middle of the reel, so the type can grow
 from 24 to 50 underneath it and the centre never moves. `transitionend` has
@@ -105,13 +111,33 @@ entirely. `cancel()` now happens in exactly two places, never on an empty
 queue, because a speculative cancel is itself the wedge. `heard.voice` reads
 back what happened.
 
-**The field is at the top of the block and it is a form.** You type eight names
-and then read them back, so the field used to get further from the thumb with
-every name. And on iOS a bare input has no return key — the keyboard shows
-`done`, which dismisses it and never reaches the page. Inside a form the return
-commits the name, and the arrow is that form's submit button, so both routes
-are one handler. Autofill is asked off four ways: `autocomplete`, `autocorrect`,
-`spellcheck` and a neutral `name`.
+**The field sits under the names it adds to, and it is a form.** A field above
+the list it fills reads as a search box. On iOS a bare input has no return key
+either — the keyboard shows `done`, which dismisses it and never reaches the
+page — so inside a form the return commits the name, and the arrow is that
+form's submit button, so both routes are one handler. Autofill is asked off
+four ways: `autocomplete`, `autocorrect`, `spellcheck` and a neutral `name`.
+
+**The modal is inset, and a flag is a switch.** Full bleed made it a bar, and a
+bar arrives at the bottom of a screen and waits; a block with the page visible
+either side of it stands in front of the page, which is the only time this app
+interrupts anybody. The name is the title now, at 32px, over two switched rows.
+On was a white-filled word and off an outlined one — both legible, both full
+contrast, and neither saying that tapping flips it. A switch says it before a
+word is read, because the knob is somewhere and somewhere has an other side.
+The colour rule is unchanged: inverted against the ground means on. The state
+is written onto the row already on the screen, so turning one flag on moves the
+other switch instead of redrawing it.
+
+**`KICK OFF` is 68px and the home indicator is a border.** It was 32 and 32
+plus the safe area, so on a phone with an indicator the bottom padding was 66
+against the top's 32 and the words sat above the middle of a bar half again as
+tall as it needed to be. 20 and 20 now — the cap sits 24.2 from both edges —
+with the safe area as a border in the same ink, which holds the same ground
+without being measured from the type.
+
+**`START AGAIN` is the icon alone.** The words beside a circular arrow were the
+arrow said twice, and it was the only two-word control in the app.
 
 **The interval came off the button.** It was a dimmed second line inside
 `KICK OFF`, which made the button a control and a readout at once. It is a chip
@@ -120,23 +146,18 @@ that change it.
 
 **What was carried across untouched.** The clock as `Date.now() - kickoff` with
 the `visibilitychange` resync; the gauge and its two scales; the ten beeps and
-the horn on the crossing; the centred modal and its two flags; the
-`navigator.audioSession = 'playback'` fix; the wake lock; `localStorage`
-persistence and silent restore; the offline service worker; the `?t=` debug
-hook.
+the horn on the crossing; the `navigator.audioSession = 'playback'` fix; the
+wake lock; `localStorage` persistence and silent restore; the offline service
+worker; the `?t=` debug hook.
 
-**Next.** The field test. Whether the horn is now too polite through a real
-bluetooth speaker, whether twice is enough, and whether the reel reads at a
-glance from the far post.
-
+**Next.** The field test: whether the horn is now too polite through a real
+speaker, whether twice is enough, and whether the reel reads from the far post.
 **Blocked.** Nothing.
 
 **Open, for Liam.**
 
-- **The two blocks in the file are 12px apart and 24px apart.** Goalkeepers
-  puts 12 between the mark and the names, Substitutes puts 24. The build uses
-  12 in both, because two identical structures differing by 12px is a slip and
-  not a decision.
+- **The file puts 12px under one mark and 24px under the other.** The build
+  uses 12 in both: two identical structures differing by 12px is a slip.
 - **The subs stack is set to fit the room, not to the file's number.** With
   four names the file draws them at 31.9px; the room between the mark and the
   bottom of the block takes 36.8. A fit rule is right and a magic number is
@@ -147,6 +168,9 @@ glance from the far post.
 - **The reel shows the past.** Two names to the left of centre have already had
   their turn. It is what makes a reel a reel, and it is also two names of
   screen spent on something nobody needs.
+- **The rota repeats and the reel says nothing about it.** A full cycle back to
+  the opening pair looks the same as any other change. It is correct and it may
+  be worth marking.
 - **`brain/design.md` and `spec.md` describe an interface three rebuilds old.**
   Both are still right about the rotation and about why the sounds are what
   they are, and wrong about every screen.

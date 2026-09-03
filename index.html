@@ -80,9 +80,8 @@
 
   <header class="head">
     <h1 class="title dsp">TEAMS</h1>
-    <button class="again" id="again" type="button">
-      <span class="again-word dsp">START AGAIN</span>
-      <svg class="ic ic20" aria-hidden="true"><use href="#i-restart"/></svg>
+    <button class="again" id="again" type="button" aria-label="Start again">
+      <svg class="ic ic24" aria-hidden="true"><use href="#i-restart"/></svg>
     </button>
   </header>
 
@@ -90,6 +89,10 @@
 
   <div class="squad" data-team="0">
     <p class="eyebrow band" id="chip-0">Team A</p>
+    <div class="lineup">
+      <div class="names" id="names-0a"></div>
+      <div class="names" id="names-0b"></div>
+    </div>
     <!--
       A form and not a bare input. On iOS the return key only commits a field
       that is in one, and the keydown handler this replaces was never reached.
@@ -104,16 +107,16 @@
         <svg class="ic ic24" aria-hidden="true"><use href="#i-up"/></svg>
       </button>
     </form>
-    <div class="lineup">
-      <div class="names" id="names-0a"></div>
-      <div class="names" id="names-0b"></div>
-    </div>
   </div>
 
   <hr class="rule">
 
   <div class="squad" data-team="1">
     <p class="eyebrow band" id="chip-1">Team B</p>
+    <div class="lineup">
+      <div class="names" id="names-1a"></div>
+      <div class="names" id="names-1b"></div>
+    </div>
     <!--
       A form and not a bare input. On iOS the return key only commits a field
       that is in one, and the keydown handler this replaces was never reached.
@@ -128,10 +131,6 @@
         <svg class="ic ic24" aria-hidden="true"><use href="#i-up"/></svg>
       </button>
     </form>
-    <div class="lineup">
-      <div class="names" id="names-1a"></div>
-      <div class="names" id="names-1b"></div>
-    </div>
   </div>
 
   <div class="foot">
@@ -248,7 +247,7 @@
   <div class="panel" id="panel" role="dialog" aria-modal="true"
        aria-labelledby="sheet-title" tabindex="-1">
     <div class="sheet-head">
-      <p class="eyebrow sheet-title" id="sheet-title"></p>
+      <p class="dsp sheet-title" id="sheet-title"></p>
       <button class="sheet-close" id="sheet-close" type="button" aria-label="Close">
         <svg class="ic ic23" aria-hidden="true"><use href="#i-x"/></svg>
       </button>
