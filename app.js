@@ -61,6 +61,7 @@ const COPY = {
   goalkeepers: 'Goalkeepers',
   subs: 'Subs',
   nextRotation: 'Next rotation:',
+  paused: 'Paused',
   kickOffIn: 'Kick off in:',
   rotateEvery: 'Rotate every',
   dash: '\u2014',
@@ -155,9 +156,34 @@ function nowMs() {
   return debug.origin + (Date.now() - debug.realOrigin) * debug.rate;
 }
 
+/*
+ * TWO CLOCKS, AND THEY ARE NOT THE SAME CLOCK
+ *
+ * `elapsedMs` is the game: time since kick-off, less everything spent held.
+ * It is what the watch shows and it is the only clock most of the app knows
+ * about.
+ *
+ * `rotaMs` is the rota: the same clock, less whatever a mid-game retime moved.
+ * Changing the interval has to leave the keeper standing where they are and
+ * give them the share of the new shift they have not yet served, and there is
+ * no way to say that in a clock which also has to keep counting the game. So
+ * the rota carries its own offset and the watch never sees it.
+ */
 function elapsedMs() {
+  const game = state.game;
+  if (!game) return 0;
+  /* held: the clock is read at the moment it stopped, so nothing moves */
+  const at = game.pausedAt || nowMs();
+  return Math.max(0, at - game.kickoff - (game.pausedMs || 0));
+}
+
+function rotaMs() {
   if (!state.game) return 0;
-  return Math.max(0, nowMs() - state.game.kickoff);
+  return Math.max(0, elapsedMs() - (state.game.rotaShift || 0));
+}
+
+function isHeld() {
+  return Boolean(state.game && state.game.pausedAt);
 }
 
 /* a deterministic draw, so a screenshot of the game screen is the same twice */
@@ -183,7 +209,9 @@ function randomFor() {
 const GRID = {
   aside: { min: 4, max: 11, step: 1, def: 6 },
   time: { min: 30, max: 150, step: 15, def: 120 },
-  rotations: { min: 1, max: 5, step: 1, def: 2 }
+  /* not a range. See ROTATION_STEPS in rotation.js for why the halves stop at
+     three: above it a half step is worth less than a minute of shift. */
+  rotations: { steps: [1, 1.5, 2, 2.5, 3, 4, 5], def: 2 }
 };
 
 const CYCLERS = {
@@ -201,6 +229,10 @@ function engineCycler(slot) {
 
 function localCycle(slot, value) {
   const g = GRID[slot];
+  if (g.steps) {
+    const at = g.steps.indexOf(onGrid(slot, value));
+    return g.steps[(at + 1) % g.steps.length];
+  }
   const steps = Math.round((g.max - g.min) / g.step) + 1;
   const at = Math.round((onGrid(slot, value) - g.min) / g.step);
   return g.min + (((at + 1) % steps) + steps) % steps * g.step;
@@ -218,6 +250,12 @@ function onGrid(slot, value) {
   const g = GRID[slot];
   const n = Number(value);
   if (!Number.isFinite(n)) return g.def;
+  if (g.steps) {
+    return g.steps.reduce(
+      (best, step) => (Math.abs(step - n) < Math.abs(best - n) ? step : best),
+      g.steps[0]
+    );
+  }
   const at = Math.round((n - g.min) / g.step);
   return Math.min(g.max, Math.max(g.min, g.min + at * g.step));
 }
@@ -277,6 +315,10 @@ const el = {
   watch: $('watch'),
   end: $('end'),
   test: $('test'),
+  hold: $('hold'),
+  heldBar: $('held'),
+  heldNote: $('held-note'),
+  gvalues: { aside: $('gvalue-aside'), time: $('gvalue-time'), rotations: $('gvalue-rotations') },
   ruler: $('ruler'),
   reels: [$('reel-goal'), $('reel-subs')],
   sheet: $('sheet'),
@@ -1107,7 +1149,13 @@ const REEL_AHEAD = 6;
 /* the middle is a fixed column, whatever is standing in it */
 const NOW_W = 188;
 const HERO = 50;
-const FIT_FLOOR = 24;
+const REST = 24;
+/*
+ * Below this a name is a shape and not a word, and a block with this little
+ * room in it has a bigger problem than type size. 24 was the floor until the
+ * settings row started taking a third of the screen while the game is held.
+ */
+const FIT_FLOOR = 15;
 /* the gap between the mark and the names, and it is in the stylesheet too */
 const MARK_GAP = 12;
 /* long enough to read as one thing moving and short enough to be over before
@@ -1197,6 +1245,13 @@ function fitGroup(reel) {
   const byHeight = room > 0 ? room / (lines.length - 0.3) : HERO;
   const size = Math.max(FIT_FLOOR, Math.min(HERO, byWidth, byHeight));
   group.style.fontSize = `${size.toFixed(1)}px`;
+  /*
+   * The rest of the reel never stands taller than the middle of it. Held, the
+   * settings row takes a third of the screen and a four-name stack can be
+   * fitted below 24 — and a queue set larger than the answer it is queueing
+   * behind is the wrong way round whatever the room.
+   */
+  reel.node.style.setProperty('--rest', `${Math.min(REST, size).toFixed(1)}px`);
 }
 
 /*
@@ -1333,8 +1388,10 @@ function tick() {
   if (state.screen !== 'game' || !state.game) return;
 
   const elapsed = elapsedMs();
-  const r = engine.rotation(state.game.setup, elapsed);
-  const inWindow = r.msToNextChange <= WINDOW_MS;
+  const r = engine.rotation(state.game.setup, rotaMs());
+  const held = isHeld();
+  /* a held clock is never in the last ten seconds of anything */
+  const inWindow = !held && r.msToNextChange <= WINDOW_MS;
 
   /* the crossing, not the tick */
   if (r.changeIndex !== state.shownChange) {
@@ -1384,7 +1441,7 @@ function tick() {
   }
 
   setCounting(inWindow);
-  setLabel(COPY.nextRotation);
+  setLabel(held ? COPY.paused : COPY.nextRotation);
   /* in the window the bar measures the window, not the shift */
   setGauge(inWindow
     ? r.msToNextChange / WINDOW_MS
@@ -1481,6 +1538,7 @@ function beginKickOff() {
 
   const r = engine.rotation(setup, 0);
   showGame();
+  el.game.classList.add('first');
   paint(r, setup, true);
   el.watch.textContent = '0:00';
   state.watchText = '0:00';
@@ -1508,8 +1566,6 @@ function runCountdown() {
     finishKickOff();
     return;
   }
-  /* the same bar as a rotation's last ten seconds, over twenty */
-  setGauge((KICKOFF_S * 1000 - gone) / (KICKOFF_S * 1000));
   if (left === state.countdownLeft) return;
   state.countdownLeft = left;
   setCount(String(left));
@@ -1521,7 +1577,12 @@ function finishKickOff() {
   state.pendingSetup = null;
   state.game = {
     kickoff: nowMs() - (debug ? debug.offsetMs : 0),
-    setup
+    setup,
+    /* held time, and the rota's own offset. Both are part of the game and both
+       have to survive the phone dying. */
+    pausedMs: 0,
+    pausedAt: 0,
+    rotaShift: 0
   };
   state.screen = 'game';
   state.shownChange = null;
@@ -1530,11 +1591,13 @@ function finishKickOff() {
   state.beatLeft = 0;
   state.countText = '';
   setCounting(false);
+  el.game.classList.remove('first');
+  applyHeld();
   showGame();
   saveGame();
 
   const wait = horn();
-  const r = engine.rotation(setup, Math.max(0, elapsedMs()));
+  const r = engine.rotation(setup, rotaMs());
   /* the same order as a changeover: the horn finishes, then the names */
   window.setTimeout(() => announce(linesForNow(r)), wait + VOICE_GAP_MS);
 
@@ -1563,6 +1626,107 @@ el.test.addEventListener('click', (event) => {
   window.setTimeout(() => announce([COPY.soundTest], 1), wait + VOICE_GAP_MS);
 });
 
+/* ================================================================= held */
+
+/*
+ * A WAY TO STOP THE CLOCK, AND THE ONLY WAY TO EDIT
+ *
+ * The rule this breaks said the game screen carries two controls and neither
+ * touches the rota. It carries three now, and the third one is the answer to
+ * the two things that actually go wrong on a pitch: somebody has to
+ * reorganise, and the interval turns out to be wrong once you are playing.
+ *
+ * Both are the same moment, so they are the same control. Held, the block
+ * loses its colour, the clock stops where it is, and the three settings appear
+ * under it. Running, they are gone and there is nothing to operate.
+ *
+ * Held time is not game time: `pausedMs` comes off the clock, so a game held
+ * for six minutes is still forty minutes old when it starts again, and a phone
+ * that dies while held comes back held.
+ */
+
+const HELD_KEYS = { aside: 'gameType', time: 'gameMinutes', rotations: 'rotations' };
+
+function applyHeld() {
+  const on = isHeld();
+  el.game.classList.toggle('held-on', on);
+  el.heldBar.hidden = !on;
+  el.hold.setAttribute('aria-label', on ? 'Resume the game' : 'Pause the game');
+  if (on) renderHeld();
+  /* the settings row takes a third of the screen and gives it straight back,
+     so the reels are re-fitted here and not left to the next change — which on
+     a held clock is never */
+  reels.forEach(fitGroup);
+  centreReels();
+}
+
+function renderHeld() {
+  if (!state.game) return;
+  const setup = state.game.setup;
+  el.gvalues.aside.textContent = String(engine.gameTypeOf(setup));
+  el.gvalues.time.textContent = timeWords(engine.gameMinutesOf(setup));
+  el.gvalues.rotations.textContent = String(engine.rotationsOf(setup));
+  el.heldNote.textContent = `${COPY.rotateEvery} ${mmss(engine.computeIntervalMs(setup))}`;
+}
+
+el.hold.addEventListener('click', (event) => {
+  event.stopPropagation();
+  if (state.screen !== 'game' || !state.game) return;
+  if (isHeld()) {
+    state.game.pausedMs = (state.game.pausedMs || 0) + (nowMs() - state.game.pausedAt);
+    state.game.pausedAt = 0;
+  } else {
+    state.game.pausedAt = nowMs();
+    /* an announcement half said into a huddle is worse than none */
+    announceToken += 1;
+    stopVoice();
+  }
+  /* a countdown armed before the hold is a countdown to a change that is now
+     minutes away. It is disarmed either way and the next real window arms the
+     next one. */
+  state.windowFor = null;
+  state.armedFor = null;
+  state.beatLeft = 0;
+  applyHeld();
+  saveGame();
+  tick();
+});
+
+/*
+ * A tap applies straight away, and the retime is where the two clocks part.
+ *
+ * `engine.retime` keeps the ring, the keeper and the bench and moves only the
+ * length of a shift. What it cannot know is how much of the current shift has
+ * been served, so that is carried here: a keeper who has just gone in gets the
+ * whole of the new shift, one who is nearly done gets what is left of it, and
+ * the offset between the two clocks absorbs the difference. Anything simpler
+ * either cuts a turn short or hands somebody a double one.
+ */
+el.heldBar.addEventListener('click', (event) => {
+  const cell = event.target.closest('[data-gcell]');
+  if (!cell || !isHeld() || !state.game) return;
+  const slot = cell.dataset.gcell;
+  const setup = state.game.setup;
+  const now = {
+    aside: engine.gameTypeOf(setup),
+    time: engine.gameMinutesOf(setup),
+    rotations: engine.rotationsOf(setup)
+  }[slot];
+
+  const before = rotaMs();
+  const was = engine.computeIntervalMs(setup);
+  const next = engine.retime(setup, before, { [HELD_KEYS[slot]]: onGrid(slot, cycle(slot, now)) });
+  const is = engine.computeIntervalMs(next);
+  const served = was > 0 ? (before % was) / was : 0;
+  const want = (Math.floor(before / is) + served) * is;
+
+  state.game.rotaShift = (state.game.rotaShift || 0) + (before - want);
+  state.game.setup = next;
+  renderHeld();
+  saveGame();
+  tick();
+});
+
 /* =========================================================== going home */
 
 /*
@@ -1587,6 +1751,7 @@ function abortKickOff() {
   if (state.screen !== 'countdown') return;
   state.pendingSetup = null;
   state.countText = '';
+  el.game.classList.remove('first');
   stopLoop();
   showSetup();
 }
@@ -1600,6 +1765,7 @@ function goHome() {
   /* the game goes first, so the lock's own release handler does not read the
      let-go as a screen that failed to stay awake */
   state.game = null;
+  applyHeld();
   releaseWakeLock();
   state.shownChange = null;
   state.windowFor = null;
@@ -1689,7 +1855,9 @@ function loadSquad(squad) {
 function restoreGame() {
   const game = readJSON(KEY_GAME);
   if (!game || !Number.isFinite(game.kickoff) || !game.setup) return false;
-  const elapsed = Date.now() - game.kickoff;
+  /* the same sum `elapsedMs` does, before there is a `state.game` to ask */
+  const at = Number(game.pausedAt) || Date.now();
+  const elapsed = at - game.kickoff - (Number(game.pausedMs) || 0);
   const minutes = Number(game.setup.gameMinutes) || GRID.time.def;
   const limit = (minutes + 60) * MS_PER_MINUTE;
   if (elapsed < 0 || elapsed > limit) {
@@ -1697,12 +1865,17 @@ function restoreGame() {
     return false;
   }
 
-  state.game = { kickoff: game.kickoff, setup: game.setup };
+  state.game = {
+    kickoff: game.kickoff,
+    setup: game.setup,
+    pausedMs: Number(game.pausedMs) || 0,
+    pausedAt: Number(game.pausedAt) || 0,
+    rotaShift: Number(game.rotaShift) || 0
+  };
   if (debug) state.game.kickoff = nowMs() - debug.offsetMs;
   state.screen = 'game';
 
-  const now = elapsedMs();
-  const r = engine.rotation(state.game.setup, now);
+  const r = engine.rotation(state.game.setup, rotaMs());
   /* no dialog, and no voice for changes missed while the phone was dead */
   state.shownChange = r.changeIndex;
   /* a restore inside the window is a window that was never counted, so it is
@@ -1727,14 +1900,17 @@ if (debug) {
     engine,
     heard,
     rotation: engine.rotation,
-    view: () => (state.game ? engine.rotation(state.game.setup, elapsedMs()) : null),
+    view: () => (state.game ? engine.rotation(state.game.setup, rotaMs()) : null),
     getElapsed: () => elapsedMs(),
     setElapsed(ms) {
       if (!state.game) return 0;
-      state.game.kickoff = nowMs() - Math.max(0, Number(ms) || 0);
+      const at = state.game.pausedAt || nowMs();
+      state.game.kickoff = at - (state.game.pausedMs || 0) - Math.max(0, Number(ms) || 0);
       tick();
       return elapsedMs();
     },
+    hold: () => el.hold.click(),
+    rotaMs,
     rate(n) {
       debug.origin = nowMs();
       debug.realOrigin = Date.now();
@@ -1778,7 +1954,27 @@ boot();
 
 /* ------------------------------------------------------------ offline */
 
+/*
+ * A NEW BUILD HAS TO LAND ON THE VISIT THAT FETCHES IT
+ *
+ * The worker serves from the cache and refreshes behind it, so a new build is
+ * downloaded on one visit and shown on the next. On a phone that opens this
+ * once a week that is a week late, and it looks exactly like a deploy that did
+ * not happen.
+ *
+ * So the page reloads itself the moment a new worker takes over. Twice
+ * guarded: not on the first install, when there was nothing to replace, and
+ * never while a game is running — a reload mid-game would restore cleanly and
+ * still be the last thing anybody wants on a touchline.
+ */
 if ('serviceWorker' in navigator && !debug) {
+  const replacing = Boolean(navigator.serviceWorker.controller);
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!replacing || reloading || state.game) return;
+    reloading = true;
+    location.reload();
+  });
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {
       /* no service worker is still a working page, just not an offline one */

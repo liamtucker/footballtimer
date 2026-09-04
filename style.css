@@ -429,11 +429,16 @@ input:focus { outline: none; }
 
 /* ------------------------------------------------------------------ names */
 
+/*
+ * 20px of clear ground under the band. The block's own 40px of top padding was
+ * drawn for a field, which carries another 20 inside it; a name has none of
+ * its own and was sitting 5.6px off a grey edge.
+ */
 .lineup {
   display: flex;
   align-items: flex-start;
   gap: 40px;
-  padding: 0 20px;
+  padding: 14.4px 20px 0;
 }
 
 /* the 20px the field's own padding does not supply on the side facing the
@@ -679,10 +684,55 @@ input:focus { outline: none; }
 #game.counting .gauge { background: var(--red); }
 #game.counting .count { animation: flash 1s steps(1, end) infinite; }
 
+/*
+ * KICK-OFF IS RED AND STILL
+ *
+ * The bar sweeps in the ten seconds before a rotation because it is finishing
+ * something — it has been draining all shift and it runs out as the horn
+ * lands. Before kick-off it has not been draining anything, so a bar emptying
+ * over twenty seconds is a mechanism arriving to say a thing the number is
+ * already saying. The block is red, whole, and the number flashes on it.
+ */
+#game.first .gauge { transform: none; }
+
 @keyframes flash {
   0%, 65% { opacity: 1; }
   65.01%, 100% { opacity: .2; }
 }
+
+/*
+ * HELD
+ *
+ * The block loses its colour. Green is a shift running and red is one about to
+ * end, and a stopped clock is neither — so it is the page's own white with the
+ * gauge held where it stopped as a hairline of ink. Nothing moves and nothing
+ * is coloured, which is what a stopped clock looks like.
+ */
+#game.held-on .timer { background: var(--paper-game); }
+#game.held-on .gauge { background: var(--hair); }
+#game.held-on .count { animation: none; }
+
+/* the icon is the state and the label says it in words */
+.when-held { display: none; }
+#game.held-on .when-running { display: none; }
+#game.held-on .when-held { display: block; }
+
+/* nothing to pause before the game starts */
+#game.first #hold { display: none; }
+
+/*
+ * The three cells, between the block and the names. They only exist while the
+ * clock is stopped, so the two role blocks give up the height for as long as
+ * somebody is standing over the phone and get it straight back.
+ */
+.held {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--hair);
+}
+
+.held .every { margin: 16px 0; }
 
 .watch {
   position: absolute;
@@ -808,7 +858,7 @@ input:focus { outline: none; }
   flex-direction: column;
   align-items: center;
   gap: .3em;
-  font-size: var(--queue-name);
+  font-size: var(--rest, var(--queue-name));
   color: var(--ink);
   opacity: var(--dim);
   text-align: center;

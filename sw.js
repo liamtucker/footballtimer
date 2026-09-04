@@ -1,6 +1,6 @@
 /* sw.js — offline first. No signal at the pitch is the normal case. */
 
-const CACHE = 'rota-v15';
+const CACHE = 'rota-v16';
 
 const FILES = [
   './',
@@ -20,10 +20,16 @@ const FILES = [
   'fonts/barlow-condensed-700-latin-ext.woff2'
 ];
 
+/*
+ * `cache: 'reload'` on every file. Without it the install fetches through the
+ * HTTP cache, which on a phone that opened the app yesterday hands back
+ * yesterday's app — a new cache name filled with the old build, and no way to
+ * tell from the outside.
+ */
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE)
-      .then((cache) => cache.addAll(FILES))
+      .then((cache) => cache.addAll(FILES.map((file) => new Request(file, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
   );
 });

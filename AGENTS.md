@@ -21,12 +21,13 @@ touched.
    returns the same answer. This is what lets a dead phone restart and carry on.
 2. **No build step.** Flat static files. Vanilla JS, no framework, no bundler,
    no dependencies. Opening `index.html` runs it.
-3. **No backend and no accounts.** The only stored things are the setup and the
-   kick-off timestamp, in `localStorage`.
-4. **Nothing to operate mid-game, and nothing that changes the game.** The
-   game screen carries two controls and neither of them touches the rota: the
-   sound test, and `END`. The engine still exposes `addLateArrival` and
-   `removePlayer`; no screen calls them. Do not put a third control there.
+3. **No backend and no accounts.** The only stored things are the setup, the
+   kick-off timestamp and the two clock offsets, in `localStorage`.
+4. **The game screen carries three controls, and the rota is only reachable
+   with the clock stopped.** Hold, the sound test, and `END`. Hold is the only
+   way to the three settings: editing an interval under a running clock is a
+   question with no right answer. The engine still exposes `addLateArrival` and
+   `removePlayer`; no screen calls them. Do not put a fourth control there.
 5. **A button that needs a judgement is the wrong button.** Check any new
    control against the four principles in `spec.md`.
 6. **The type is Barlow, and it ships with the app.** Barlow Condensed Bold and
@@ -53,130 +54,105 @@ touched.
 
 ## State
 
-**Done.** v11. Rebuilt from Figma node `94:756`, then eight corrections from
-Liam on top of it. The engine passes 122 assertions and was not touched.
-Service worker cache `rota-v15`.
+**Done.** v13. The engine passes 129 assertions. Service worker cache
+`rota-v16`.
 
-**The screen is two roles now, not two teams.** Both keepers in one block and
-both benches in the other, under a black tab that names the role. Nobody on a
-pitch asks what the bibs are doing — they ask *am I in goal* and *am I off* —
-and the team chip was the loudest thing on the screen saying the quietest
-thing on it. The voice follows the screen: `Goalkeepers, Sam and Kevin. Subs,
-Chris and Lee.`
+**The clock stops.** A third icon in the spine, and held the block loses its
+colour — green is a shift running, red is one about to end, and a stopped clock
+is neither, so it is the page's own white with the gauge held where it stopped
+as a hairline. Held time is not game time: it comes off the clock, so a game
+held for six minutes is still forty minutes old when it starts again, and a
+phone that dies while held comes back held.
 
-**Each block is a reel, and the reel has no end.** Every change in order, the
-pair in play centred at 50px and the rest either side at 24px and half ink. On
-a change the line slides one place left, so the next names arrive where the eye
-already is. Behind is behind and ahead is ahead — the one thing a row can say
-that a column cannot. Every group centres its own names, the ones either side
-exactly as much as the one in the middle: a stack ragged down one edge reads as
-a list with an order to it, and these are pairs.
+**Holding is the only way to the settings, and that is the point.** The three
+cells appear under the block while the clock is stopped and are gone when it
+runs. Editing an interval under a running clock is a question with no right
+answer — it changes underneath the shift you are standing in — and paused there
+is no such moment. So one control does both jobs and there is no fourth icon to
+explain. A tap applies straight away, because the clock is stopped and the chip
+above says what a shift is now.
 
-`changeIndex` counts past the final whistle and never stops, so a game that
-runs over carries on rotating. The line is **grown from the right** six ahead
-of the middle and never rebuilt, which leaves every element already on it
-exactly where it was — the thing that makes a slide read as a slide. The
-positioning is measured, not calculated: every frame of the slide the middle
-of the active group is put on the middle of the reel, so the type can grow
-from 24 to 50 underneath it and the centre never moves. `transitionend` has
-the last word, because a throttled tab can outlive the deadline.
+**`engine.retime` keeps the draw.** The ring, the keeper and the bench all
+stay; only the length of a shift moves. It is the same re-anchor `setLate`
+does, with one difference: the new anchor is written at the change index the
+**new** interval puts this moment in, not the old one — which is what stops the
+rota replaying changes that have already happened when the shifts get longer.
+The frozen interval is torn up and a new one frozen on the way out.
 
-**The middle is a fixed 188px column and that is the point.** Names run from
-three letters to ten and a row that packed them would put the centre somewhere
-new every seven minutes. A name too wide for the column, or a stack too tall
-for the block, is set smaller — measured on a ruler off the side of the page
-and never on the element that is mid-transition.
+**Two clocks, because a retime cannot be honest with one.** `elapsedMs` is the
+game and it is what the watch shows. `rotaMs` is the same clock less
+`rotaShift`, and the shift is set so the current keeper gets *the share of the
+new interval they have not yet served* — just gone in and they get all of it,
+nearly done and they get what is left. Anything simpler either cuts a turn
+short or hands somebody a double one.
 
-**The horn swells now, and it cost two percent.** Three things made it harsh:
-it started in 20ms, it stopped in 120, and it carried 6.5kHz of top. It swells
-over 110ms on a curve, lets go over 320, and the lowpass opens from 2.2kHz to
-5kHz with it and closes on the way out — a throat, not a switch. The interval
-went from a fourth to a fifth, which is consonant *and* louder through a phone
-speaker, F4 at 349Hz sitting higher in the band a small driver passes than Eb4
-at 311Hz. Modelled at 48kHz and normalised to the old horn's peak: RMS 0.578
-against 0.600, band-RMS 0.420 against 0.417. It is not a quieter horn.
+**Rotations is a list, not a range: 1, 1.5, 2, 2.5, 3, 4, 5.** Eleven a side
+over ninety minutes had two useful answers, 8:00 and 4:00, and nothing between
+them — which is the night it went wrong. The halves are where a half is worth
+having; above three a half step moves the interval by under a minute. It stays
+turns each and never becomes a shift length in minutes: a length you pick has
+to come out even against the squad and the clock, and doing that sum is the
+whole reason the setting exists.
 
-**The voice is said twice, and it retries.** A pitch is the worst listening
-room there is, so the two lines are said, then said again after a second and a
-half — long enough to be a second chance and not an echo, with a chime at the
-head of each pass for the bluetooth speaker that has gone to sleep.
+**A new build now lands on the visit that fetches it.** The worker served from
+the cache and refreshed behind it, so a deploy showed up one visit late — which
+on a phone that opens this once a week is a week, and looks exactly like a
+deploy that never happened. The page reloads itself when a new worker takes
+over, never on the first install and never with a game running. The install
+also fetches with `cache: 'reload'`, or a new cache name fills with the old
+build and nothing outside can tell.
 
-Two things were making it silent on iOS and both are fixed. A held
-`SpeechSynthesisVoice` goes stale when the list is rebuilt behind the page, and
-an utterance carrying a stale one is answered with silence and no error — so
-the choice is kept as a name and resolved against the live list at the moment
-of speaking. And no `start` inside 700ms is a wedged engine, not a slow one, so
-it is cleared and asked again twice, the second ask dropping our voice
-entirely. `cancel()` now happens in exactly two places, never on an empty
-queue, because a speculative cancel is itself the wedge. `heard.voice` reads
-back what happened.
+**Kick-off is red and still.** The bar sweeps in the ten seconds before a
+rotation because it is finishing something it has been draining all shift.
+Before kick-off it has drained nothing, so a bar emptying over twenty seconds
+was a mechanism arriving to say what the number already said.
 
-**The field sits under the names it adds to, and it is a form.** A field above
-the list it fills reads as a search box. On iOS a bare input has no return key
-either — the keyboard shows `done`, which dismisses it and never reaches the
-page — so inside a form the return commits the name, and the arrow is that
-form's submit button, so both routes are one handler. Autofill is asked off
-four ways: `autocomplete`, `autocorrect`, `spellcheck` and a neutral `name`.
+**The reel shrinks together.** The middle is fitted to the room and the rest of
+the line never stands taller than it. Held, the settings row takes a third of
+the screen and a four-name stack lands near 18px — which is small, and it is
+only ever the state somebody is standing over the phone in.
 
-**The modal is inset, and a flag is a switch.** Full bleed made it a bar, and a
-bar arrives at the bottom of a screen and waits; a block with the page visible
-either side of it stands in front of the page, which is the only time this app
-interrupts anybody. The name is the title now, at 32px, over two switched rows.
-On was a white-filled word and off an outlined one — both legible, both full
-contrast, and neither saying that tapping flips it. A switch says it before a
-word is read, because the knob is somewhere and somewhere has an other side.
-The colour rule is unchanged: inverted against the ground means on. The state
-is written onto the row already on the screen, so turning one flag on moves the
-other switch instead of redrawing it.
+**The screen is two roles, not two teams.** Both keepers in one block and both
+benches in the other, each a reel with no end: every change in order, the pair
+in play centred at 50px in a fixed 188px column and the rest either side at
+24px and half ink. `changeIndex` counts past the final whistle, so a game that
+runs over carries on rotating and the line is grown from the right, never
+rebuilt. The middle is put on the middle of the reel every frame of a slide,
+so the type can grow from 24 to 50 underneath it.
 
-**`KICK OFF` is 68px and the home indicator is a border.** It was 32 and 32
-plus the safe area, so on a phone with an indicator the bottom padding was 66
-against the top's 32 and the words sat above the middle of a bar half again as
-tall as it needed to be. 20 and 20 now — the cap sits 24.2 from both edges —
-with the safe area as a border in the same ink, which holds the same ground
-without being measured from the type.
+**The voice says it twice.** `Goalkeepers, Sam and Kevin. Subs, Chris and Lee.`
+— then again after a second and a half. A held `SpeechSynthesisVoice` goes
+stale and is answered with silence, so the choice is a name resolved live; no
+`start` inside 700ms is a wedged engine, so it is cleared and asked twice more.
+`cancel()` happens in two places and never on an empty queue.
 
-**`START AGAIN` is the icon alone.** The words beside a circular arrow were the
-arrow said twice, and it was the only two-word control in the app.
+**The horn swells** over 110ms and lets go over 320, with the lowpass opening
+2.2kHz to 5kHz and closing on the way out. A fifth, not a fourth — consonant
+and louder through a phone speaker. Modelled at matched peak: RMS 0.578 against
+0.600, band-RMS 0.420 against 0.417.
 
-**The interval came off the button.** It was a dimmed second line inside
-`KICK OFF`, which made the button a control and a readout at once. It is a chip
-of ink centred on the rule above the settings now, next to the three things
-that change it.
-
-**What was carried across untouched.** The clock as `Date.now() - kickoff` with
-the `visibilitychange` resync; the gauge and its two scales; the ten beeps and
-the horn on the crossing; the `navigator.audioSession = 'playback'` fix; the
-wake lock; `localStorage` persistence and silent restore; the offline service
-worker; the `?t=` debug hook.
-
-**Next.** The field test: whether the horn is now too polite through a real
-speaker, whether twice is enough, and whether the reel reads from the far post.
+**Next.** The field test, with the hold and the halves in it.
 **Blocked.** Nothing.
 
 **Open, for Liam.**
 
+- **A retime can shorten the shift you are in.** The share already served is
+  carried over, so it is proportional and never sudden — but change from 5:15
+  to 2:00 halfway through and the horn is a minute away. It is the honest
+  answer and it may still surprise.
+- **Pause and play are the only hand-drawn icons.** Everything else is lifted
+  from the Figma file. They match the stop square's language — 24px, 2px
+  stroke, round caps — and they are not in the file.
+- **`aside` is editable mid-game and it moves the bench.** Changing it changes
+  how many subs there are, so people who were on come off. The keeper never
+  moves. It is correct and it is the one cell that does more than it says.
 - **The file puts 12px under one mark and 24px under the other.** The build
   uses 12 in both: two identical structures differing by 12px is a slip.
-- **The subs stack is set to fit the room, not to the file's number.** With
-  four names the file draws them at 31.9px; the room between the mark and the
-  bottom of the block takes 36.8. A fit rule is right and a magic number is
-  not, so the build fits.
 - **Nothing marks which team a name is on.** That is what grouping by role
-  costs, and on a six-a-side pitch it is probably free. It is the first thing
-  to look at if the field test is confusing.
-- **The reel shows the past.** Two names to the left of centre have already had
-  their turn. It is what makes a reel a reel, and it is also two names of
-  screen spent on something nobody needs.
-- **The rota repeats and the reel says nothing about it.** A full cycle back to
-  the opening pair looks the same as any other change. It is correct and it may
-  be worth marking.
+  costs, and on a six-a-side pitch it is probably free.
 - **`brain/design.md` and `spec.md` describe an interface three rebuilds old.**
   Both are still right about the rotation and about why the sounds are what
   they are, and wrong about every screen.
-- **No agent can hear any of this,** and now no agent can render it either: the
-  horn's graph is proved to build in a real browser, but its loudness is a
-  numeric model of the same graph and not an `OfflineAudioContext` render.
 
 ## Debug hook
 

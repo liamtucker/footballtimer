@@ -68,6 +68,20 @@
     <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M19.6824 8.07941C21.2661 10.5939 21.4898 13.9404 19.9833 16.9018M16.3459 9.72406C17.6827 11.2866 17.8715 13.3662 16.5999 15.2065M12 6L7.58775 9.4884H3V14.5111L7.58775 14.5099L12 18V6Z"/>
   </symbol>
 
+  <!--
+    The two exceptions. Pause and play are not in the Figma file — there was
+    nothing to pause when it was drawn — so they are set to the same language
+    as the two icons beside them: a 24px box, a 2px stroke, round caps and
+    joins, and the same optical weight as the stop square.
+  -->
+  <symbol id="i-pause" viewBox="0 0 24 24">
+    <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 5V19M15 5V19"/>
+  </symbol>
+
+  <symbol id="i-play" viewBox="0 0 24 24">
+    <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 5.5L19 12L7 18.5V5.5Z"/>
+  </symbol>
+
   <symbol id="i-square" viewBox="0 0 24 24">
     <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M17 5H7C5.89543 5 5 5.89543 5 7V17C5 18.1046 5.89543 19 7 19H17C18.1046 19 19 18.1046 19 17V7C19 5.89543 18.1046 5 17 5Z"/>
   </symbol>
@@ -178,11 +192,46 @@
     <!-- two icons and no words. The speaker tests the sound, which is the one
          thing about this app that fails silently. -->
     <div class="spine">
+      <!-- the clock stops, and stopping it is what opens the settings -->
+      <button class="ibtn" id="hold" type="button" aria-label="Pause the game">
+        <svg class="ic ic24 when-running" aria-hidden="true"><use href="#i-pause"/></svg>
+        <svg class="ic ic24 when-held" aria-hidden="true"><use href="#i-play"/></svg>
+      </button>
       <button class="ibtn" id="test" type="button" aria-label="Test the sound">
         <svg class="ic ic24" aria-hidden="true"><use href="#i-volume"/></svg>
       </button>
       <button class="ibtn" id="end" type="button" aria-label="End the game">
         <svg class="ic ic24" aria-hidden="true"><use href="#i-square"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!--
+    THE SETTINGS ARE ONLY REACHABLE WITH THE CLOCK STOPPED
+
+    Editing the rota under a running clock is a question with no right answer:
+    the interval changes underneath the shift you are standing in. Paused there
+    is no such moment, so the three cells appear when the game is held and go
+    when it runs, and there is no fourth icon in the spine to explain.
+
+    A tap applies straight away. The clock is stopped, the pitch is on the
+    screen, and the chip above says what a shift is now — so the result of the
+    tap is visible without a confirm step to press.
+  -->
+  <div class="held" id="held" hidden>
+    <p class="every eyebrow" id="held-note">Rotate every &#8212;</p>
+    <div class="settings">
+      <button class="cell" data-gcell="aside" type="button">
+        <span class="eyebrow cell-label">Aside</span>
+        <span class="cell-value dsp" id="gvalue-aside">6</span>
+      </button>
+      <button class="cell" data-gcell="time" type="button">
+        <span class="eyebrow cell-label">Time</span>
+        <span class="cell-value dsp" id="gvalue-time">2Hrs</span>
+      </button>
+      <button class="cell" data-gcell="rotations" type="button">
+        <span class="eyebrow cell-label">Rotations</span>
+        <span class="cell-value dsp" id="gvalue-rotations">2</span>
       </button>
     </div>
   </div>

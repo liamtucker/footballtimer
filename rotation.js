@@ -268,8 +268,28 @@ export const MAX_GAME_TYPE = 11;
 export const DEFAULT_GAME_TYPE = 6;
 export const DEFAULT_TEAM_NAMES = ['Bibs', 'No bibs'];
 
-export const MIN_ROTATIONS = 1;
-export const MAX_ROTATIONS = 5;
+/*
+ * ROTATIONS IS NOT A UNIFORM GRID, AND THAT IS THE POINT
+ *
+ * The setting means turns in goal each, and the interval is the game cut that
+ * many ways. Whole numbers were fine for eight a side over two hours; for
+ * eleven a side over ninety minutes the two useful answers are 8:11 and 4:05
+ * and there is nothing between them. That gap is the whole complaint: two was
+ * too short and one was the only other thing on the dial.
+ *
+ * So the steps are halved where a half is worth having and left whole where it
+ * is not. Eleven a side over ninety minutes: 1 is 8:11, 1.5 is 5:27, 2 is 4:05.
+ * Above three a half step moves the interval by well under a minute and only
+ * costs a tap.
+ *
+ * It stays a list of turns each and never becomes a shift length in minutes. A
+ * length you pick yourself is a number that has to come out even against the
+ * squad and the clock, and it will not — the whole reason this setting exists
+ * is that the app does that sum and you do not.
+ */
+export const ROTATION_STEPS = [1, 1.5, 2, 2.5, 3, 4, 5];
+export const MIN_ROTATIONS = ROTATION_STEPS[0];
+export const MAX_ROTATIONS = ROTATION_STEPS[ROTATION_STEPS.length - 1];
 export const DEFAULT_ROTATIONS = 2;
 
 export const MIN_GAME_MINUTES = 30;
@@ -352,7 +372,7 @@ function shuffle(list, random) {
 
 const CYCLES = {
   gameType: { min: MIN_GAME_TYPE, max: MAX_GAME_TYPE, step: 1, fallback: DEFAULT_GAME_TYPE },
-  rotations: { min: MIN_ROTATIONS, max: MAX_ROTATIONS, step: 1, fallback: DEFAULT_ROTATIONS },
+
   gameMinutes: {
     min: MIN_GAME_MINUTES,
     max: MAX_GAME_MINUTES,
@@ -370,6 +390,13 @@ const CYCLES = {
  * untouched, because a setting this module does not own is not its business.
  */
 export function cycle(kind, value) {
+  /* rotations is a list and not a range, so it steps along the list */
+  if (kind === 'rotations') {
+    const raw = Number(value);
+    if (!Number.isFinite(raw)) return DEFAULT_ROTATIONS;
+    const at = ROTATION_STEPS.indexOf(snapRotations(raw));
+    return ROTATION_STEPS[mod(at + 1, ROTATION_STEPS.length)];
+  }
   const range = CYCLES[kind];
   if (!range) return value;
   const raw = Number(value);
@@ -403,9 +430,23 @@ export function gameMinutesOf(setup) {
   return Math.max(0, Math.floor(num(setup && setup.gameMinutes, DEFAULT_GAME_MINUTES)));
 }
 
+/**
+ * The nearest step on the dial. A stored setting is data and a half that
+ * arrived from an older build as a 2 is snapped, not rejected.
+ */
+export function snapRotations(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_ROTATIONS;
+  const want = clamp(n, MIN_ROTATIONS, MAX_ROTATIONS);
+  return ROTATION_STEPS.reduce(
+    (best, step) => (Math.abs(step - want) < Math.abs(best - want) ? step : best),
+    ROTATION_STEPS[0]
+  );
+}
+
 /** How many times each player goes in goal across the game time. */
 export function rotationsOf(setup) {
-  return clamp(Math.floor(num(setup && setup.rotations, DEFAULT_ROTATIONS)), MIN_ROTATIONS, MAX_ROTATIONS);
+  return snapRotations(num(setup && setup.rotations, DEFAULT_ROTATIONS));
 }
 
 /**
@@ -843,6 +884,60 @@ function benchPointerFor(players, fixedIndex, benchStartId, fallback) {
   if (bench.length === 0) return 0;
   const at = bench.findIndex((player) => player.id === benchStartId);
   return at >= 0 ? at : mod(fallback, bench.length);
+}
+
+/**
+ * Change the three settings mid-game without touching who is where.
+ *
+ * The complaint this answers is a real one: an interval chosen at the warm-up
+ * turns out to be wrong once you are playing, and the only way out was to end
+ * the game and draw a whole new one. The draw is the thing you least want to
+ * lose — it is the only random moment in the app and it decided who is in goal
+ * first.
+ *
+ * So this keeps the ring, keeps the keeper, keeps the bench pointer, and moves
+ * only the length of a shift. It is the same re-anchor `setLate` does, with one
+ * difference: the new anchor is written at the change index the NEW interval
+ * puts this moment in, not the old one. That is what stops the rota jumping
+ * backwards when the shifts get longer — under a longer interval the same
+ * elapsed time is a lower change number, and an anchor left at the old number
+ * would replay changes that have already happened.
+ *
+ * The frozen interval goes. It is what kick-off wrote down so a late arrival
+ * could not move the clock, and retiming is the one thing allowed to tear it
+ * up; a new one is frozen on the way out.
+ *
+ * The shift you are standing in keeps its own boundary, so it ends whenever
+ * the new interval says it does — which can be sooner than the old one would
+ * have. That is the honest answer and it is the price of not moving anybody.
+ *
+ * Returns a new setup. `changes` may carry any of `gameType`, `gameMinutes`
+ * and `rotations`; anything left out is kept.
+ */
+export function retime(setup, elapsedMs, changes = {}) {
+  const g = gameTypeOf(setup);
+  const before = changeIndexAt(setup, elapsedMs);
+  const states = ((setup && setup.teams) ?? []).map((team) => slotsAt(team, before, g));
+
+  const loose = {
+    ...setup,
+    gameType: changes.gameType ?? (setup && setup.gameType),
+    gameMinutes: changes.gameMinutes ?? (setup && setup.gameMinutes),
+    rotations: changes.rotations ?? (setup && setup.rotations),
+    intervalMs: null
+  };
+  const after = changeIndexAt(loose, elapsedMs);
+
+  let out = { ...loose, intervalMs: computeIntervalMs(loose) };
+  ((setup && setup.teams) ?? []).forEach((team, t) => {
+    const now = states[t];
+    if (!now || now.n === 0) return;
+    const players = oneFixedGoalie((team.players ?? []).map(copyPlayer));
+    out = now.fixedIndex >= 0
+      ? reAnchorFixed(out, t, team, players, now.fixedIndex, after, now.subPointer)
+      : reAnchor(out, t, team, players, now.keeperIndex, after, now.offset);
+  });
+  return out;
 }
 
 /**

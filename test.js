@@ -15,6 +15,8 @@ import {
   removePlayer,
   setLate,
   setFixedGoalie,
+  retime,
+  snapRotations,
   fixedGoalieOf,
   cycle,
   cycleGameType,
@@ -33,6 +35,7 @@ import {
   DEFAULT_ROTATIONS,
   MIN_ROTATIONS,
   MAX_ROTATIONS,
+  ROTATION_STEPS,
   MIN_GAME_MINUTES,
   MAX_GAME_MINUTES,
   GAME_MINUTES_STEP,
@@ -274,7 +277,7 @@ console.log('\nthe settings cycle');
 test('the three settings cycle one place and wrap from the top', () => {
   eq(cycleGameType(MIN_GAME_TYPE), 5);
   eq(cycleGameType(MAX_GAME_TYPE), MIN_GAME_TYPE, 'game type wraps');
-  eq(cycleRotations(MIN_ROTATIONS), 2);
+  eq(cycleRotations(MIN_ROTATIONS), 1.5, 'a half step exists between one and two');
   eq(cycleRotations(MAX_ROTATIONS), MIN_ROTATIONS, 'rotations wraps');
   eq(cycleGameMinutes(MIN_GAME_MINUTES), MIN_GAME_MINUTES + GAME_MINUTES_STEP);
   eq(cycleGameMinutes(DEFAULT_GAME_MINUTES), 135, 'two hours steps to 2:15');
@@ -285,7 +288,6 @@ test('the three settings cycle one place and wrap from the top', () => {
 test('a cycle visits every value once and comes back to the start', () => {
   const kinds = [
     ['gameType', MIN_GAME_TYPE, MAX_GAME_TYPE, 1],
-    ['rotations', MIN_ROTATIONS, MAX_ROTATIONS, 1],
     ['gameMinutes', MIN_GAME_MINUTES, MAX_GAME_MINUTES, GAME_MINUTES_STEP]
   ];
   for (const [kind, min, max, step] of kinds) {
@@ -425,13 +427,14 @@ test('gameMinutes still changes nothing but gameMs, once the interval is frozen'
   eq(rotation(long, 0).gameMs, 120 * MS_PER_MINUTE);
 });
 
-test('rotations is a whole number, clamped to 1 .. 5', () => {
+test('rotations lands on the dial, whatever it arrives as', () => {
   eq(rotationsOf({}), DEFAULT_ROTATIONS, 'two by default');
   eq(rotationsOf({ rotations: 0 }), MIN_ROTATIONS);
   eq(rotationsOf({ rotations: 99 }), MAX_ROTATIONS);
-  eq(rotationsOf({ rotations: 2.9 }), 2);
+  eq(rotationsOf({ rotations: 2.9 }), 3);
   eq(rotationsOf({ rotations: 'four' }), DEFAULT_ROTATIONS);
-  eq(setupOf(8, 6, { rotations: 9 }).rotations, MAX_ROTATIONS, 'createSetup clamps it too');
+  eq(setupOf(8, 6, { rotations: 9 }).rotations, MAX_ROTATIONS, 'createSetup snaps it too');
+  eq(setupOf(8, 6, { rotations: 1.5 }).rotations, 1.5, 'and a half goes through it');
 });
 
 /* ------------------------------------------------------ the reverse readout */
@@ -1689,6 +1692,101 @@ test('eleven a side with a bench of five holds every rule for three laps', () =>
   eq(rotation(setup, 0).teams[0].subCount, 5);
   eq(computeIntervalMs(setup), 4 * MS_PER_MINUTE);
   checkRules(setup, 0, 48, 'eleven a side');
+});
+
+/* ------------------------------------------------------------ the halves */
+
+console.log('\nrotations in halves');
+
+test('rotations is a list, and one tap walks it and wraps', () => {
+  eq(ROTATION_STEPS.join(), '1,1.5,2,2.5,3,4,5');
+  let value = MIN_ROTATIONS;
+  const seen = [];
+  for (let i = 0; i < ROTATION_STEPS.length; i += 1) {
+    seen.push(value);
+    value = cycleRotations(value);
+  }
+  eq(seen.join(), ROTATION_STEPS.join(), 'the cycle visits every step in order');
+  eq(value, MIN_ROTATIONS, 'and wraps back to the bottom');
+});
+
+test('a value off the list is snapped and never rejected', () => {
+  eq(snapRotations(1.4), 1.5);
+  eq(snapRotations(1.1), 1);
+  eq(snapRotations(3.6), 4, 'the gap above three snaps to its nearer end');
+  eq(snapRotations(99), MAX_ROTATIONS);
+  eq(snapRotations(0), MIN_ROTATIONS);
+  eq(snapRotations('two'), DEFAULT_ROTATIONS, 'a stored setting is data');
+  eq(rotationsOf({ rotations: 1.5 }), 1.5, 'a half survives the read');
+});
+
+test('the half is the answer to eleven a side over ninety minutes', () => {
+  const iv = (rotations) => computeIntervalMs(setupOf(11, 11, { gameMinutes: 90, rotations }));
+  eq(iv(1), 8 * MS_PER_MINUTE, 'one turn each is 8:00');
+  eq(iv(2), 4 * MS_PER_MINUTE, 'two turns each is 4:00, which was the night it went wrong');
+  eq(iv(1.5), 5 * MS_PER_MINUTE + 15000, 'and the half between them is 5:15');
+});
+
+/* -------------------------------------------------------------- retiming */
+
+console.log('\nretiming a game that has started');
+
+test('a retime keeps the ring, the keeper and the bench', () => {
+  const setup = kickOff(setupOf(11, 11, { gameMinutes: 90, rotations: 2 }), dice(7));
+  const at = 20 * MS_PER_MINUTE;
+  const was = rotation(setup, at);
+  const next = retime(setup, at, { rotations: 1.5 });
+  const is = rotation(next, at);
+
+  eq(computeIntervalMs(setup), 4 * MS_PER_MINUTE);
+  eq(computeIntervalMs(next), 5 * MS_PER_MINUTE + 15000, 'the interval is the only thing that moved');
+  for (let t = 0; t < 2; t += 1) {
+    eq(
+      next.teams[t].players.map((p) => p.id).join(),
+      setup.teams[t].players.map((p) => p.id).join(),
+      'the draw is untouched'
+    );
+    eq(is.teams[t].keeper.id, was.teams[t].keeper.id, 'the same player is in goal');
+    eq(
+      is.teams[t].subs.map((p) => p.id).join(),
+      was.teams[t].subs.map((p) => p.id).join(),
+      'and the same players are on the bench'
+    );
+  }
+});
+
+test('a retime does not replay changes that have already happened', () => {
+  const setup = kickOff(setupOf(8, 8, { gameMinutes: 120, rotations: 2 }), dice(11));
+  const at = 40 * MS_PER_MINUTE;
+  const next = retime(setup, at, { gameMinutes: 150 });
+  /* the anchor is written at the change the NEW interval puts this moment in,
+     so the rota goes forward from here and never backwards */
+  const seen = new Set();
+  for (let k = 0; k < 12; k += 1) {
+    const r = rotation(next, at + k * computeIntervalMs(next));
+    seen.add(r.teams[0].keeper.id);
+  }
+  eq(seen.size, 8, 'the whole squad still comes round, in order, from where it is');
+});
+
+test('a retime holds the two hard rules from the moment it lands', () => {
+  const setup = kickOff(setupOf(9, 9, { gameType: 6, gameMinutes: 120, rotations: 2 }), dice(3));
+  const next = retime(setup, 33 * MS_PER_MINUTE, { gameType: 7, rotations: 3 });
+  eq(rotation(next, 0).gameType, 7);
+  checkRules(next, 0, 30, 'after a retime');
+  checkRules(next, 1, 30, 'after a retime');
+});
+
+test('a retime with nothing asked for changes nothing anybody can see', () => {
+  const setup = kickOff(setupOf(8, 6, { gameMinutes: 120, rotations: 2 }), dice(23));
+  const at = 17 * MS_PER_MINUTE;
+  const next = retime(setup, at, {});
+  eq(computeIntervalMs(next), computeIntervalMs(setup));
+  for (let k = 0; k < 10; k += 1) {
+    const a = rotation(setup, at + k * computeIntervalMs(setup));
+    const b = rotation(next, at + k * computeIntervalMs(next));
+    eq(b.teams[0].keeper.id, a.teams[0].keeper.id, `change ${k}`);
+  }
 });
 
 /* ------------------------------------------------------------------ report */
