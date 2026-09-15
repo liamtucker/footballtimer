@@ -11,8 +11,15 @@
  * into the setup. Entry order decides nothing. That single change deletes
  * three controls at once: the subs divider had nothing to divide, the drag had
  * nothing to order, and a tap that set the starting keeper was setting
- * something the draw sets. With them went the edit route, because the game
- * screen the design describes has one control on it and it is `END`.
+ * something the draw sets.
+ *
+ * THE EDIT ROUTE CAME BACK, BEHIND THE STOPPED CLOCK
+ *
+ * The team screen has two faces. Before a game it edits `draft` and the bar
+ * at the bottom kicks off. Held, it edits the live setup through the engine's
+ * four roster calls and the bar goes back to the game. Same markup, same
+ * listeners: every one of them asks `roster()` which list it is looking at,
+ * and the engine keeps the keeper wherever it is. See `applyEdit`.
  *
  * WHAT A NAME CARRIES
  *
@@ -271,7 +278,7 @@ const draft = {
 };
 
 const state = {
-  screen: 'setup',          /* 'setup' | 'countdown' | 'game' */
+  screen: 'setup',          /* 'setup' | 'countdown' | 'game' | 'edit' */
   game: null,               /* { kickoff, setup } */
   pendingSetup: null,
   shownChange: null,
@@ -318,6 +325,7 @@ const el = {
   hold: $('hold'),
   heldBar: $('held'),
   heldNote: $('held-note'),
+  teams: $('teams'),
   gvalues: { aside: $('gvalue-aside'), time: $('gvalue-time'), rotations: $('gvalue-rotations') },
   ruler: $('ruler'),
   reels: [$('reel-goal'), $('reel-subs')],
@@ -825,13 +833,28 @@ function safe(text) {
   ));
 }
 
+/* the team screen is open on a held game, editing the live setup */
+function editing() {
+  return state.screen === 'edit' && Boolean(state.game);
+}
+
+/*
+ * The list the team screen is showing. Before a game it is the draft, in
+ * whatever order the names were typed. Mid-game it is the live ring, in the
+ * order the engine keeps it — which is the only honest order there is.
+ */
+function roster(teamIndex) {
+  if (editing()) return state.game.setup.teams[teamIndex].players || [];
+  return draft.players[teamIndex];
+}
+
 /*
  * Down the first column and then down the second, `ceil(n/2)` and the rest —
  * which is the 4/4 and the 4/3 the filled frame shows for eight names and for
  * seven.
  */
 function renderNames(teamIndex) {
-  const list = draft.players[teamIndex];
+  const list = roster(teamIndex);
   const half = Math.ceil(list.length / 2);
   const parts = [list.slice(0, half), list.slice(half)];
 
@@ -867,6 +890,7 @@ function renderNames(teamIndex) {
 function renderSetup() {
   const total = draft.players[0].length + draft.players[1].length;
   el.again.classList.toggle('gone', total === 0);
+  el.setup.classList.toggle('editing', editing());
 
   for (let t = 0; t < 2; t += 1) {
     renderNames(t);
@@ -877,10 +901,78 @@ function renderSetup() {
   el.values.time.textContent = timeWords(draft.gameMinutes);
   el.values.rotations.textContent = String(draft.rotations);
 
-  el.kick.disabled = !ready();
-  el.kickNote.textContent = `${COPY.rotateEvery} ${intervalText()}`;
+  /* mid-game the bar only leaves, and the interval is the frozen one */
+  el.kick.disabled = !editing() && !ready();
+  el.kickNote.textContent = `${COPY.rotateEvery} ${editing()
+    ? mmss(engine.computeIntervalMs(state.game.setup))
+    : intervalText()}`;
   fitNames();
 }
+
+/* ------------------------------------------------------------- editing */
+
+/*
+ * EVERY MID-GAME EDIT IS ONE ENGINE CALL AND ONE NEW SETUP
+ *
+ * `addLateArrival`, `removePlayer`, `setLate` and `setFixedGoalie` each hand
+ * back a setup with the keeper where it was and the anchor rewritten on the
+ * current change, so the rota carries on from here and nothing that has
+ * already happened is replayed. The clock is held while any of them runs,
+ * because the team screen is only reachable held — so the change lands on a
+ * stopped pitch and is on the screen before anybody presses play.
+ *
+ * The reels are rebuilt on the way back, not here: `paint` empties them when
+ * the setup is a new object, and `shownChange` is cleared so the next tick
+ * paints. A phone that dies on the team screen comes back on the game screen,
+ * held, with the edit already in the stored game.
+ */
+function applyEdit(next) {
+  if (!editing() || next === state.game.setup) return;
+  state.game.setup = next;
+  state.shownChange = null;
+  saveGame();
+  renderSetup();
+}
+
+/*
+ * The remembered squad follows a name in and out, so next week's prefill is
+ * the squad that finished the game and not the one that started it. Names
+ * only: a flag set mid-game is about this game.
+ */
+function rememberName(teamIndex, name) {
+  if (addName(teamIndex, name)) saveSquad();
+}
+
+function forgetName(teamIndex, name) {
+  const at = draft.players[teamIndex]
+    .findIndex((p) => p.name.toLowerCase() === String(name).toLowerCase());
+  if (at < 0) return;
+  draft.players[teamIndex].splice(at, 1);
+  saveSquad();
+}
+
+function openEdit() {
+  if (!isHeld()) return;
+  closeSheet();
+  state.screen = 'edit';
+  el.game.hidden = true;
+  el.setup.hidden = false;
+  renderSetup();
+  window.scrollTo(0, 0);
+}
+
+function closeEdit() {
+  if (!editing()) return;
+  closeSheet();
+  state.screen = 'game';
+  el.setup.classList.remove('editing');
+  showGame();
+  applyHeld();
+  renderHeld();
+  tick();
+}
+
+el.teams.addEventListener('click', openEdit);
 
 /* -------------------------------------------------------------- naming */
 
@@ -896,6 +988,19 @@ function addName(teamIndex, raw) {
 
 function commitField(teamIndex) {
   const input = el.inputs[teamIndex];
+  if (editing()) {
+    /* a late arrival: the front of the bench, and nobody on the pitch moves */
+    const name = String(input.value).trim().replace(/\s+/g, ' ').slice(0, NAME_MAX);
+    const taken = roster(teamIndex).some((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (name && !taken) {
+      applyEdit(engine.addLateArrival(state.game.setup, teamIndex, name, rotaMs()));
+      rememberName(teamIndex, name);
+    }
+    input.value = '';
+    renderSetup();
+    input.focus();
+    return;
+  }
   const added = addName(teamIndex, input.value);
   input.value = '';
   renderSetup();
@@ -936,6 +1041,15 @@ document.addEventListener('click', (event) => {
   const drop = event.target.closest('[data-drop]');
   if (drop) {
     const t = Number(drop.dataset.team);
+    if (editing()) {
+      /* gone home: never in goal or on the bench again, and the keeper stays
+         unless it was the keeper who left */
+      const player = roster(t)[Number(drop.dataset.drop)];
+      if (!player) return;
+      applyEdit(engine.removePlayer(state.game.setup, t, player.id, rotaMs()));
+      forgetName(t, player.name);
+      return;
+    }
     draft.players[t].splice(Number(drop.dataset.drop), 1);
     renderSetup();
     saveSquad();
@@ -949,6 +1063,7 @@ document.addEventListener('click', (event) => {
 
 el.cells.forEach((cell) => {
   cell.addEventListener('click', () => {
+    if (editing()) return;
     const slot = cell.dataset.cell;
     if (slot === 'aside') draft.gameType = onGrid('aside', cycle('aside', draft.gameType));
     if (slot === 'time') draft.gameMinutes = onGrid('time', cycle('time', draft.gameMinutes));
@@ -963,6 +1078,7 @@ el.cells.forEach((cell) => {
 /* both lists emptied and the remembered squad forgotten. It is the only thing
    on this screen that takes something away, and it can only run before a game. */
 el.again.addEventListener('click', () => {
+  if (editing()) return;
   draft.players = [[], []];
   if (!debug) dropKey(KEY_SQUAD);
   renderSetup();
@@ -1065,6 +1181,10 @@ document.addEventListener('keydown', (event) => {
  * re-render would make that a jump instead of a switch moving.
  */
 function openPlayerSheet(teamIndex, index) {
+  if (editing()) {
+    openLiveSheet(teamIndex, index);
+    return;
+  }
   const player = draft.players[teamIndex][index];
   if (!player) return;
   const refresh = () => {
@@ -1095,6 +1215,47 @@ function openPlayerSheet(teamIndex, index) {
         player.late = !player.late;
         if (player.late) player.fixedGoalie = false;
         refresh();
+      }
+    }
+  ]);
+}
+
+/*
+ * The same two switches on a live name. Each flip is an engine call on the
+ * current change: a fixed goalie goes in from now and the pitch is re-cut
+ * around them; late sends the name to the back of the ring and the keeper
+ * stays. One flag at a time, the same as before a game, and the sheet reads
+ * the name back from the setup by id because every call returns a new one.
+ */
+function openLiveSheet(teamIndex, index) {
+  const id = (roster(teamIndex)[index] || {}).id;
+  if (!id) return;
+  const live = () => roster(teamIndex).find((p) => p.id === id) || {};
+  const set = (fixed, late) => {
+    let next = state.game.setup;
+    const at = rotaMs();
+    if (late !== undefined) next = engine.setLate(next, teamIndex, id, late, at);
+    if (fixed !== undefined) next = engine.setFixedGoalie(next, teamIndex, id, fixed, at);
+    applyEdit(next);
+    syncSheet();
+  };
+  openSheet(live().name, [
+    {
+      label: COPY.fixedGoalie,
+      on: () => Boolean(live().fixedGoalie),
+      toggle: true,
+      act() {
+        const turningOn = !live().fixedGoalie;
+        set(turningOn, turningOn && live().late ? false : undefined);
+      }
+    },
+    {
+      label: COPY.late,
+      on: () => Boolean(live().late),
+      toggle: true,
+      act() {
+        const turningOn = !live().late;
+        set(turningOn && live().fixedGoalie ? false : undefined, turningOn);
       }
     }
   ]);
@@ -1522,6 +1683,10 @@ function saveSquad() {
 }
 
 el.kick.addEventListener('click', () => {
+  if (editing()) {
+    closeEdit();
+    return;
+  }
   if (!ready()) return;
   /* the gesture iOS needs for the audio context. The voice was unlocked at the
      first touch of the session, and a second one here would be a word spoken
@@ -1910,6 +2075,8 @@ if (debug) {
       return elapsedMs();
     },
     hold: () => el.hold.click(),
+    edit: () => el.teams.click(),
+    done: () => el.kick.click(),
     rotaMs,
     rate(n) {
       debug.origin = nowMs();

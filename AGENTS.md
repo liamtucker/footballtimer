@@ -25,9 +25,9 @@ touched.
    kick-off timestamp and the two clock offsets, in `localStorage`.
 4. **The game screen carries three controls, and the rota is only reachable
    with the clock stopped.** Hold, the sound test, and `END`. Hold is the only
-   way to the three settings: editing an interval under a running clock is a
-   question with no right answer. The engine still exposes `addLateArrival` and
-   `removePlayer`; no screen calls them. Do not put a fourth control there.
+   way to the three settings and to the team screen: editing anything under a
+   running clock is a question with no right answer. Do not put a fourth
+   control in the spine.
 5. **A button that needs a judgement is the wrong button.** Check any new
    control against the four principles in `spec.md`.
 6. **The type is Barlow, and it ships with the app.** Barlow Condensed Bold and
@@ -54,8 +54,18 @@ touched.
 
 ## State
 
-**Done.** v13. The engine passes 129 assertions. Service worker cache
-`rota-v16`.
+**Done.** v14. The engine passes 129 assertions. Service worker cache
+`rota-v17`.
+
+**The teams are editable held.** A `Teams` row under the three cells opens the
+team screen on the live setup: a typed name is `engine.addLateArrival` and
+joins the front of the bench, the cross is `engine.removePlayer`, and the two
+switches on a name are `engine.setFixedGoalie` and `engine.setLate`. Every one
+keeps the keeper where it is and re-anchors on the current change, so nothing
+already played is replayed. The bar at the bottom says `Done` and goes back to
+the game still held; play is a second decision. The reels are rebuilt on the
+way back because the setup is a new object. Names added or removed mid-game
+follow into the remembered squad; flags do not.
 
 **The clock stops.** A third icon in the spine, and held the block loses its
 colour — green is a shift running, red is one about to end, and a stopped clock

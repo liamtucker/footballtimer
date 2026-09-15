@@ -606,6 +606,20 @@ input:focus { outline: none; }
 
 .kick:disabled { cursor: default; opacity: var(--off); }
 
+/*
+ * EDITING, MID-GAME
+ *
+ * The same screen, opened from a held clock, with the live squads on it. The
+ * three settings are on the held bar already, so they go; the restart goes,
+ * because there is a game to lose; and the bar at the bottom leaves rather
+ * than kicks off.
+ */
+.when-edit { display: none; }
+#setup.editing .when-kick { display: none; }
+#setup.editing .when-edit { display: inline; }
+#setup.editing .settings { display: none; }
+#setup.editing .again { display: none; }
+
 /* =================================================================== game */
 
 #game {
@@ -733,6 +747,19 @@ input:focus { outline: none; }
 }
 
 .held .every { margin: 16px 0; }
+
+/* the door to the team screen, under the three cells. A row and not a fourth
+   cell: a cell cycles a value, and this goes somewhere. */
+.teams {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 0;
+  border-top: 1px solid var(--hair-hard);
+}
+
+.teams-word { font-size: var(--lead); }
 
 .watch {
   position: absolute;

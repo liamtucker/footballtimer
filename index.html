@@ -166,9 +166,12 @@
         <span class="cell-value dsp" id="value-rotations">2</span>
       </button>
     </div>
+    <!-- the same bar leaves the edit screen mid-game. The clock stays held:
+         going back and starting again are two decisions. -->
     <button class="kick" id="kick" type="button">
-      <svg class="ic ic28" aria-hidden="true"><use href="#i-ball"/></svg>
-      <span class="kick-word dsp">Kick off</span>
+      <svg class="ic ic28 when-kick" aria-hidden="true"><use href="#i-ball"/></svg>
+      <span class="kick-word dsp when-kick">Kick off</span>
+      <span class="kick-word dsp when-edit">Done</span>
     </button>
   </div>
 
@@ -234,6 +237,19 @@
         <span class="cell-value dsp" id="gvalue-rotations">2</span>
       </button>
     </div>
+    <!--
+      THE TEAMS ARE THE FOURTH THING A STOPPED CLOCK OPENS
+
+      Somebody turns up late, somebody goes home, somebody was typed onto the
+      wrong team. The engine has always known how to take each of those without
+      moving the keeper; this is the door to it. It opens the team screen with
+      the live squads on it, and it is not a cell because it does not cycle a
+      value — it goes somewhere.
+    -->
+    <button class="teams" id="teams" type="button">
+      <svg class="ic ic16" aria-hidden="true"><use href="#i-shirt"/></svg>
+      <span class="teams-word dsp">Teams</span>
+    </button>
   </div>
 
   <!--
