@@ -55,7 +55,14 @@ touched.
 ## State
 
 **Done.** v14. The engine passes 129 assertions. Service worker cache
-`rota-v17`.
+`rota-v18`.
+
+**The countdown holds too.** The pitch is drawn and on the screen, which is
+when somebody says a name is wrong. Hold stops the twenty seconds where they
+are, the same bar opens, and every edit is the same engine call at elapsed
+zero — so the draw survives. Play picks the count up. `isHeld()` reads
+`countdownPausedAt` when there is no game yet, and `liveSetup()` is the one
+place that knows whether an edit lands on `state.game` or `pendingSetup`.
 
 **The teams are editable held.** A `Teams` row under the three cells opens the
 team screen on the live setup: a typed name is `engine.addLateArrival` and

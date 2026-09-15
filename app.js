@@ -189,8 +189,28 @@ function rotaMs() {
   return Math.max(0, elapsedMs() - (state.game.rotaShift || 0));
 }
 
+/*
+ * Held is one state with two homes. A game is held when `pausedAt` is set on
+ * it; a countdown is held when `countdownPausedAt` is. Everything that reads
+ * held — the block, the bar, the team screen — asks this and never which.
+ */
 function isHeld() {
-  return Boolean(state.game && state.game.pausedAt);
+  if (state.game) return Boolean(state.game.pausedAt);
+  return Boolean(state.countdownPausedAt);
+}
+
+/*
+ * The setup every edit reads and writes. A running game keeps it on
+ * `state.game`; a countdown keeps it in `pendingSetup`, drawn but not yet
+ * kicked off, and an edit there is the same engine call at elapsed zero.
+ */
+function liveSetup() {
+  return state.game ? state.game.setup : state.pendingSetup;
+}
+
+function setLiveSetup(next) {
+  if (state.game) state.game.setup = next;
+  else state.pendingSetup = next;
 }
 
 /* a deterministic draw, so a screenshot of the game screen is the same twice */
@@ -289,6 +309,10 @@ const state = {
   armedFor: null,
   beatLeft: 0,
   countdownAt: 0,
+  /* the countdown is held: the moment it stopped, or 0 */
+  countdownPausedAt: 0,
+  /* the screen the team screen was opened from, 'game' or 'countdown' */
+  editFrom: null,
   countdownLeft: 0,
   countText: '',
   watchText: '',
@@ -835,7 +859,7 @@ function safe(text) {
 
 /* the team screen is open on a held game, editing the live setup */
 function editing() {
-  return state.screen === 'edit' && Boolean(state.game);
+  return state.screen === 'edit' && Boolean(liveSetup());
 }
 
 /*
@@ -844,7 +868,7 @@ function editing() {
  * order the engine keeps it — which is the only honest order there is.
  */
 function roster(teamIndex) {
-  if (editing()) return state.game.setup.teams[teamIndex].players || [];
+  if (editing()) return liveSetup().teams[teamIndex].players || [];
   return draft.players[teamIndex];
 }
 
@@ -904,7 +928,7 @@ function renderSetup() {
   /* mid-game the bar only leaves, and the interval is the frozen one */
   el.kick.disabled = !editing() && !ready();
   el.kickNote.textContent = `${COPY.rotateEvery} ${editing()
-    ? mmss(engine.computeIntervalMs(state.game.setup))
+    ? mmss(engine.computeIntervalMs(liveSetup()))
     : intervalText()}`;
   fitNames();
 }
@@ -927,8 +951,8 @@ function renderSetup() {
  * held, with the edit already in the stored game.
  */
 function applyEdit(next) {
-  if (!editing() || next === state.game.setup) return;
-  state.game.setup = next;
+  if (!editing() || next === liveSetup()) return;
+  setLiveSetup(next);
   state.shownChange = null;
   saveGame();
   renderSetup();
@@ -954,6 +978,8 @@ function forgetName(teamIndex, name) {
 function openEdit() {
   if (!isHeld()) return;
   closeSheet();
+  /* the screen it came from is the one it goes back to */
+  state.editFrom = state.screen;
   state.screen = 'edit';
   el.game.hidden = true;
   el.setup.hidden = false;
@@ -964,11 +990,14 @@ function openEdit() {
 function closeEdit() {
   if (!editing()) return;
   closeSheet();
-  state.screen = 'game';
+  state.screen = state.editFrom === 'countdown' && !state.game ? 'countdown' : 'game';
   el.setup.classList.remove('editing');
   showGame();
   applyHeld();
   renderHeld();
+  /* a game repaints itself on the next tick. A countdown has no tick that
+     paints, so the drawn pitch is put back by hand, with the edit in it. */
+  if (state.screen === 'countdown') paint(engine.rotation(state.pendingSetup, 0), state.pendingSetup, true);
   tick();
 }
 
@@ -993,7 +1022,7 @@ function commitField(teamIndex) {
     const name = String(input.value).trim().replace(/\s+/g, ' ').slice(0, NAME_MAX);
     const taken = roster(teamIndex).some((p) => p.name.toLowerCase() === name.toLowerCase());
     if (name && !taken) {
-      applyEdit(engine.addLateArrival(state.game.setup, teamIndex, name, rotaMs()));
+      applyEdit(engine.addLateArrival(liveSetup(), teamIndex, name, rotaMs()));
       rememberName(teamIndex, name);
     }
     input.value = '';
@@ -1046,7 +1075,7 @@ document.addEventListener('click', (event) => {
          unless it was the keeper who left */
       const player = roster(t)[Number(drop.dataset.drop)];
       if (!player) return;
-      applyEdit(engine.removePlayer(state.game.setup, t, player.id, rotaMs()));
+      applyEdit(engine.removePlayer(liveSetup(), t, player.id, rotaMs()));
       forgetName(t, player.name);
       return;
     }
@@ -1232,7 +1261,7 @@ function openLiveSheet(teamIndex, index) {
   if (!id) return;
   const live = () => roster(teamIndex).find((p) => p.id === id) || {};
   const set = (fixed, late) => {
-    let next = state.game.setup;
+    let next = liveSetup();
     const at = rotaMs();
     if (late !== undefined) next = engine.setLate(next, teamIndex, id, late, at);
     if (fixed !== undefined) next = engine.setFixedGoalie(next, teamIndex, id, fixed, at);
@@ -1725,6 +1754,8 @@ function beginKickOff() {
 }
 
 function runCountdown() {
+  /* held: nothing counts and nothing beeps */
+  if (state.countdownPausedAt) return;
   const gone = Date.now() - state.countdownAt;
   const left = KICKOFF_S - Math.floor(gone / 1000);
   if (left <= 0) {
@@ -1740,6 +1771,7 @@ function runCountdown() {
 function finishKickOff() {
   const setup = state.pendingSetup;
   state.pendingSetup = null;
+  state.countdownPausedAt = 0;
   state.game = {
     kickoff: nowMs() - (debug ? debug.offsetMs : 0),
     setup,
@@ -1826,8 +1858,8 @@ function applyHeld() {
 }
 
 function renderHeld() {
-  if (!state.game) return;
-  const setup = state.game.setup;
+  const setup = liveSetup();
+  if (!setup) return;
   el.gvalues.aside.textContent = String(engine.gameTypeOf(setup));
   el.gvalues.time.textContent = timeWords(engine.gameMinutesOf(setup));
   el.gvalues.rotations.textContent = String(engine.rotationsOf(setup));
@@ -1836,6 +1868,27 @@ function renderHeld() {
 
 el.hold.addEventListener('click', (event) => {
   event.stopPropagation();
+  /*
+   * A COUNTDOWN CAN BE HELD TOO
+   *
+   * The pitch is drawn and on the screen, and that is exactly when somebody
+   * says a name is wrong. Held, the twenty seconds stop where they are and the
+   * same bar opens: the settings and the teams, working on the drawn setup at
+   * elapsed zero, so the draw survives the edit. Play picks the count up where
+   * it stopped.
+   */
+  if (state.screen === 'countdown' && state.pendingSetup) {
+    if (state.countdownPausedAt) {
+      state.countdownAt += Date.now() - state.countdownPausedAt;
+      state.countdownPausedAt = 0;
+      setLabel(COPY.kickOffIn);
+    } else {
+      state.countdownPausedAt = Date.now();
+      setLabel(COPY.paused);
+    }
+    applyHeld();
+    return;
+  }
   if (state.screen !== 'game' || !state.game) return;
   if (isHeld()) {
     state.game.pausedMs = (state.game.pausedMs || 0) + (nowMs() - state.game.pausedAt);
@@ -1869,9 +1922,9 @@ el.hold.addEventListener('click', (event) => {
  */
 el.heldBar.addEventListener('click', (event) => {
   const cell = event.target.closest('[data-gcell]');
-  if (!cell || !isHeld() || !state.game) return;
+  if (!cell || !isHeld() || !liveSetup()) return;
   const slot = cell.dataset.gcell;
-  const setup = state.game.setup;
+  const setup = liveSetup();
   const now = {
     aside: engine.gameTypeOf(setup),
     time: engine.gameMinutesOf(setup),
@@ -1885,11 +1938,13 @@ el.heldBar.addEventListener('click', (event) => {
   const served = was > 0 ? (before % was) / was : 0;
   const want = (Math.floor(before / is) + served) * is;
 
-  state.game.rotaShift = (state.game.rotaShift || 0) + (before - want);
-  state.game.setup = next;
+  /* before kick-off nothing has been served, so the two clocks stay together */
+  if (state.game) state.game.rotaShift = (state.game.rotaShift || 0) + (before - want);
+  setLiveSetup(next);
   renderHeld();
   saveGame();
-  tick();
+  if (state.game) tick();
+  else paint(engine.rotation(next, 0), next, true);
 });
 
 /* =========================================================== going home */
@@ -1915,8 +1970,10 @@ el.end.addEventListener('click', (event) => {
 function abortKickOff() {
   if (state.screen !== 'countdown') return;
   state.pendingSetup = null;
+  state.countdownPausedAt = 0;
   state.countText = '';
   el.game.classList.remove('first');
+  applyHeld();
   stopLoop();
   showSetup();
 }

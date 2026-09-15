@@ -731,9 +731,6 @@ input:focus { outline: none; }
 #game.held-on .when-running { display: none; }
 #game.held-on .when-held { display: block; }
 
-/* nothing to pause before the game starts */
-#game.first #hold { display: none; }
-
 /*
  * The three cells, between the block and the names. They only exist while the
  * clock is stopped, so the two role blocks give up the height for as long as
