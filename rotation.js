@@ -23,6 +23,11 @@
  *     fixedGoalie   this player is in goal all game and never sits.
  *     late          this player sorts to the end of the ring.
  *
+ * One choice bends the draw without being a flag: a name picked to start in
+ * goal (`startsInGoal` into `createSetup`, `startKeeperId` on the team) trades
+ * seats with the drawn keeper at kick-off. Mid-game `setKeeper()` makes the
+ * same trade with whoever is in goal now.
+ *
  * THE INTERVAL IS DERIVED FROM ROTATIONS. THERE IS NO OVERRIDE
  *
  * Nobody can work out an interval that shares the game out evenly. That is
@@ -356,6 +361,13 @@ function ringOrder(players) {
     .map((entry) => entry.player);
 }
 
+/** Two players trade places in a ring, in place. */
+function swapSeats(ring, a, b) {
+  const held = ring[a];
+  ring[a] = ring[b];
+  ring[b] = held;
+}
+
 /** Fisher-Yates, on a copy, off an injected random. */
 function shuffle(list, random) {
   const out = list.slice();
@@ -517,15 +529,20 @@ export function createSetup(input = {}) {
           id: `t${teamIndex}p${i}`,
           name: entry.name,
           fixedGoalie: entry.fixedGoalie === true,
-          late: entry.late === true
+          late: entry.late === true,
+          startsInGoal: entry.startsInGoal === true
         }))
     );
 
-    return {
+    /* the first name asked to start in goal wins, and a fixed goalie beats it */
+    const starter = fixedGoalieIndexOf(players) < 0 ? players.find((p) => p.startsInGoal) : null;
+    const out = {
       name: String(team.name ?? DEFAULT_TEAM_NAMES[teamIndex] ?? `Team ${teamIndex + 1}`),
-      players,
+      players: players.map(({ startsInGoal, ...player }) => player),
       anchor: null
     };
+    if (starter) out.startKeeperId = starter.id;
+    return out;
   });
 
   const setup = { gameType, gameMinutes, rotations, teams };
@@ -651,19 +668,26 @@ export function kickOff(setup, random = Math.random) {
   const g = gameTypeOf(setup);
   const teams = ((setup && setup.teams) ?? []).map((team) => {
     if (team.anchor) return team;
-    const players = oneFixedGoalie((team.players ?? []).map(copyPlayer));
+    /* the choice is spent here: after kick-off it is just who is in goal */
+    const { startKeeperId, ...base } = team;
+    const players = oneFixedGoalie((base.players ?? []).map(copyPlayer));
     const n = players.length;
-    if (n === 0) return { ...team, players, anchor: null };
+    if (n === 0) return { ...base, players, anchor: null };
 
     const ring = ringOrder(shuffle(players, random));
     const fixedIndex = fixedGoalieIndexOf(ring);
     if (fixedIndex >= 0) {
-      return { ...team, players: ring, anchor: startAnchorFor(n, g, fixedIndex) };
+      return { ...base, players: ring, anchor: startAnchorFor(n, g, fixedIndex) };
     }
 
     const legal = legalStartsFor(n, g);
     const roll = clamp(num(random(), 0), 0, 0.999999);
-    return { ...team, players: ring, anchor: startAnchor(legal[Math.floor(roll * legal.length)] ?? 0, n, g) };
+    const keeperIndex = legal[Math.floor(roll * legal.length)] ?? 0;
+    /* a name picked to start in goal swaps seats with the drawn keeper, so the
+       rest of the draw stands and the two hard rules hold from change 0 */
+    const chosen = ring.findIndex((player) => player.id === startKeeperId);
+    if (chosen >= 0) swapSeats(ring, keeperIndex, chosen);
+    return { ...base, players: ring, anchor: startAnchor(keeperIndex, n, g) };
   });
   return { ...setup, teams, intervalMs: computeIntervalMs(setup) };
 }
@@ -1122,4 +1146,51 @@ export function setFixedGoalie(setup, teamIndex, playerId, fixed, elapsedMs) {
   const benchStart = benchStartId === null ? keeperIndex : ring.findIndex((player) => player.id === benchStartId);
   const offset = mod((benchStart < 0 ? keeperIndex : benchStart) - keeperIndex, ring.length);
   return reAnchor(setup, teamIndex, team, ring, keeperIndex, changeIndex, offset);
+}
+
+/**
+ * Put one player in goal from this change. Returns a new setup.
+ *
+ * They trade seats in the ring with whoever is in goal now. Nobody else moves,
+ * the anchor is untouched, so the gap between the two pointers is the same and
+ * the two hard rules hold. The keeper they replace takes their seat — on the
+ * pitch or on the bench, wherever they were — and with it their later turn in
+ * goal, so nobody gains or loses a shift.
+ *
+ * Before kick-off there is no keeper yet, so the choice is written down as
+ * `startKeeperId` and `kickOff()` makes the same swap with the drawn keeper.
+ *
+ * A team with a fixed goalie gives the flag up first: the fixed goalie stays
+ * in for this change as an ordinary keeper, then the swap is made. A no-op
+ * call returns the setup it was given, untouched.
+ */
+export function setKeeper(setup, teamIndex, playerId, elapsedMs) {
+  const team = ((setup && setup.teams) ?? [])[teamIndex];
+  if (!team) return setup;
+
+  const players = (team.players ?? []).map(copyPlayer);
+  const at = players.findIndex((player) => player.id === playerId);
+  if (at < 0) return setup;
+
+  if (!team.anchor) {
+    if (team.startKeeperId === playerId && fixedGoalieIndexOf(players) < 0) return setup;
+    const cleared = players.map((player) => ({ ...player, fixedGoalie: false }));
+    return replaceTeam(setup, teamIndex, { ...team, players: cleared, startKeeperId: playerId });
+  }
+
+  const g = gameTypeOf(setup);
+  const changeIndex = changeIndexAt(setup, elapsedMs);
+  const now = slotsAt(team, changeIndex, g);
+
+  if (now.fixedIndex >= 0) {
+    if (now.fixedIndex === at) return setup;
+    const loose = setFixedGoalie(setup, teamIndex, now.order[now.fixedIndex].id, false, elapsedMs);
+    return setKeeper(loose, teamIndex, playerId, elapsedMs);
+  }
+
+  if (now.keeperIndex === at) return setup;
+  swapSeats(players, now.keeperIndex, at);
+  /* whoever is in goal is here, so they are not late any more */
+  players[now.keeperIndex] = { ...players[now.keeperIndex], late: false };
+  return replaceTeam(setup, teamIndex, { ...team, players });
 }

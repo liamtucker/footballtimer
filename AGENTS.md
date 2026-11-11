@@ -44,7 +44,9 @@ touched.
   The design is portrait. Landscape is not drawn and is not supported.
 - **Who starts is drawn.** The first keeper and the first bench are drawn at
   kick-off and written into the setup. Entry order decides nothing, so there is
-  no divider, no drag and no tap that sets a keeper.
+  no divider and no drag. One override, which Liam asked for on 2026-11-11: the
+  `Starts in goal` switch on a name. The named player swaps seats with the
+  drawn keeper, so the rest of the draw stands (`engine.setKeeper`).
 - **Squad memory.** The last squad is kept and prefilled at setup. A setup
   convenience only. It never touches the rotation. Nothing on the screen
   sweeps it away — a name leaves the list one row at a time.
@@ -54,8 +56,17 @@ touched.
 
 ## State
 
-**Done.** v14. The engine passes 129 assertions. Service worker cache
-`rota-v18`.
+**Done.** v15. The engine passes 135 assertions. Service worker cache
+`rota-v19`.
+
+**A keeper can be picked.** A third switch on a name: `Starts in goal` before
+kick-off, and `In goal now` on the held team screen. Both are
+`engine.setKeeper`, which trades seats in the ring with the keeper now. Nobody
+else moves and the anchor is untouched, so both hard rules hold. The old keeper
+takes the picked player's seat and their later turn. On a fixed-goalie team it
+clears the flag first. The switch is on while that name is in goal and has
+nothing to turn off. Picking a keeper is per game: kick-off clears it from the
+draft.
 
 **The countdown holds too.** The pitch is drawn and on the screen, which is
 when somebody says a name is wrong. Hold stops the twenty seconds where they
@@ -182,8 +193,7 @@ nothing is written to `localStorage`.
 - `&g=7` — game type. `&game=120` — the game time
 - `&rot=2` — rotations each
 - `&seed=3` — a deterministic draw, so the same URL gives the same pitch twice.
-  There is no way to force a starting keeper any more; the draw is the only way
-  in and a seed is the only way to repeat it.
+  `Starts in goal` forces a starting keeper; a seed repeats the rest of the draw.
 - `&count=0` — skip the kick-off countdown. `&auto=1` — kick off on load
 - `window.rota.setElapsed(ms)`, `.rate(n)`, `.view()`, `.sheet(team, index)`,
   `.heard`, `.engine`, `.rotation`, `.state`, `.draft`, `.tick`. `.sheet` is

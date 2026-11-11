@@ -23,7 +23,11 @@
  *
  * WHAT A NAME CARRIES
  *
- * Two flags, both toggles, both set from the modal:
+ * Two flags, both toggles, both set from the modal, and a third switch that
+ * is a choice rather than a flag — `Starts in goal` before a game, `In goal
+ * now` during one. Either way the engine swaps that name with the keeper.
+ *
+ * The two flags:
  *
  *   fixedGoalie   in goal all game, never on the bench. Everyone else still
  *                 rotates through the bench around them.
@@ -73,6 +77,8 @@ const COPY = {
   rotateEvery: 'Rotate every',
   dash: '\u2014',
   fixedGoalie: 'Fixed goalie',
+  startsInGoal: 'Starts in goal',
+  inGoalNow: 'In goal now',
   late: 'Late',
   endTitle: 'End the game?',
   endYes: 'End',
@@ -820,7 +826,8 @@ function draftSetup() {
       players: draft.players[t].map((p) => ({
         name: p.name,
         fixedGoalie: Boolean(p.fixedGoalie),
-        late: Boolean(p.late)
+        late: Boolean(p.late),
+        startsInGoal: Boolean(p.startsInGoal)
       }))
     }))
   });
@@ -892,6 +899,7 @@ function renderNames(teamIndex) {
        * the next keeper with. The name itself is never dimmed.
        */
       const flag = player.fixedGoalie ? ['i-glove', COPY.fixedGoalie]
+        : player.startsInGoal ? ['i-glove', COPY.startsInGoal]
         : player.late ? ['i-watch', COPY.late]
         : null;
       const mark = flag
@@ -1229,7 +1237,7 @@ function openPlayerSheet(teamIndex, index) {
       act() {
         const turningOn = !player.fixedGoalie;
         /* one pair of gloves a team. Turning one on takes the other off. */
-        if (turningOn) draft.players[teamIndex].forEach((p) => { p.fixedGoalie = false; });
+        if (turningOn) draft.players[teamIndex].forEach((p) => { p.fixedGoalie = false; p.startsInGoal = false; });
         player.fixedGoalie = turningOn;
         /* a fixed goalie is never on the bench, so being late means nothing */
         if (turningOn) player.late = false;
@@ -1242,7 +1250,20 @@ function openPlayerSheet(teamIndex, index) {
       toggle: true,
       act() {
         player.late = !player.late;
-        if (player.late) player.fixedGoalie = false;
+        if (player.late) { player.fixedGoalie = false; player.startsInGoal = false; }
+        refresh();
+      }
+    },
+    {
+      label: COPY.startsInGoal,
+      on: () => Boolean(player.startsInGoal),
+      toggle: true,
+      act() {
+        const turningOn = !player.startsInGoal;
+        /* one starting keeper a team, and it means nothing beside a fixed goalie */
+        if (turningOn) draft.players[teamIndex].forEach((p) => { p.startsInGoal = false; p.fixedGoalie = false; });
+        player.startsInGoal = turningOn;
+        if (turningOn) player.late = false;
         refresh();
       }
     }
@@ -1260,6 +1281,10 @@ function openLiveSheet(teamIndex, index) {
   const id = (roster(teamIndex)[index] || {}).id;
   if (!id) return;
   const live = () => roster(teamIndex).find((p) => p.id === id) || {};
+  const inGoal = () => {
+    const keeper = engine.rotation(liveSetup(), rotaMs()).teams[teamIndex].keeper;
+    return Boolean(keeper) && keeper.id === id;
+  };
   const set = (fixed, late) => {
     let next = liveSetup();
     const at = rotaMs();
@@ -1285,6 +1310,18 @@ function openLiveSheet(teamIndex, index) {
       act() {
         const turningOn = !live().late;
         set(turningOn && live().fixedGoalie ? false : undefined, turningOn);
+      }
+    },
+    {
+      /* a swap with whoever is in goal now, not a flag: it is on while they
+         are the keeper, and there is nothing to turn off */
+      label: state.game ? COPY.inGoalNow : COPY.startsInGoal,
+      on: () => inGoal(),
+      toggle: true,
+      act() {
+        if (inGoal()) return;
+        applyEdit(engine.setKeeper(liveSetup(), teamIndex, id, rotaMs()));
+        syncSheet();
       }
     }
   ]);
@@ -1729,6 +1766,8 @@ el.kick.addEventListener('click', () => {
 function beginKickOff() {
   const setup = engine.kickOff(draftSetup(), randomFor());
   state.pendingSetup = setup;
+  /* a starting keeper is about this game, so the next one draws again */
+  draft.players.forEach((list) => list.forEach((p) => { p.startsInGoal = false; }));
 
   const r = engine.rotation(setup, 0);
   showGame();

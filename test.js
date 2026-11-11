@@ -16,6 +16,7 @@ import {
   setLate,
   setFixedGoalie,
   retime,
+  setKeeper,
   snapRotations,
   fixedGoalieOf,
   cycle,
@@ -1787,6 +1788,68 @@ test('a retime with nothing asked for changes nothing anybody can see', () => {
     const b = rotation(next, at + k * computeIntervalMs(next));
     eq(b.teams[0].keeper.id, a.teams[0].keeper.id, `change ${k}`);
   }
+});
+
+
+/* ------------------------------------------------------- picking a keeper */
+
+console.log('\npicking a keeper');
+
+test('a name picked before kick-off starts in goal, on every draw', () => {
+  for (let seed = 0; seed < 40; seed += 1) {
+    const players = squad(8).map((name, i) => ({ name, startsInGoal: i === 5 }));
+    const setup = kickOff(setupOf(8, 7, { playersA: players }), dice(seed));
+    eq(stateAt(setup, 0, 0).keeper.name, 'Dan', `seed ${seed}`);
+    eq(setup.teams[0].startKeeperId, undefined, `seed ${seed}: the choice is spent`);
+    checkRules(setup, 0, 20, `picked start, seed ${seed}`);
+  }
+});
+
+test('setKeeper before kick-off writes the choice and kick-off honours it', () => {
+  const fresh = setupOf(7, 7);
+  const picked = setKeeper(fresh, 1, fresh.teams[1].players[6].id, 0);
+  const setup = kickOff(picked, dice(9));
+  eq(stateAt(setup, 1, 0).keeper.name, NAMES[6]);
+  checkRules(setup, 1, 20, 'picked by setKeeper');
+});
+
+test('a fixed goalie beats a name picked to start', () => {
+  const players = squad(7).map((name, i) => ({ name, fixedGoalie: i === 2, startsInGoal: i === 4 }));
+  const setup = kickOff(setupOf(7, 7, { playersA: players }), dice(1));
+  eq(stateAt(setup, 0, 0).keeper.name, 'Sam');
+});
+
+test('mid-game setKeeper puts them in goal now and moves nobody else', () => {
+  const setup = kickOff(setupOf(9, 8), dice(4));
+  const at = 37 * MS_PER_MINUTE;
+  const before = rotation(setup, at).teams[0];
+  const target = before.subs[0];
+  const next = setKeeper(setup, 0, target.id, at);
+  const after = rotation(next, at).teams[0];
+  eq(after.keeper.id, target.id);
+  ok(ids(after.subs).includes(before.keeper.id), 'the old keeper takes their seat on the bench');
+  const others = (team) => ids(team.onPitch).sort().join();
+  eq(others(after), others(before), 'the pitch is unchanged');
+  eq(computeIntervalMs(next), computeIntervalMs(setup), 'the clock does not move');
+  checkRules(next, 0, 40, 'after setKeeper');
+});
+
+test('mid-game setKeeper on a fixed goalie team gives the flag up', () => {
+  const players = squad(8).map((name, i) => ({ name, fixedGoalie: i === 0 }));
+  const setup = kickOff(setupOf(8, 8, { playersA: players }), dice(2));
+  const at = 20 * MS_PER_MINUTE;
+  const target = rotation(setup, at).teams[0].onPitch[0];
+  const next = setKeeper(setup, 0, target.id, at);
+  const after = rotation(next, at).teams[0];
+  eq(after.keeper.id, target.id);
+  eq(after.hasFixedGoalie, false);
+  checkRules(next, 0, 40, 'after setKeeper on a fixed team');
+});
+
+test('setKeeper on the keeper already in goal is a no-op', () => {
+  const setup = kickOff(setupOf(8, 8), dice(6));
+  const keeper = rotation(setup, 0).teams[0].keeper;
+  ok(setKeeper(setup, 0, keeper.id, 0) === setup, 'returns the same setup');
 });
 
 /* ------------------------------------------------------------------ report */
